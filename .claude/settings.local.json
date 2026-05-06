@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(docker compose *)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(npx jest *)"
+    ]
+  }
+}
