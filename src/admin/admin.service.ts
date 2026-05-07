@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -8,16 +9,19 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { TotpService } from './auth/totp.service';
+import { AdminRecoveryCode } from './entities/admin-recovery-code.entity';
 import { Admin } from './entities/admin.entity';
 
 export interface AdminAccessPayload {
   sub: string;
   username: string;
   email: string;
+  totp_pending: boolean;
 }
 
 interface AdminRefreshPayload {
@@ -30,22 +34,31 @@ export interface AdminAuthTokens {
   refreshToken: string;
 }
 
+export type LoginResult =
+  | (AdminAuthTokens & { twoFactorRequired?: false; requiresTotpSetup: boolean })
+  | { twoFactorRequired: true; challengeToken: string };
+
 const BCRYPT_ROUNDS = 12;
+const TOTP_ISSUER = 'Nucleus Admin';
+const CHALLENGE_TTL_SECONDS = 5 * 60;
 
 @Injectable()
 export class AdminService {
   constructor(
     @InjectRepository(Admin) private readonly admins: Repository<Admin>,
+    @InjectRepository(AdminRecoveryCode)
+    private readonly recoveryCodes: Repository<AdminRecoveryCode>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly totp: TotpService,
   ) {}
 
   static hashPassword(plain: string): Promise<string> {
     return bcrypt.hash(plain, BCRYPT_ROUNDS);
   }
 
-  async login(identifier: string, password: string): Promise<AdminAuthTokens> {
+  async login(identifier: string, password: string): Promise<LoginResult> {
     const admin = await this.admins
       .createQueryBuilder('a')
       .where('a.email = :id OR a.username = :id', { id: identifier })
@@ -56,7 +69,31 @@ export class AdminService {
     const ok = await bcrypt.compare(password, admin.password_hash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
-    return this.issueTokens(admin);
+    if (admin.totp_enabled_at) {
+      const challengeToken = await this.issueLoginChallenge(admin.id);
+      return { twoFactorRequired: true, challengeToken };
+    }
+
+    // 2FA is required for all admins, but the user hasn't enrolled yet.
+    // Issue tokens scoped with totp_pending so the UI can force enrolment and
+    // the server can reject sensitive routes via RequireTotpEnrolledGuard.
+    const tokens = await this.issueTokens(admin, { totpPending: true });
+    return { ...tokens, requiresTotpSetup: true };
+  }
+
+  async verifyTwoFactor(challengeToken: string, code: string): Promise<AdminAuthTokens> {
+    const adminId = await this.consumeLoginChallenge(challengeToken);
+    if (!adminId) throw new UnauthorizedException('Challenge expired or invalid');
+
+    const admin = await this.admins.findOne({ where: { id: adminId } });
+    if (!admin || !admin.totp_enabled_at || !admin.totp_secret) {
+      throw new UnauthorizedException('Two-factor authentication is not configured');
+    }
+
+    const accepted = await this.consumeTwoFactorCode(admin, code);
+    if (!accepted) throw new UnauthorizedException('Invalid verification code');
+
+    return this.issueTokens(admin, { totpPending: false });
   }
 
   async refresh(refreshToken: string): Promise<AdminAuthTokens> {
@@ -76,7 +113,7 @@ export class AdminService {
     const admin = await this.admins.findOne({ where: { id: payload.sub } });
     if (!admin) throw new UnauthorizedException('Admin no longer exists');
 
-    return this.issueTokens(admin);
+    return this.issueTokens(admin, { totpPending: !admin.totp_enabled_at });
   }
 
   async logout(adminId: string, jti?: string): Promise<void> {
@@ -114,18 +151,196 @@ export class AdminService {
     await this.logout(adminId);
   }
 
-  async getProfile(adminId: string): Promise<Omit<Admin, 'password_hash'>> {
+  async getProfile(adminId: string): Promise<Omit<Admin, 'password_hash' | 'totp_secret' | 'syncDisplayName'>> {
     const admin = await this.admins.findOne({ where: { id: adminId } });
     if (!admin) throw new UnauthorizedException();
-    const { password_hash: _ph, ...rest } = admin;
-    return rest;
+    return this.toPublicProfile(admin);
   }
 
-  private async issueTokens(admin: Admin): Promise<AdminAuthTokens> {
+  async updateProfile(
+    adminId: string,
+    patch: {
+      email?: string;
+      first_name?: string | null;
+      last_name?: string | null;
+      country_code?: string | null;
+      mobile_number?: string | null;
+    },
+  ): Promise<Omit<Admin, 'password_hash' | 'totp_secret' | 'syncDisplayName'>> {
+    const admin = await this.admins.findOne({ where: { id: adminId } });
+    if (!admin) throw new UnauthorizedException();
+
+    if (patch.email !== undefined && patch.email !== admin.email) {
+      const existing = await this.admins
+        .createQueryBuilder('a')
+        .where('LOWER(a.email) = LOWER(:email) AND a.id != :id', {
+          email: patch.email,
+          id: adminId,
+        })
+        .getOne();
+      if (existing) throw new ConflictException('Email is already in use');
+      admin.email = patch.email;
+    }
+
+    if (patch.first_name !== undefined) admin.first_name = patch.first_name;
+    if (patch.last_name !== undefined) admin.last_name = patch.last_name;
+    if (patch.country_code !== undefined) admin.country_code = patch.country_code;
+    if (patch.mobile_number !== undefined) admin.mobile_number = patch.mobile_number;
+
+    // Keep country_code consistent with mobile_number: clear when local is cleared,
+    // and default to India ('91') when a number is set without an explicit code.
+    if (admin.mobile_number === null) {
+      admin.country_code = null;
+    } else if (!admin.country_code) {
+      admin.country_code = '91';
+    }
+
+    // syncDisplayName() runs via @BeforeUpdate on save
+    const saved = await this.admins.save(admin);
+    return this.toPublicProfile(saved);
+  }
+
+  async setupTotp(
+    adminId: string,
+  ): Promise<{ secret: string; otpauthUrl: string; qrDataUrl: string }> {
+    const admin = await this.admins.findOne({ where: { id: adminId } });
+    if (!admin) throw new UnauthorizedException();
+    if (admin.totp_enabled_at) {
+      throw new ConflictException(
+        'Two-factor authentication is already enabled. Disable it first to re-enrol.',
+      );
+    }
+
+    const secret = this.totp.generateSecret();
+    admin.totp_secret = secret;
+    await this.admins.save(admin);
+
+    const otpauthUrl = this.totp.buildOtpauthUrl(secret, admin.email, TOTP_ISSUER);
+    const qrDataUrl = await this.totp.generateQrDataUrl(otpauthUrl);
+    return { secret, otpauthUrl, qrDataUrl };
+  }
+
+  async enableTotp(
+    adminId: string,
+    code: string,
+  ): Promise<{ recoveryCodes: string[]; tokens: AdminAuthTokens }> {
+    const admin = await this.admins.findOne({ where: { id: adminId } });
+    if (!admin) throw new UnauthorizedException();
+    if (admin.totp_enabled_at) {
+      throw new ConflictException('Two-factor authentication is already enabled.');
+    }
+    if (!admin.totp_secret) {
+      throw new BadRequestException(
+        'No pending TOTP secret. Call /admin/totp/setup first.',
+      );
+    }
+
+    const codeOk = await this.totp.verifyToken(admin.totp_secret, code);
+    if (!codeOk) {
+      throw new UnauthorizedException('Invalid verification code');
+    }
+
+    admin.totp_enabled_at = new Date();
+    await this.admins.save(admin);
+
+    // Replace any leftover codes from a previous enrolment, then issue fresh ones.
+    await this.recoveryCodes.delete({ admin_id: admin.id as unknown as number });
+    const plaintextCodes = this.totp.generateRecoveryCodes();
+    const rows = await Promise.all(
+      plaintextCodes.map(async (plain) => {
+        const code_hash = await bcrypt.hash(this.totp.normalizeRecoveryCode(plain), BCRYPT_ROUNDS);
+        return this.recoveryCodes.create({
+          admin_id: admin.id as unknown as number,
+          code_hash,
+        });
+      }),
+    );
+    await this.recoveryCodes.save(rows);
+
+    // Existing refresh tokens were issued with totp_pending=true. Rotate so the
+    // admin gets full-access tokens and any other sessions are revoked.
+    await this.logout(admin.id);
+    const tokens = await this.issueTokens(admin, { totpPending: false });
+
+    return { recoveryCodes: plaintextCodes, tokens };
+  }
+
+  async disableTotp(adminId: string, password: string, code: string): Promise<void> {
+    const admin = await this.admins.findOne({ where: { id: adminId } });
+    if (!admin) throw new UnauthorizedException();
+    if (!admin.totp_enabled_at || !admin.totp_secret) {
+      throw new ConflictException('Two-factor authentication is not enabled.');
+    }
+
+    const passwordOk = await bcrypt.compare(password, admin.password_hash);
+    if (!passwordOk) throw new UnauthorizedException('Password is incorrect');
+
+    const codeOk = await this.consumeTwoFactorCode(admin, code);
+    if (!codeOk) throw new UnauthorizedException('Invalid verification code');
+
+    admin.totp_secret = null;
+    admin.totp_enabled_at = null;
+    await this.admins.save(admin);
+    await this.recoveryCodes.delete({ admin_id: admin.id as unknown as number });
+  }
+
+  private async issueLoginChallenge(adminId: string): Promise<string> {
+    const token = randomBytes(24).toString('base64url');
+    await this.redis.set(
+      this.challengeKey(token),
+      String(adminId),
+      'EX',
+      CHALLENGE_TTL_SECONDS,
+    );
+    return token;
+  }
+
+  private async consumeLoginChallenge(token: string): Promise<string | null> {
+    if (!token) return null;
+    const key = this.challengeKey(token);
+    const adminId = await this.redis.get(key);
+    if (!adminId) return null;
+    await this.redis.del(key);
+    return adminId;
+  }
+
+  // Accepts a 6-digit TOTP code or an 8-char recovery code (with optional dash).
+  // Recovery codes are single-use and marked used_at on success.
+  private async consumeTwoFactorCode(admin: Admin, code: string): Promise<boolean> {
+    if (!admin.totp_secret) return false;
+    const trimmed = code.trim();
+
+    if (/^\d{6}$/.test(trimmed)) {
+      return await this.totp.verifyToken(admin.totp_secret, trimmed);
+    }
+
+    const normalized = this.totp.normalizeRecoveryCode(trimmed);
+    if (!/^[A-Z0-9]{8}$/.test(normalized)) return false;
+
+    const candidates = await this.recoveryCodes.find({
+      where: { admin_id: admin.id as unknown as number },
+    });
+    for (const candidate of candidates) {
+      if (candidate.used_at) continue;
+      const matches = await bcrypt.compare(normalized, candidate.code_hash);
+      if (matches) {
+        candidate.used_at = new Date();
+        await this.recoveryCodes.save(candidate);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async issueTokens(
+    admin: Admin,
+    opts: { totpPending: boolean },
+  ): Promise<AdminAuthTokens> {
     const accessPayload: AdminAccessPayload = {
       sub: admin.id,
       username: admin.username,
       email: admin.email,
+      totp_pending: opts.totpPending,
     };
 
     const accessTtl = parseDurationToSeconds(
@@ -154,8 +369,19 @@ export class AdminService {
     return { accessToken, refreshToken };
   }
 
+  private toPublicProfile(
+    admin: Admin,
+  ): Omit<Admin, 'password_hash' | 'totp_secret' | 'syncDisplayName'> {
+    const { password_hash: _ph, totp_secret: _ts, ...rest } = admin;
+    return rest;
+  }
+
   private refreshKey(adminId: string, jti: string): string {
     return `admin:refresh:${adminId}:${jti}`;
+  }
+
+  private challengeKey(token: string): string {
+    return `admin:2fa-challenge:${token}`;
   }
 }
 

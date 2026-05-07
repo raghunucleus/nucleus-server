@@ -4,17 +4,27 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AdminAuthTokens, AdminService } from './admin.service';
+import {
+  AdminAuthTokens,
+  AdminService,
+  LoginResult,
+} from './admin.service';
+import { AllowTotpPending, RequireTotpEnrolledGuard } from './auth/require-totp-enrolled.guard';
 import { GetAdmin } from './auth/get-admin.decorator';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import type { AuthenticatedAdmin } from './auth/jwt.strategy';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DisableTotpDto } from './dto/disable-totp.dto';
+import { EnableTotpDto } from './dto/enable-totp.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { VerifyTwoFactorDto } from './dto/verify-two-factor.dto';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -23,9 +33,24 @@ export class AdminController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login with email or username + password' })
-  login(@Body() dto: LoginDto): Promise<AdminAuthTokens> {
+  @ApiOperation({
+    summary:
+      'Login with email or username + password. Returns tokens immediately, ' +
+      'a 2FA challenge if TOTP is already enabled, or tokens with ' +
+      'requiresTotpSetup=true if the admin has not yet enrolled.',
+  })
+  login(@Body() dto: LoginDto): Promise<LoginResult> {
     return this.adminService.login(dto.identifier, dto.password);
+  }
+
+  @Post('login/verify-2fa')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Exchange a 2FA challenge token + TOTP code (or recovery code) for access/refresh tokens.',
+  })
+  verifyTwoFactor(@Body() dto: VerifyTwoFactorDto): Promise<AdminAuthTokens> {
+    return this.adminService.verifyTwoFactor(dto.challengeToken, dto.code);
   }
 
   @Post('refresh')
@@ -37,7 +62,8 @@ export class AdminController {
     return this.adminService.refresh(dto.refreshToken);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
+  @AllowTotpPending()
   @ApiBearerAuth('admin-access-token')
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -46,7 +72,8 @@ export class AdminController {
     await this.adminService.logout(admin.id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
+  @AllowTotpPending()
   @ApiBearerAuth('admin-access-token')
   @Get('me')
   @ApiOperation({ summary: 'Get the current admin profile' })
@@ -54,7 +81,21 @@ export class AdminController {
     return this.adminService.getProfile(admin.id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
+  @ApiBearerAuth('admin-access-token')
+  @Patch('me')
+  @ApiOperation({
+    summary:
+      'Update the current admin profile (email, first/last name, mobile). display_name is derived server-side.',
+  })
+  updateMe(
+    @GetAdmin() admin: AuthenticatedAdmin,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.adminService.updateProfile(admin.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
   @ApiBearerAuth('admin-access-token')
   @Post('change-password')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -70,5 +111,49 @@ export class AdminController {
       dto.oldPassword,
       dto.newPassword,
     );
+  }
+
+  @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
+  @AllowTotpPending()
+  @ApiBearerAuth('admin-access-token')
+  @Post('totp/setup')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Generate (or rotate) a pending TOTP secret and return otpauth URL + QR data URL.',
+  })
+  setupTotp(@GetAdmin() admin: AuthenticatedAdmin) {
+    return this.adminService.setupTotp(admin.id);
+  }
+
+  @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
+  @AllowTotpPending()
+  @ApiBearerAuth('admin-access-token')
+  @Post('totp/enable')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Verify the first TOTP code, persist enrolment, return one-time recovery codes and fresh tokens.',
+  })
+  enableTotp(
+    @GetAdmin() admin: AuthenticatedAdmin,
+    @Body() dto: EnableTotpDto,
+  ) {
+    return this.adminService.enableTotp(admin.id, dto.code);
+  }
+
+  @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
+  @ApiBearerAuth('admin-access-token')
+  @Post('totp/disable')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary:
+      'Disable two-factor authentication. Requires the current password and a valid TOTP/recovery code.',
+  })
+  async disableTotp(
+    @GetAdmin() admin: AuthenticatedAdmin,
+    @Body() dto: DisableTotpDto,
+  ): Promise<void> {
+    await this.adminService.disableTotp(admin.id, dto.password, dto.code);
   }
 }

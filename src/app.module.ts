@@ -41,6 +41,8 @@ import { RedisModule } from './redis/redis.module';
                 'req.body.oldPassword',
                 'req.body.newPassword',
                 'req.body.refreshToken',
+                'req.body.challengeToken',
+                'req.body.code',
               ],
               censor: '***',
             },

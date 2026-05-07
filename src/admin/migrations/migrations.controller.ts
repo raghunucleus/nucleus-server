@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import {
   MigrationStatus,
   MigrationsService,
@@ -16,7 +17,7 @@ import {
 
 @ApiTags('admin-migrations')
 @ApiBearerAuth('admin-access-token')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
 @Controller('admin/migrations')
 export class MigrationsController {
   constructor(private readonly migrations: MigrationsService) {}
