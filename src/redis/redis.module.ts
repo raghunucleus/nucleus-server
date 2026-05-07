@@ -20,7 +20,7 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
           lazyConnect: false,
           maxRetriesPerRequest: 3,
         });
-        client.on('error', (err) => logger.error(err.message));
+        client.on('error', (err) => logger.error(err.message || 'Nothing to display'));
         client.on('connect', () => logger.log('connected'));
         client.on('reconnecting', () => logger.warn('reconnecting'));
         return client;
