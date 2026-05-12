@@ -13,6 +13,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { GoogleOidcService } from './auth/google-oidc.service';
 import { TotpService } from './auth/totp.service';
 import { AdminRecoveryCode } from './entities/admin-recovery-code.entity';
 import { Admin } from './entities/admin.entity';
@@ -41,6 +42,7 @@ export type LoginResult =
 const BCRYPT_ROUNDS = 12;
 const TOTP_ISSUER = 'Nucleus Admin';
 const CHALLENGE_TTL_SECONDS = 5 * 60;
+const CHALLENGE_MAX_ATTEMPTS = 5;
 
 @Injectable()
 export class AdminService {
@@ -52,6 +54,7 @@ export class AdminService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly totp: TotpService,
+    private readonly googleOidc: GoogleOidcService,
   ) {}
 
   static hashPassword(plain: string): Promise<string> {
@@ -81,18 +84,69 @@ export class AdminService {
     return { ...tokens, requiresTotpSetup: true };
   }
 
+  // Google OIDC login. Identity is established by verifying the Google ID
+  // token; the local admin record must already exist (matched by email). On
+  // first sign-in we link the Google "sub" to the admin row; thereafter we
+  // require the linked sub to match, so a future email reassignment on the
+  // Google side cannot impersonate an existing admin.
+  async loginWithGoogle(idToken: string): Promise<LoginResult> {
+    const identity = await this.googleOidc.verifyIdToken(idToken);
+
+    if (!identity.emailVerified) {
+      throw new UnauthorizedException(
+        'Google account email is not verified',
+      );
+    }
+
+    const admin = await this.admins
+      .createQueryBuilder('a')
+      .where('LOWER(a.email) = LOWER(:email)', { email: identity.email })
+      .getOne();
+
+    // Generic message — do not leak whether an email is registered.
+    if (!admin) throw new UnauthorizedException('Invalid Google credential');
+
+    if (admin.google_id && admin.google_id !== identity.sub) {
+      throw new UnauthorizedException('Invalid Google credential');
+    }
+
+    if (!admin.google_id) {
+      admin.google_id = identity.sub;
+      await this.admins.save(admin);
+    }
+
+    if (admin.totp_enabled_at) {
+      const challengeToken = await this.issueLoginChallenge(admin.id);
+      return { twoFactorRequired: true, challengeToken };
+    }
+
+    // 2FA still mandatory: issue tokens scoped with totp_pending so the UI
+    // forces enrolment, mirroring the password-login path.
+    const tokens = await this.issueTokens(admin, { totpPending: true });
+    return { ...tokens, requiresTotpSetup: true };
+  }
+
   async verifyTwoFactor(challengeToken: string, code: string): Promise<AdminAuthTokens> {
-    const adminId = await this.consumeLoginChallenge(challengeToken);
+    const adminId = await this.peekLoginChallenge(challengeToken);
     if (!adminId) throw new UnauthorizedException('Challenge expired or invalid');
 
     const admin = await this.admins.findOne({ where: { id: adminId } });
     if (!admin || !admin.totp_enabled_at || !admin.totp_secret) {
+      await this.clearLoginChallenge(challengeToken);
       throw new UnauthorizedException('Two-factor authentication is not configured');
     }
 
     const accepted = await this.consumeTwoFactorCode(admin, code);
-    if (!accepted) throw new UnauthorizedException('Invalid verification code');
+    if (!accepted) {
+      const attempts = await this.recordChallengeAttempt(challengeToken);
+      if (attempts >= CHALLENGE_MAX_ATTEMPTS) {
+        await this.clearLoginChallenge(challengeToken);
+        throw new UnauthorizedException('Too many invalid codes. Please sign in again.');
+      }
+      throw new UnauthorizedException('Invalid verification code');
+    }
 
+    await this.clearLoginChallenge(challengeToken);
     return this.issueTokens(admin, { totpPending: false });
   }
 
@@ -295,13 +349,24 @@ export class AdminService {
     return token;
   }
 
-  private async consumeLoginChallenge(token: string): Promise<string | null> {
+  private async peekLoginChallenge(token: string): Promise<string | null> {
     if (!token) return null;
-    const key = this.challengeKey(token);
-    const adminId = await this.redis.get(key);
-    if (!adminId) return null;
-    await this.redis.del(key);
-    return adminId;
+    const adminId = await this.redis.get(this.challengeKey(token));
+    return adminId ?? null;
+  }
+
+  private async clearLoginChallenge(token: string): Promise<void> {
+    if (!token) return;
+    await this.redis.del(this.challengeKey(token), this.challengeAttemptsKey(token));
+  }
+
+  private async recordChallengeAttempt(token: string): Promise<number> {
+    const key = this.challengeAttemptsKey(token);
+    const attempts = await this.redis.incr(key);
+    if (attempts === 1) {
+      await this.redis.expire(key, CHALLENGE_TTL_SECONDS);
+    }
+    return attempts;
   }
 
   // Accepts a 6-digit TOTP code or an 8-char recovery code (with optional dash).
@@ -382,6 +447,10 @@ export class AdminService {
 
   private challengeKey(token: string): string {
     return `admin:2fa-challenge:${token}`;
+  }
+
+  private challengeAttemptsKey(token: string): string {
+    return `admin:2fa-challenge-attempts:${token}`;
   }
 }
 

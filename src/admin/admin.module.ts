@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { GoogleOidcService } from './auth/google-oidc.service';
 import { JwtStrategy } from './auth/jwt.strategy';
 import { RequireTotpEnrolledGuard } from './auth/require-totp-enrolled.guard';
 import { TotpService } from './auth/totp.service';
@@ -26,6 +27,7 @@ import { MigrationsService } from './migrations/migrations.service';
     JwtStrategy,
     MigrationsService,
     TotpService,
+    GoogleOidcService,
     RequireTotpEnrolledGuard,
   ],
   exports: [AdminService],

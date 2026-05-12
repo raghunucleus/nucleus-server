@@ -12,6 +12,7 @@ import {
 @Entity({ name: 'admins' })
 @Unique('UQ_admins_username', ['username'])
 @Unique('UQ_admins_email', ['email'])
+@Unique('UQ_admins_google_id', ['google_id'])
 export class Admin {
   @PrimaryGeneratedColumn()
   id: string;
@@ -55,6 +56,12 @@ export class Admin {
   // is still pending verification or after the admin disables 2FA.
   @Column({ type: 'timestamp', nullable: true })
   totp_enabled_at: Date | null;
+
+  // Google OIDC subject identifier ("sub" claim). Linked on first successful
+  // Google sign-in for an existing admin record; remains null for admins who
+  // only authenticate with username/password.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  google_id: string | null;
 
   @CreateDateColumn()
   created_at: Date;

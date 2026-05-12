@@ -21,6 +21,7 @@ import type { AuthenticatedAdmin } from './auth/jwt.strategy';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { DisableTotpDto } from './dto/disable-totp.dto';
 import { EnableTotpDto } from './dto/enable-totp.dto';
+import { GoogleLoginDto } from './dto/google-login.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -41,6 +42,18 @@ export class AdminController {
   })
   login(@Body() dto: LoginDto): Promise<LoginResult> {
     return this.adminService.login(dto.identifier, dto.password);
+  }
+
+  @Post('login/google')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Sign in with a Google OIDC ID token. The email must match an existing ' +
+      'admin record; new admins are not auto-provisioned. Returns the same ' +
+      'shape as POST /admin/login (tokens, 2FA challenge, or totp-pending tokens).',
+  })
+  loginWithGoogle(@Body() dto: GoogleLoginDto): Promise<LoginResult> {
+    return this.adminService.loginWithGoogle(dto.idToken);
   }
 
   @Post('login/verify-2fa')
