@@ -29,6 +29,9 @@ export class Admin {
   @Column({ type: 'boolean', default: false })
   is_master_admin: boolean;
 
+  @Column({ type: 'boolean', default: true })
+  is_active: boolean;
+
   @Column({ type: 'varchar', length: 64, nullable: true })
   first_name: string | null;
 

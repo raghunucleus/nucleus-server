@@ -72,6 +72,10 @@ export class AdminService {
     const ok = await bcrypt.compare(password, admin.password_hash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
+    if (!admin.is_active) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
     if (admin.totp_enabled_at) {
       const challengeToken = await this.issueLoginChallenge(admin.id);
       return { twoFactorRequired: true, challengeToken };
@@ -110,6 +114,10 @@ export class AdminService {
       throw new UnauthorizedException('Invalid Google credential');
     }
 
+    if (!admin.is_active) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
     if (!admin.google_id) {
       admin.google_id = identity.sub;
       await this.admins.save(admin);
@@ -134,6 +142,10 @@ export class AdminService {
     if (!admin || !admin.totp_enabled_at || !admin.totp_secret) {
       await this.clearLoginChallenge(challengeToken);
       throw new UnauthorizedException('Two-factor authentication is not configured');
+    }
+    if (!admin.is_active) {
+      await this.clearLoginChallenge(challengeToken);
+      throw new UnauthorizedException('Account is deactivated');
     }
 
     const accepted = await this.consumeTwoFactorCode(admin, code);
@@ -166,6 +178,9 @@ export class AdminService {
 
     const admin = await this.admins.findOne({ where: { id: payload.sub } });
     if (!admin) throw new UnauthorizedException('Admin no longer exists');
+    if (!admin.is_active) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
 
     return this.issueTokens(admin, { totpPending: !admin.totp_enabled_at });
   }
