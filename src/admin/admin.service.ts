@@ -76,6 +76,11 @@ export class AdminService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
+    if (this.isDevMode()) {
+      const tokens = await this.issueTokens(admin, { totpPending: false });
+      return { ...tokens, requiresTotpSetup: false };
+    }
+
     if (admin.totp_enabled_at) {
       const challengeToken = await this.issueLoginChallenge(admin.id);
       return { twoFactorRequired: true, challengeToken };
@@ -121,6 +126,11 @@ export class AdminService {
     if (!admin.google_id) {
       admin.google_id = identity.sub;
       await this.admins.save(admin);
+    }
+
+    if (this.isDevMode()) {
+      const tokens = await this.issueTokens(admin, { totpPending: false });
+      return { ...tokens, requiresTotpSetup: false };
     }
 
     if (admin.totp_enabled_at) {
@@ -466,6 +476,10 @@ export class AdminService {
 
   private challengeAttemptsKey(token: string): string {
     return `admin:2fa-challenge-attempts:${token}`;
+  }
+
+  private isDevMode(): boolean {
+    return this.config.get<string>('NODE_ENV') === 'dev';
   }
 }
 
