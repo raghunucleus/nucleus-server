@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,7 +9,10 @@ import { Repository } from 'typeorm';
 import type { ProgrammeSemestersSortField } from '../dto/list-programme-semesters.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { Programme } from '../entities/programme.entity';
-import { ProgrammeSemester } from '../entities/programme-semester.entity';
+import {
+  ProgrammeSemester,
+  ProgrammeSemesterStatus,
+} from '../entities/programme-semester.entity';
 import { Semester } from '../entities/semester.entity';
 
 export interface ListProgrammeSemestersResult {
@@ -181,6 +185,58 @@ export class ProgrammeSemestersService {
     if (!row) throw new NotFoundException('Programme semester not found');
     if (row.is_active === active) return row;
     row.is_active = active;
+    await this.links.save(row);
+    return this.getOne(id);
+  }
+
+  // Forward-only transitions: upcoming -> ongoing -> completed. Any other
+  // jump (e.g. completed back to upcoming) is rejected so the admin cannot
+  // accidentally reopen a finished batch's semester. Starting a semester
+  // additionally requires every preceding active semester in the same batch
+  // to already be 'completed' (semesters progress in sem_number order).
+  async setStatus(
+    id: number,
+    target: ProgrammeSemesterStatus,
+  ): Promise<ProgrammeSemester> {
+    const row = await this.links.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Programme semester not found');
+    if (row.status === target) return this.getOne(id);
+
+    const allowed: Record<ProgrammeSemesterStatus, ProgrammeSemesterStatus[]> = {
+      upcoming: ['ongoing'],
+      ongoing: ['completed'],
+      completed: [],
+    };
+    if (!allowed[row.status].includes(target)) {
+      throw new ConflictException(
+        `Cannot move semester from '${row.status}' to '${target}'.`,
+      );
+    }
+
+    if (target === 'ongoing') {
+      // Sequential gate: every earlier active semester in the same batch
+      // must already be completed. Inactive ones are skipped — the admin
+      // explicitly deactivated those links and shouldn't have to "complete"
+      // them just to unblock later semesters.
+      const blocker = await this.links
+        .createQueryBuilder('ps')
+        .leftJoinAndSelect('ps.semester', 'semester')
+        .where('ps.programme_id = :pid', { pid: row.programme_id })
+        .andWhere('ps.admission_year_id = :ayid', { ayid: row.admission_year_id })
+        .andWhere('ps.id != :id', { id: row.id })
+        .andWhere('ps.is_active = TRUE')
+        .andWhere('ps.status != :done', { done: 'completed' })
+        .andWhere('semester.sem_number < :sn', { sn: row.semester.sem_number })
+        .orderBy('semester.sem_number', 'ASC')
+        .getOne();
+      if (blocker) {
+        throw new ConflictException(
+          `Cannot start ${row.semester.code}: semester ${blocker.semester.sem_number} (${blocker.semester.code}) is still '${blocker.status}'.`,
+        );
+      }
+    }
+
+    row.status = target;
     await this.links.save(row);
     return this.getOne(id);
   }

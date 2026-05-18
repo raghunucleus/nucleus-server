@@ -75,4 +75,24 @@ export class ProgrammeSemestersController {
   ): Promise<ProgrammeSemester> {
     return this.links.setActive(id, false);
   }
+
+  @Post(':id/start')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Move a programme-semester from 'upcoming' to 'ongoing'. Rejected if it's already 'ongoing' or 'completed'.",
+  })
+  start(@Param('id', ParseIntPipe) id: number): Promise<ProgrammeSemester> {
+    return this.links.setStatus(id, 'ongoing');
+  }
+
+  @Post(':id/complete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Move a programme-semester from 'ongoing' to 'completed'. Rejected if it isn't currently 'ongoing'.",
+  })
+  complete(@Param('id', ParseIntPipe) id: number): Promise<ProgrammeSemester> {
+    return this.links.setStatus(id, 'completed');
+  }
 }
