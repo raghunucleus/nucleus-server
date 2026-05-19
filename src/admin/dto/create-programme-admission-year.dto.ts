@@ -1,7 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-export const CreateProgrammeRegulationSchema = z
+export const CreateProgrammeAdmissionYearSchema = z
   .object({
     programme_id: z.coerce.number().int().positive(),
     admission_year_id: z.coerce.number().int().positive(),
@@ -9,6 +9,6 @@ export const CreateProgrammeRegulationSchema = z
   })
   .strict();
 
-export class CreateProgrammeRegulationDto extends createZodDto(
-  CreateProgrammeRegulationSchema,
+export class CreateProgrammeAdmissionYearDto extends createZodDto(
+  CreateProgrammeAdmissionYearSchema,
 ) {}

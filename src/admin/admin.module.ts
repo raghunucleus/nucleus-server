@@ -16,13 +16,19 @@ import { DegreesController } from './degrees/degrees.controller';
 import { DegreesService } from './degrees/degrees.service';
 import { DepartmentsController } from './departments/departments.controller';
 import { DepartmentsService } from './departments/departments.service';
+import { DesignationsController } from './designations/designations.controller';
+import { DesignationsService } from './designations/designations.service';
+import { EmployeesController } from './employees/employees.controller';
+import { EmployeesService } from './employees/employees.service';
 import { AdminRecoveryCode } from './entities/admin-recovery-code.entity';
 import { Admin } from './entities/admin.entity';
 import { AdmissionYear } from './entities/admission-year.entity';
 import { Degree } from './entities/degree.entity';
 import { Department } from './entities/department.entity';
+import { Designation } from './entities/designation.entity';
+import { Employee } from './entities/employee.entity';
 import { Programme } from './entities/programme.entity';
-import { ProgrammeRegulation } from './entities/programme-regulation.entity';
+import { ProgrammeAdmissionYear } from './entities/programme-admission-year.entity';
 import { ProgrammeSemester } from './entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from './entities/programme-semester-subject.entity';
 import { ProgrammeSemesterSubjectOption } from './entities/programme-semester-subject-option.entity';
@@ -31,8 +37,8 @@ import { Semester } from './entities/semester.entity';
 import { Subject } from './entities/subject.entity';
 import { MigrationsController } from './migrations/migrations.controller';
 import { MigrationsService } from './migrations/migrations.service';
-import { ProgrammeRegulationsController } from './programme-regulations/programme-regulations.controller';
-import { ProgrammeRegulationsService } from './programme-regulations/programme-regulations.service';
+import { ProgrammeAdmissionYearsController } from './programme-admission-years/programme-admission-years.controller';
+import { ProgrammeAdmissionYearsService } from './programme-admission-years/programme-admission-years.service';
 import { ProgrammeSemesterSubjectsController } from './programme-semester-subjects/programme-semester-subjects.controller';
 import { ProgrammeSemesterSubjectsService } from './programme-semester-subjects/programme-semester-subjects.service';
 import { ProgrammeSemestersController } from './programme-semesters/programme-semesters.controller';
@@ -56,8 +62,10 @@ import { AdminUsersService } from './users/admin-users.service';
       AdmissionYear,
       Degree,
       Department,
+      Designation,
+      Employee,
       Programme,
-      ProgrammeRegulation,
+      ProgrammeAdmissionYear,
       ProgrammeSemester,
       ProgrammeSemesterSubject,
       ProgrammeSemesterSubjectOption,
@@ -75,11 +83,13 @@ import { AdminUsersService } from './users/admin-users.service';
     AdminUsersController,
     DegreesController,
     DepartmentsController,
+    DesignationsController,
+    EmployeesController,
     AdmissionYearsController,
     SemestersController,
     ProgrammesController,
     ProgrammeSemestersController,
-    ProgrammeRegulationsController,
+    ProgrammeAdmissionYearsController,
     ProgrammeSemesterSubjectsController,
     RegulationsController,
     SubjectsController,
@@ -89,11 +99,13 @@ import { AdminUsersService } from './users/admin-users.service';
     AdminUsersService,
     DegreesService,
     DepartmentsService,
+    DesignationsService,
+    EmployeesService,
     AdmissionYearsService,
     SemestersService,
     ProgrammesService,
     ProgrammeSemestersService,
-    ProgrammeRegulationsService,
+    ProgrammeAdmissionYearsService,
     ProgrammeSemesterSubjectsService,
     RegulationsService,
     SubjectsService,

@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import type { ProgrammeSemesterSubjectsSortField } from '../dto/list-programme-semester-subjects.dto';
-import { ProgrammeRegulation } from '../entities/programme-regulation.entity';
+import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from '../entities/programme-semester-subject.entity';
 import { ProgrammeSemesterSubjectOption } from '../entities/programme-semester-subject-option.entity';
@@ -52,8 +52,8 @@ export class ProgrammeSemesterSubjectsService {
     private readonly programmeSemesters: Repository<ProgrammeSemester>,
     @InjectRepository(Subject)
     private readonly subjects: Repository<Subject>,
-    @InjectRepository(ProgrammeRegulation)
-    private readonly programmeRegulations: Repository<ProgrammeRegulation>,
+    @InjectRepository(ProgrammeAdmissionYear)
+    private readonly programmeAdmissionYears: Repository<ProgrammeAdmissionYear>,
     @InjectRepository(ProgrammeSemesterSubjectOption)
     private readonly options: Repository<ProgrammeSemesterSubjectOption>,
     private readonly dataSource: DataSource,
@@ -330,7 +330,7 @@ export class ProgrammeSemesterSubjectsService {
     admissionYearId: number,
     subjectRegulationId: number,
   ): Promise<void> {
-    const link = await this.programmeRegulations.findOne({
+    const link = await this.programmeAdmissionYears.findOne({
       where: {
         programme_id: programmeId,
         admission_year_id: admissionYearId,
@@ -385,7 +385,7 @@ export class ProgrammeSemesterSubjectsService {
       );
     }
 
-    const link = await this.programmeRegulations.findOne({
+    const link = await this.programmeAdmissionYears.findOne({
       where: { programme_id: programmeId, admission_year_id: admissionYearId },
     });
     if (!link) {

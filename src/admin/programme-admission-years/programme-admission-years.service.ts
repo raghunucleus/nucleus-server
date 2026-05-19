@@ -6,44 +6,44 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type { ProgrammeRegulationsSortField } from '../dto/list-programme-regulations.dto';
+import type { ProgrammeAdmissionYearsSortField } from '../dto/list-programme-admission-years.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { Programme } from '../entities/programme.entity';
-import { ProgrammeRegulation } from '../entities/programme-regulation.entity';
+import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
 import { Regulation } from '../entities/regulation.entity';
 
-export interface ListProgrammeRegulationsResult {
-  rows: ProgrammeRegulation[];
+export interface ListProgrammeAdmissionYearsResult {
+  rows: ProgrammeAdmissionYear[];
   total: number;
   page: number;
   pageSize: number;
   pageCount: number;
 }
 
-const SORT_COLUMN: Record<ProgrammeRegulationsSortField, string> = {
+const SORT_COLUMN: Record<ProgrammeAdmissionYearsSortField, string> = {
   programme: 'programme.name',
   admission_year: 'admission_year.year',
   regulation: 'regulation.code',
-  status: 'pr.is_active',
-  created_at: 'pr.created_at',
-  updated_at: 'pr.updated_at',
+  status: 'pay.is_active',
+  created_at: 'pay.created_at',
+  updated_at: 'pay.updated_at',
 };
 
-interface CreateProgrammeRegulationInput {
+interface CreateProgrammeAdmissionYearInput {
   programme_id: number;
   admission_year_id: number;
   regulation_id: number;
 }
 
-interface UpdateProgrammeRegulationInput {
+interface UpdateProgrammeAdmissionYearInput {
   regulation_id: number;
 }
 
 @Injectable()
-export class ProgrammeRegulationsService {
+export class ProgrammeAdmissionYearsService {
   constructor(
-    @InjectRepository(ProgrammeRegulation)
-    private readonly links: Repository<ProgrammeRegulation>,
+    @InjectRepository(ProgrammeAdmissionYear)
+    private readonly links: Repository<ProgrammeAdmissionYear>,
     @InjectRepository(Programme)
     private readonly programmes: Repository<Programme>,
     @InjectRepository(AdmissionYear)
@@ -55,32 +55,32 @@ export class ProgrammeRegulationsService {
   async list(opts: {
     page: number;
     pageSize: number;
-    sortBy: ProgrammeRegulationsSortField;
+    sortBy: ProgrammeAdmissionYearsSortField;
     sortOrder: 'asc' | 'desc';
     status?: 'active' | 'inactive';
     programmeId?: number;
     admissionYearId?: number;
     regulationId?: number;
-  }): Promise<ListProgrammeRegulationsResult> {
+  }): Promise<ListProgrammeAdmissionYearsResult> {
     const qb = this.links
-      .createQueryBuilder('pr')
-      .leftJoinAndSelect('pr.programme', 'programme')
-      .leftJoinAndSelect('pr.admission_year', 'admission_year')
-      .leftJoinAndSelect('pr.regulation', 'regulation');
+      .createQueryBuilder('pay')
+      .leftJoinAndSelect('pay.programme', 'programme')
+      .leftJoinAndSelect('pay.admission_year', 'admission_year')
+      .leftJoinAndSelect('pay.regulation', 'regulation');
 
-    if (opts.status === 'active') qb.andWhere('pr.is_active = TRUE');
-    else if (opts.status === 'inactive') qb.andWhere('pr.is_active = FALSE');
+    if (opts.status === 'active') qb.andWhere('pay.is_active = TRUE');
+    else if (opts.status === 'inactive') qb.andWhere('pay.is_active = FALSE');
 
     if (opts.programmeId !== undefined)
-      qb.andWhere('pr.programme_id = :pid', { pid: opts.programmeId });
+      qb.andWhere('pay.programme_id = :pid', { pid: opts.programmeId });
     if (opts.admissionYearId !== undefined)
-      qb.andWhere('pr.admission_year_id = :ayid', { ayid: opts.admissionYearId });
+      qb.andWhere('pay.admission_year_id = :ayid', { ayid: opts.admissionYearId });
     if (opts.regulationId !== undefined)
-      qb.andWhere('pr.regulation_id = :rid', { rid: opts.regulationId });
+      qb.andWhere('pay.regulation_id = :rid', { rid: opts.regulationId });
 
     const direction: 'ASC' | 'DESC' = opts.sortOrder === 'asc' ? 'ASC' : 'DESC';
     qb.orderBy(SORT_COLUMN[opts.sortBy], direction, 'NULLS LAST')
-      .addOrderBy('pr.id', 'ASC')
+      .addOrderBy('pay.id', 'ASC')
       .skip((opts.page - 1) * opts.pageSize)
       .take(opts.pageSize);
 
@@ -94,15 +94,15 @@ export class ProgrammeRegulationsService {
     };
   }
 
-  async getOne(id: number): Promise<ProgrammeRegulation> {
+  async getOne(id: number): Promise<ProgrammeAdmissionYear> {
     const row = await this.links.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Programme regulation not found');
+    if (!row) throw new NotFoundException('Programme admission year not found');
     return row;
   }
 
   async create(
-    input: CreateProgrammeRegulationInput,
-  ): Promise<ProgrammeRegulation> {
+    input: CreateProgrammeAdmissionYearInput,
+  ): Promise<ProgrammeAdmissionYear> {
     await this.assertReferencesExist(
       input.programme_id,
       input.admission_year_id,
@@ -125,23 +125,25 @@ export class ProgrammeRegulationsService {
 
   async update(
     id: number,
-    patch: UpdateProgrammeRegulationInput,
-  ): Promise<ProgrammeRegulation> {
+    patch: UpdateProgrammeAdmissionYearInput,
+  ): Promise<ProgrammeAdmissionYear> {
     const row = await this.links.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Programme regulation not found');
+    if (!row) throw new NotFoundException('Programme admission year not found');
 
     if (patch.regulation_id !== row.regulation_id) {
       await this.assertRegulationExists(patch.regulation_id);
-      row.regulation_id = patch.regulation_id;
+      // Use a partial UPDATE rather than mutate + save. Because the entity has
+      // an eager `regulation` relation, save() would overwrite our column
+      // change with the (stale) loaded relation's id and silently revert.
+      await this.links.update({ id }, { regulation_id: patch.regulation_id });
     }
 
-    await this.links.save(row);
     return this.getOne(id);
   }
 
-  async setActive(id: number, active: boolean): Promise<ProgrammeRegulation> {
+  async setActive(id: number, active: boolean): Promise<ProgrammeAdmissionYear> {
     const row = await this.links.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Programme regulation not found');
+    if (!row) throw new NotFoundException('Programme admission year not found');
     if (row.is_active === active) return row;
     row.is_active = active;
     await this.links.save(row);
@@ -177,7 +179,7 @@ export class ProgrammeRegulationsService {
     });
     if (existing) {
       throw new ConflictException(
-        'This programme already has a regulation assigned for that admission year — edit the existing entry instead.',
+        'This programme already has an entry for that admission year — edit the existing entry instead.',
       );
     }
   }

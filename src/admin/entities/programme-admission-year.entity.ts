@@ -12,14 +12,16 @@ import { AdmissionYear } from './admission-year.entity';
 import { Programme } from './programme.entity';
 import { Regulation } from './regulation.entity';
 
-@Entity({ name: 'programme_regulations' })
-// One regulation per (programme, admission year) batch. To change a batch's
-// regulation, edit the existing row rather than creating a new one.
-@Unique('UQ_programme_regulations_programme_admission_year', [
+@Entity({ name: 'programme_admission_years' })
+// One row per (programme, admission year) batch. Today it carries the
+// regulation that applies to the batch; future per-batch attributes live here
+// too. To change a batch's regulation, edit the row rather than creating a new
+// one.
+@Unique('UQ_programme_admission_years_programme_admission_year', [
   'programme_id',
   'admission_year_id',
 ])
-export class ProgrammeRegulation {
+export class ProgrammeAdmissionYear {
   @PrimaryGeneratedColumn()
   id: number;
 
