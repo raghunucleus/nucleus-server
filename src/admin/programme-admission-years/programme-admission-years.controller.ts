@@ -41,6 +41,22 @@ export class ProgrammeAdmissionYearsController {
     return this.links.list(query);
   }
 
+  @Get('matrix')
+  @ApiOperation({
+    summary:
+      'Slim, unpaginated list of every (programme, admission year) cell. Used to render the bulk-upload selector matrix.',
+  })
+  matrix(): Promise<
+    Array<{
+      id: number;
+      programme_id: number;
+      admission_year_id: number;
+      is_active: boolean;
+    }>
+  > {
+    return this.links.matrix();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a single programme-admission-year by ID.' })
   getOne(

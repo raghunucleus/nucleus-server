@@ -1,0 +1,520 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+import type { StudentsSortField } from '../dto/list-students.dto';
+import { AdmissionYear } from '../entities/admission-year.entity';
+import { Programme } from '../entities/programme.entity';
+import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
+import { Student } from '../entities/student.entity';
+
+export interface BulkRowError {
+  rowIndex: number;
+  field?: string;
+  message: string;
+}
+
+export interface BulkCreateStudentRow {
+  student_id: string;
+  display_name: string;
+  gender: string;
+  dob: string;
+  blood_group: string | null;
+  abc_id: string | null;
+  mobile_number: string;
+  email: string;
+}
+
+export interface ListStudentsResult {
+  rows: Student[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+}
+
+const SORT_COLUMN: Record<StudentsSortField, string> = {
+  student_id: 'student_id',
+  display_name: 'display_name',
+  gender: 'gender',
+  mobile_number: 'mobile_number',
+  email: 'email',
+  abc_id: 'abc_id',
+  dob: 'dob',
+  status: 'is_active',
+  created_at: 'created_at',
+  updated_at: 'updated_at',
+};
+
+interface CreateStudentInput {
+  student_id: string;
+  programme_id: number;
+  admission_year_id: number;
+  display_name: string;
+  gender: string;
+  dob: string;
+  blood_group: string | null;
+  abc_id: string | null;
+  mobile_number: string;
+  email: string;
+}
+
+interface UpdateStudentInput {
+  student_id?: string;
+  programme_id?: number;
+  admission_year_id?: number;
+  display_name?: string;
+  gender?: string;
+  dob?: string;
+  blood_group?: string | null;
+  abc_id?: string | null;
+  mobile_number?: string;
+  email?: string;
+}
+
+@Injectable()
+export class StudentsService {
+  constructor(
+    @InjectRepository(Student) private readonly students: Repository<Student>,
+    @InjectRepository(Programme)
+    private readonly programmes: Repository<Programme>,
+    @InjectRepository(AdmissionYear)
+    private readonly admissionYears: Repository<AdmissionYear>,
+    @InjectRepository(ProgrammeAdmissionYear)
+    private readonly programmeAdmissionYears: Repository<ProgrammeAdmissionYear>,
+    @InjectDataSource() private readonly dataSource: DataSource,
+  ) {}
+
+  async list(opts: {
+    page: number;
+    pageSize: number;
+    sortBy: StudentsSortField;
+    sortOrder: 'asc' | 'desc';
+    studentIdSearch?: string;
+    displayNameSearch?: string;
+    emailSearch?: string;
+    mobileSearch?: string;
+    abcIdSearch?: string;
+    status?: 'active' | 'inactive';
+    gender?: string;
+    bloodGroup?: string;
+    programmeId?: number;
+    admissionYearId?: number;
+  }): Promise<ListStudentsResult> {
+    const qb = this.students
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.programme', 'programme')
+      .leftJoinAndSelect('s.admission_year', 'admission_year');
+
+    if (opts.studentIdSearch) {
+      qb.andWhere('LOWER(s.student_id) LIKE :sid', {
+        sid: `%${opts.studentIdSearch.toLowerCase()}%`,
+      });
+    }
+
+    if (opts.displayNameSearch) {
+      qb.andWhere('LOWER(s.display_name) LIKE :dn', {
+        dn: `%${opts.displayNameSearch.toLowerCase()}%`,
+      });
+    }
+
+    if (opts.emailSearch) {
+      qb.andWhere('LOWER(s.email) LIKE :em', {
+        em: `%${opts.emailSearch.toLowerCase()}%`,
+      });
+    }
+
+    if (opts.mobileSearch) {
+      qb.andWhere('s.mobile_number LIKE :mb', {
+        mb: `%${opts.mobileSearch}%`,
+      });
+    }
+
+    if (opts.abcIdSearch) {
+      qb.andWhere('s.abc_id LIKE :abc', { abc: `%${opts.abcIdSearch}%` });
+    }
+
+    if (opts.status === 'active') {
+      qb.andWhere('s.is_active = TRUE');
+    } else if (opts.status === 'inactive') {
+      qb.andWhere('s.is_active = FALSE');
+    }
+
+    if (opts.gender) qb.andWhere('s.gender = :g', { g: opts.gender });
+    if (opts.bloodGroup) qb.andWhere('s.blood_group = :bg', { bg: opts.bloodGroup });
+    if (opts.programmeId)
+      qb.andWhere('s.programme_id = :pi', { pi: opts.programmeId });
+    if (opts.admissionYearId)
+      qb.andWhere('s.admission_year_id = :ai', { ai: opts.admissionYearId });
+
+    const direction: 'ASC' | 'DESC' = opts.sortOrder === 'asc' ? 'ASC' : 'DESC';
+    qb.orderBy(`s.${SORT_COLUMN[opts.sortBy]}`, direction, 'NULLS LAST')
+      .addOrderBy('s.id', 'ASC')
+      .skip((opts.page - 1) * opts.pageSize)
+      .take(opts.pageSize);
+
+    const [rows, total] = await qb.getManyAndCount();
+    return {
+      rows,
+      total,
+      page: opts.page,
+      pageSize: opts.pageSize,
+      pageCount: total === 0 ? 0 : Math.ceil(total / opts.pageSize),
+    };
+  }
+
+  async getOne(id: number): Promise<Student> {
+    const student = await this.students.findOne({ where: { id } });
+    if (!student) throw new NotFoundException('Student not found');
+    return student;
+  }
+
+  async create(input: CreateStudentInput): Promise<Student> {
+    await this.assertReferencesExist({
+      programme_id: input.programme_id,
+      admission_year_id: input.admission_year_id,
+    });
+
+    await this.assertUnique({
+      student_id: input.student_id,
+      email: input.email,
+      abc_id: input.abc_id,
+    });
+
+    const student = this.students.create({
+      student_id: input.student_id,
+      programme_id: input.programme_id,
+      admission_year_id: input.admission_year_id,
+      display_name: input.display_name,
+      gender: input.gender,
+      dob: input.dob,
+      blood_group: input.blood_group,
+      abc_id: input.abc_id,
+      mobile_number: input.mobile_number,
+      email: input.email,
+      is_active: true,
+    });
+    return this.students.save(student);
+  }
+
+  async update(id: number, patch: UpdateStudentInput): Promise<Student> {
+    const student = await this.students.findOne({ where: { id } });
+    if (!student) throw new NotFoundException('Student not found');
+
+    await this.assertReferencesExist({
+      programme_id:
+        patch.programme_id !== undefined &&
+        patch.programme_id !== student.programme_id
+          ? patch.programme_id
+          : undefined,
+      admission_year_id:
+        patch.admission_year_id !== undefined &&
+        patch.admission_year_id !== student.admission_year_id
+          ? patch.admission_year_id
+          : undefined,
+    });
+
+    await this.assertUnique({
+      student_id:
+        patch.student_id !== undefined && patch.student_id !== student.student_id
+          ? patch.student_id
+          : undefined,
+      email:
+        patch.email !== undefined && patch.email !== student.email
+          ? patch.email
+          : undefined,
+      abc_id:
+        patch.abc_id !== undefined && patch.abc_id !== student.abc_id
+          ? patch.abc_id
+          : undefined,
+      excludeId: id,
+    });
+
+    if (patch.student_id !== undefined) student.student_id = patch.student_id;
+    if (patch.programme_id !== undefined)
+      student.programme_id = patch.programme_id;
+    if (patch.admission_year_id !== undefined)
+      student.admission_year_id = patch.admission_year_id;
+    if (patch.display_name !== undefined)
+      student.display_name = patch.display_name;
+    if (patch.gender !== undefined) student.gender = patch.gender;
+    if (patch.dob !== undefined) student.dob = patch.dob;
+    if (patch.blood_group !== undefined) student.blood_group = patch.blood_group;
+    if (patch.abc_id !== undefined) student.abc_id = patch.abc_id;
+    if (patch.mobile_number !== undefined)
+      student.mobile_number = patch.mobile_number;
+    if (patch.email !== undefined) student.email = patch.email;
+
+    return this.students.save(student);
+  }
+
+  /**
+   * Insert a batch of students for a single (programme, admission year) pair.
+   * The combination must exist as an active row in programme_admission_years
+   * — that's what the bulk-upload matrix gates on, and re-checking server-side
+   * keeps a stale UI from inserting students into a deactivated batch.
+   *
+   * Validation runs entirely up front and returns 400 with per-row errors;
+   * the actual insert only happens once every row is clean, inside a single
+   * transaction so the upload is all-or-nothing.
+   */
+  async bulkCreate(
+    programmeId: number,
+    admissionYearId: number,
+    rows: BulkCreateStudentRow[],
+  ): Promise<{ created: number }> {
+    if (rows.length === 0) return { created: 0 };
+
+    const pay = await this.programmeAdmissionYears.findOne({
+      where: {
+        programme_id: programmeId,
+        admission_year_id: admissionYearId,
+      },
+    });
+    if (!pay) {
+      throw new BadRequestException(
+        'This programme is not configured for the selected admission year',
+      );
+    }
+    if (!pay.is_active) {
+      throw new BadRequestException(
+        'The selected programme + admission year is deactivated',
+      );
+    }
+
+    const errors: BulkRowError[] = [];
+
+    // 1. Intra-batch duplicates.
+    seenAt(rows, (r) => r.student_id.toUpperCase()).forEach((indices, key) => {
+      if (indices.length > 1) {
+        for (const i of indices) {
+          errors.push({
+            rowIndex: i,
+            field: 'student_id',
+            message: `Duplicate student_id "${key}" in batch (rows ${indices.map((n) => n + 1).join(', ')})`,
+          });
+        }
+      }
+    });
+
+    seenAt(rows, (r) => r.email.toLowerCase()).forEach((indices, key) => {
+      if (indices.length > 1) {
+        for (const i of indices) {
+          errors.push({
+            rowIndex: i,
+            field: 'email',
+            message: `Duplicate email "${key}" in batch (rows ${indices.map((n) => n + 1).join(', ')})`,
+          });
+        }
+      }
+    });
+
+    // abc_id is optional — only check intra-batch dupes for non-null values.
+    const abcRowsByValue = new Map<string, number[]>();
+    rows.forEach((r, i) => {
+      if (r.abc_id) {
+        const list = abcRowsByValue.get(r.abc_id) ?? [];
+        list.push(i);
+        abcRowsByValue.set(r.abc_id, list);
+      }
+    });
+    abcRowsByValue.forEach((indices, key) => {
+      if (indices.length > 1) {
+        for (const i of indices) {
+          errors.push({
+            rowIndex: i,
+            field: 'abc_id',
+            message: `Duplicate ABC ID "${key}" in batch (rows ${indices.map((n) => n + 1).join(', ')})`,
+          });
+        }
+      }
+    });
+
+    // 2. Conflicts with existing students in the DB.
+    const studentIds = rows.map((r) => r.student_id);
+    const emails = rows.map((r) => r.email.toLowerCase());
+    const abcIds = rows.map((r) => r.abc_id).filter((v): v is string => !!v);
+
+    const [existingByStudentIdRows, existingByEmailRows, existingByAbcIdRows] =
+      await Promise.all([
+        this.students
+          .createQueryBuilder('s')
+          .select(['s.student_id'])
+          .where('s.student_id IN (:...ids)', { ids: studentIds })
+          .getMany(),
+        this.students
+          .createQueryBuilder('s')
+          .select(['s.email'])
+          .where('LOWER(s.email) IN (:...emails)', { emails })
+          .getMany(),
+        abcIds.length === 0
+          ? Promise.resolve([])
+          : this.students
+              .createQueryBuilder('s')
+              .select(['s.abc_id'])
+              .where('s.abc_id IN (:...abcIds)', { abcIds })
+              .getMany(),
+      ]);
+
+    const existingByStudentId = new Set(
+      existingByStudentIdRows.map((s) => s.student_id.toUpperCase()),
+    );
+    const existingByEmail = new Set(
+      existingByEmailRows.map((s) => s.email.toLowerCase()),
+    );
+    const existingByAbcId = new Set(
+      existingByAbcIdRows
+        .map((s) => s.abc_id)
+        .filter((v): v is string => !!v),
+    );
+
+    rows.forEach((r, i) => {
+      if (existingByStudentId.has(r.student_id.toUpperCase())) {
+        errors.push({
+          rowIndex: i,
+          field: 'student_id',
+          message: `student_id "${r.student_id}" already exists`,
+        });
+      }
+      if (existingByEmail.has(r.email.toLowerCase())) {
+        errors.push({
+          rowIndex: i,
+          field: 'email',
+          message: `email "${r.email}" already exists`,
+        });
+      }
+      if (r.abc_id && existingByAbcId.has(r.abc_id)) {
+        errors.push({
+          rowIndex: i,
+          field: 'abc_id',
+          message: `ABC ID "${r.abc_id}" already exists`,
+        });
+      }
+    });
+
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        message: 'Bulk validation failed',
+        rowErrors: errors,
+      });
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(Student);
+      const entities = rows.map((r) =>
+        repo.create({
+          student_id: r.student_id,
+          programme_id: programmeId,
+          admission_year_id: admissionYearId,
+          display_name: r.display_name,
+          gender: r.gender,
+          dob: r.dob,
+          blood_group: r.blood_group,
+          abc_id: r.abc_id,
+          mobile_number: r.mobile_number,
+          email: r.email,
+          is_active: true,
+        }),
+      );
+      const saved = await repo.save(entities);
+      return { created: saved.length };
+    });
+  }
+
+  /**
+   * Returns every student_id in the table. Used by bulk-upload clients that
+   * want to do their own up-front collision detection.
+   */
+  async listStudentIds(): Promise<string[]> {
+    const rows = await this.students
+      .createQueryBuilder('s')
+      .select('s.student_id', 'student_id')
+      .getRawMany<{ student_id: string }>();
+    return rows.map((r) => r.student_id);
+  }
+
+  async setActive(id: number, active: boolean): Promise<Student> {
+    const student = await this.students.findOne({ where: { id } });
+    if (!student) throw new NotFoundException('Student not found');
+
+    if (student.is_active === active) return student;
+
+    student.is_active = active;
+    return this.students.save(student);
+  }
+
+  private async assertReferencesExist(opts: {
+    programme_id?: number;
+    admission_year_id?: number;
+  }): Promise<void> {
+    if (opts.programme_id !== undefined) {
+      const programme = await this.programmes.findOne({
+        where: { id: opts.programme_id },
+        select: { id: true },
+      });
+      if (!programme) throw new BadRequestException('Programme not found');
+    }
+
+    if (opts.admission_year_id !== undefined) {
+      const year = await this.admissionYears.findOne({
+        where: { id: opts.admission_year_id },
+        select: { id: true },
+      });
+      if (!year) throw new BadRequestException('Admission year not found');
+    }
+  }
+
+  private async assertUnique(opts: {
+    student_id?: string;
+    email?: string;
+    abc_id?: string | null;
+    excludeId?: number;
+  }): Promise<void> {
+    if (opts.student_id !== undefined) {
+      const qb = this.students
+        .createQueryBuilder('s')
+        .where('LOWER(s.student_id) = LOWER(:v)', { v: opts.student_id });
+      if (opts.excludeId) qb.andWhere('s.id != :id', { id: opts.excludeId });
+      if (await qb.getOne())
+        throw new ConflictException('Student ID is already in use');
+    }
+
+    if (opts.email !== undefined) {
+      const qb = this.students
+        .createQueryBuilder('s')
+        .where('LOWER(s.email) = LOWER(:v)', { v: opts.email });
+      if (opts.excludeId) qb.andWhere('s.id != :id', { id: opts.excludeId });
+      if (await qb.getOne())
+        throw new ConflictException('Email is already in use');
+    }
+
+    // abc_id is nullable; only check uniqueness when a non-null value is supplied.
+    if (opts.abc_id !== undefined && opts.abc_id !== null) {
+      const qb = this.students
+        .createQueryBuilder('s')
+        .where('s.abc_id = :v', { v: opts.abc_id });
+      if (opts.excludeId) qb.andWhere('s.id != :id', { id: opts.excludeId });
+      if (await qb.getOne())
+        throw new ConflictException('ABC ID is already in use');
+    }
+  }
+}
+
+function seenAt<T>(
+  rows: T[],
+  keyFn: (row: T) => string,
+): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  rows.forEach((row, i) => {
+    const key = keyFn(row);
+    const list = out.get(key) ?? [];
+    list.push(i);
+    out.set(key, list);
+  });
+  return out;
+}

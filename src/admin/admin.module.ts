@@ -49,6 +49,9 @@ import { RegulationsController } from './regulations/regulations.controller';
 import { RegulationsService } from './regulations/regulations.service';
 import { SemestersController } from './semesters/semesters.controller';
 import { SemestersService } from './semesters/semesters.service';
+import { Student } from './entities/student.entity';
+import { StudentsController } from './students/students.controller';
+import { StudentsService } from './students/students.service';
 import { SubjectsController } from './subjects/subjects.controller';
 import { SubjectsService } from './subjects/subjects.service';
 import { AdminUsersController } from './users/admin-users.controller';
@@ -71,6 +74,7 @@ import { AdminUsersService } from './users/admin-users.service';
       ProgrammeSemesterSubjectOption,
       Regulation,
       Semester,
+      Student,
       Subject,
     ]),
     ConfigModule,
@@ -92,6 +96,7 @@ import { AdminUsersService } from './users/admin-users.service';
     ProgrammeAdmissionYearsController,
     ProgrammeSemesterSubjectsController,
     RegulationsController,
+    StudentsController,
     SubjectsController,
   ],
   providers: [
@@ -108,6 +113,7 @@ import { AdminUsersService } from './users/admin-users.service';
     ProgrammeAdmissionYearsService,
     ProgrammeSemesterSubjectsService,
     RegulationsService,
+    StudentsService,
     SubjectsService,
     JwtStrategy,
     MigrationsService,

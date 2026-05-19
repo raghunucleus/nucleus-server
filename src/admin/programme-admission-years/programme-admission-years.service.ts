@@ -94,6 +94,30 @@ export class ProgrammeAdmissionYearsService {
     };
   }
 
+  /**
+   * Slim listing for the bulk-upload matrix. Returns every (programme,
+   * admission year) pair as a flat array — no pagination, no joined entities —
+   * so the UI can render the full programme × year grid in one request.
+   */
+  async matrix(): Promise<
+    Array<{
+      id: number;
+      programme_id: number;
+      admission_year_id: number;
+      is_active: boolean;
+    }>
+  > {
+    return this.links
+      .createQueryBuilder('pay')
+      .select([
+        'pay.id',
+        'pay.programme_id',
+        'pay.admission_year_id',
+        'pay.is_active',
+      ])
+      .getMany();
+  }
+
   async getOne(id: number): Promise<ProgrammeAdmissionYear> {
     const row = await this.links.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Programme admission year not found');
