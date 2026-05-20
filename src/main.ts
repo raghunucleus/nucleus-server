@@ -15,6 +15,24 @@ async function bootstrap() {
   app.enableShutdownHooks();
   app.useGlobalPipes(new ZodValidationPipe());
 
+  // The student/parent and employee front-ends run on a separate origin (Vite
+  // dev server, or a static host in prod). In dev, reflect any origin so the
+  // exact host (localhost / 127.0.0.1 / *.localhost / a LAN IP) doesn't matter;
+  // outside dev, restrict to an explicit allowlist (override via CORS_ORIGINS).
+  const isDev = process.env.NODE_ENV === 'dev';
+  const corsOrigins = (
+    process.env.CORS_ORIGINS ??
+    'http://localhost:5000,http://app.localhost:5000,http://employee.localhost:5000'
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: isDev ? true : corsOrigins,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
   // Default Nest/body-parser limit is ~100 KB, which the bulk-upload
   // endpoints blow past easily (1000 student rows is ~300–500 KB of JSON).
   // 10 MB covers the documented row cap (1000) with generous headroom and
@@ -30,6 +48,10 @@ async function bootstrap() {
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       'admin-access-token',
     )
+    .addBearerAuth(
+      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      'student-access-token',
+    )
     .build();
   const document = cleanupOpenApiDoc(
     SwaggerModule.createDocument(app, swaggerConfig),
@@ -38,7 +60,7 @@ async function bootstrap() {
     swaggerOptions: { persistAuthorization: true },
   });
 
-  const PORT = process.env.PORT ?? 4000;
+  const PORT = process.env.PORT ?? 3000;
   await app.listen(PORT);
   logger.log(`Server is running on port ${PORT}`, 'Bootstrap');
   logger.log(`Swagger UI: http://localhost:${PORT}/docs`, 'Bootstrap');

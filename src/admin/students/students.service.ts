@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { StudentAuthService } from '../../student/student-auth.service';
 import type { StudentsSortField } from '../dto/list-students.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { Programme } from '../entities/programme.entity';
@@ -87,6 +88,7 @@ export class StudentsService {
     @InjectRepository(ProgrammeAdmissionYear)
     private readonly programmeAdmissionYears: Repository<ProgrammeAdmissionYear>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly studentAuth: StudentAuthService,
   ) {}
 
   async list(opts: {
@@ -436,6 +438,34 @@ export class StudentsService {
       .select('s.student_id', 'student_id')
       .getRawMany<{ student_id: string }>();
     return rows.map((r) => r.student_id);
+  }
+
+  /**
+   * Provision (or reset) the student's login: generates a random temporary
+   * password, emails it to their registered address, forces a change on first
+   * login, and revokes any sessions the account currently holds. Used both for
+   * the very first invite and for "reset password" later.
+   */
+  async resetLoginPassword(id: number): Promise<{ email: string }> {
+    const student = await this.students.findOne({
+      where: { id },
+      select: { id: true },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    return this.studentAuth.adminResetPassword(id);
+  }
+
+  /**
+   * Directly set the student's login password to an admin-chosen value. No
+   * email is sent; the student is still forced to change it on first sign-in.
+   */
+  async setLoginPassword(id: number, password: string): Promise<void> {
+    const student = await this.students.findOne({
+      where: { id },
+      select: { id: true },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    await this.studentAuth.adminSetPassword(id, password);
   }
 
   async setActive(id: number, active: boolean): Promise<Student> {

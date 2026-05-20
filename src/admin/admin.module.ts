@@ -50,6 +50,7 @@ import { RegulationsService } from './regulations/regulations.service';
 import { SemestersController } from './semesters/semesters.controller';
 import { SemestersService } from './semesters/semesters.service';
 import { Student } from './entities/student.entity';
+import { StudentModule } from '../student/student.module';
 import { StudentsController } from './students/students.controller';
 import { StudentsService } from './students/students.service';
 import { SubjectsController } from './subjects/subjects.controller';
@@ -80,6 +81,7 @@ import { AdminUsersService } from './users/admin-users.service';
     ConfigModule,
     PassportModule.register({ defaultStrategy: 'admin-jwt' }),
     JwtModule.register({}),
+    StudentModule,
   ],
   controllers: [
     AdminController,

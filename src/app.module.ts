@@ -7,7 +7,9 @@ import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
+import { MailModule } from './mail/mail.module';
 import { RedisModule } from './redis/redis.module';
+import { StudentModule } from './student/student.module';
 
 @Module({
   imports: [
@@ -76,8 +78,10 @@ import { RedisModule } from './redis/redis.module';
       }),
     }),
     RedisModule,
+    MailModule,
     HealthModule,
     AdminModule,
+    StudentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

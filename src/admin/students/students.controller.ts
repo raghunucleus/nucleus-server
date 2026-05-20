@@ -17,6 +17,7 @@ import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { BulkCreateStudentsDto } from '../dto/bulk-create-students.dto';
 import { CreateStudentDto } from '../dto/create-student.dto';
 import { ListStudentsDto } from '../dto/list-students.dto';
+import { SetStudentPasswordDto } from '../dto/set-student-password.dto';
 import { UpdateStudentDto } from '../dto/update-student.dto';
 import { Student } from '../entities/student.entity';
 import {
@@ -81,6 +82,33 @@ export class StudentsController {
     @Body() dto: UpdateStudentDto,
   ): Promise<Student> {
     return this.students.update(id, dto);
+  }
+
+  @Post(':id/reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Provision or reset the student's login: emails a temporary password to " +
+      'their registered address and forces a change on first sign-in.',
+  })
+  resetPassword(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ email: string }> {
+    return this.students.resetLoginPassword(id);
+  }
+
+  @Post(':id/set-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary:
+      "Directly set the student's login password to a chosen value (no email " +
+      'is sent). Forces a change on first sign-in and revokes active sessions.',
+  })
+  setPassword(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetStudentPasswordDto,
+  ): Promise<void> {
+    return this.students.setLoginPassword(id, dto.password);
   }
 
   @Post(':id/activate')
