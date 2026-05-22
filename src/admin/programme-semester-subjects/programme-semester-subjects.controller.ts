@@ -8,6 +8,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { CreateProgrammeSemesterSubjectDto } from '../dto/create-programme-semester-subject.dto';
 import { ListProgrammeSemesterSubjectsDto } from '../dto/list-programme-semester-subjects.dto';
+import { SetProgrammeSemesterSubjectFacultyDto } from '../dto/set-programme-semester-subject-faculty.dto';
 import { UpdateProgrammeSemesterSubjectDto } from '../dto/update-programme-semester-subject.dto';
 import { ProgrammeSemesterSubject } from '../entities/programme-semester-subject.entity';
 import {
@@ -89,5 +91,31 @@ export class ProgrammeSemesterSubjectsController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<ProgrammeSemesterSubject> {
     return this.entries.setActive(id, false);
+  }
+
+  @Put(':id/faculty')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Replace the faculty allocated to a real-subject entry. Send the full list; an empty list clears it.',
+  })
+  setFaculty(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetProgrammeSemesterSubjectFacultyDto,
+  ): Promise<ProgrammeSemesterSubject> {
+    return this.entries.setFaculty(id, dto.employee_ids);
+  }
+
+  @Put('options/:optionId/faculty')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Replace the faculty allocated to one candidate subject of an open-elective slot. Send the full list; an empty list clears it.",
+  })
+  setOptionFaculty(
+    @Param('optionId', ParseIntPipe) optionId: number,
+    @Body() dto: SetProgrammeSemesterSubjectFacultyDto,
+  ): Promise<ProgrammeSemesterSubject> {
+    return this.entries.setOptionFaculty(optionId, dto.employee_ids);
   }
 }

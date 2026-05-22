@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ProgrammeSemester } from './programme-semester.entity';
+import { ProgrammeSemesterSubjectFaculty } from './programme-semester-subject-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from './programme-semester-subject-option.entity';
 import { Subject } from './subject.entity';
 
@@ -60,6 +61,14 @@ export class ProgrammeSemesterSubject {
     (o) => o.programme_semester_subject,
   )
   options: ProgrammeSemesterSubjectOption[];
+
+  // Faculty allocated to teach this subject. A subject may be taught by
+  // multiple faculty. Loaded via an explicit leftJoin, like `options`.
+  @OneToMany(
+    () => ProgrammeSemesterSubjectFaculty,
+    (f) => f.programme_semester_subject,
+  )
+  faculty: ProgrammeSemesterSubjectFaculty[];
 
   @CreateDateColumn()
   created_at: Date;

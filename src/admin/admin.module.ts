@@ -5,6 +5,8 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdmissionYearsController } from './admission-years/admission-years.controller';
 import { AdmissionYearsService } from './admission-years/admission-years.service';
+import { AttendanceGroupsController } from './attendance-groups/attendance-groups.controller';
+import { AttendanceGroupsService } from './attendance-groups/attendance-groups.service';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { GoogleOidcService } from './auth/google-oidc.service';
@@ -23,6 +25,7 @@ import { EmployeesService } from './employees/employees.service';
 import { AdminRecoveryCode } from './entities/admin-recovery-code.entity';
 import { Admin } from './entities/admin.entity';
 import { AdmissionYear } from './entities/admission-year.entity';
+import { AttendanceGroup } from './entities/attendance-group.entity';
 import { Degree } from './entities/degree.entity';
 import { Department } from './entities/department.entity';
 import { Designation } from './entities/designation.entity';
@@ -31,7 +34,9 @@ import { Programme } from './entities/programme.entity';
 import { ProgrammeAdmissionYear } from './entities/programme-admission-year.entity';
 import { ProgrammeSemester } from './entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from './entities/programme-semester-subject.entity';
+import { ProgrammeSemesterSubjectFaculty } from './entities/programme-semester-subject-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from './entities/programme-semester-subject-option.entity';
+import { ProgrammeSemesterSubjectOptionFaculty } from './entities/programme-semester-subject-option-faculty.entity';
 import { Regulation } from './entities/regulation.entity';
 import { Semester } from './entities/semester.entity';
 import { Subject } from './entities/subject.entity';
@@ -50,6 +55,7 @@ import { RegulationsService } from './regulations/regulations.service';
 import { SemestersController } from './semesters/semesters.controller';
 import { SemestersService } from './semesters/semesters.service';
 import { Student } from './entities/student.entity';
+import { StudentGroup } from './entities/student-group.entity';
 import { StudentModule } from '../student/student.module';
 import { StudentsController } from './students/students.controller';
 import { StudentsService } from './students/students.service';
@@ -64,6 +70,7 @@ import { AdminUsersService } from './users/admin-users.service';
       Admin,
       AdminRecoveryCode,
       AdmissionYear,
+      AttendanceGroup,
       Degree,
       Department,
       Designation,
@@ -72,10 +79,13 @@ import { AdminUsersService } from './users/admin-users.service';
       ProgrammeAdmissionYear,
       ProgrammeSemester,
       ProgrammeSemesterSubject,
+      ProgrammeSemesterSubjectFaculty,
       ProgrammeSemesterSubjectOption,
+      ProgrammeSemesterSubjectOptionFaculty,
       Regulation,
       Semester,
       Student,
+      StudentGroup,
       Subject,
     ]),
     ConfigModule,
@@ -92,6 +102,7 @@ import { AdminUsersService } from './users/admin-users.service';
     DesignationsController,
     EmployeesController,
     AdmissionYearsController,
+    AttendanceGroupsController,
     SemestersController,
     ProgrammesController,
     ProgrammeSemestersController,
@@ -109,6 +120,7 @@ import { AdminUsersService } from './users/admin-users.service';
     DesignationsService,
     EmployeesService,
     AdmissionYearsService,
+    AttendanceGroupsService,
     SemestersService,
     ProgrammesService,
     ProgrammeSemestersService,

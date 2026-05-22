@@ -7,10 +7,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import type { ProgrammeSemesterSubjectsSortField } from '../dto/list-programme-semester-subjects.dto';
+import { Employee } from '../entities/employee.entity';
 import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from '../entities/programme-semester-subject.entity';
+import { ProgrammeSemesterSubjectFaculty } from '../entities/programme-semester-subject-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from '../entities/programme-semester-subject-option.entity';
+import { ProgrammeSemesterSubjectOptionFaculty } from '../entities/programme-semester-subject-option-faculty.entity';
 import { Subject } from '../entities/subject.entity';
 
 export interface ListProgrammeSemesterSubjectsResult {
@@ -56,6 +59,8 @@ export class ProgrammeSemesterSubjectsService {
     private readonly programmeAdmissionYears: Repository<ProgrammeAdmissionYear>,
     @InjectRepository(ProgrammeSemesterSubjectOption)
     private readonly options: Repository<ProgrammeSemesterSubjectOption>,
+    @InjectRepository(Employee)
+    private readonly employees: Repository<Employee>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -72,7 +77,11 @@ export class ProgrammeSemesterSubjectsService {
       .leftJoinAndSelect('pss.programme_semester', 'programme_semester')
       .leftJoinAndSelect('pss.subject', 'subject')
       .leftJoinAndSelect('pss.options', 'options')
-      .leftJoinAndSelect('options.subject', 'option_subject');
+      .leftJoinAndSelect('options.subject', 'option_subject')
+      .leftJoinAndSelect('options.faculty', 'option_faculty')
+      .leftJoinAndSelect('option_faculty.employee', 'option_faculty_employee')
+      .leftJoinAndSelect('pss.faculty', 'faculty')
+      .leftJoinAndSelect('faculty.employee', 'faculty_employee');
 
     if (opts.status === 'active') qb.andWhere('pss.is_active = TRUE');
     else if (opts.status === 'inactive') qb.andWhere('pss.is_active = FALSE');
@@ -86,6 +95,8 @@ export class ProgrammeSemesterSubjectsService {
     qb.orderBy(SORT_COLUMN[opts.sortBy], direction, 'NULLS LAST')
       .addOrderBy('pss.id', 'ASC')
       .addOrderBy('options.id', 'ASC')
+      .addOrderBy('option_faculty.id', 'ASC')
+      .addOrderBy('faculty.id', 'ASC')
       .skip((opts.page - 1) * opts.pageSize)
       .take(opts.pageSize);
 
@@ -106,8 +117,14 @@ export class ProgrammeSemesterSubjectsService {
       .leftJoinAndSelect('pss.subject', 'subject')
       .leftJoinAndSelect('pss.options', 'options')
       .leftJoinAndSelect('options.subject', 'option_subject')
+      .leftJoinAndSelect('options.faculty', 'option_faculty')
+      .leftJoinAndSelect('option_faculty.employee', 'option_faculty_employee')
+      .leftJoinAndSelect('pss.faculty', 'faculty')
+      .leftJoinAndSelect('faculty.employee', 'faculty_employee')
       .where('pss.id = :id', { id })
       .orderBy('options.id', 'ASC')
+      .addOrderBy('option_faculty.id', 'ASC')
+      .addOrderBy('faculty.id', 'ASC')
       .getOne();
     if (!row) throw new NotFoundException('Subject entry not found');
     return row;
@@ -323,6 +340,105 @@ export class ProgrammeSemesterSubjectsService {
     row.is_active = active;
     await this.entries.save(row);
     return this.getOne(id);
+  }
+
+  // Replace the faculty roster for a REAL subject entry. The provided list
+  // becomes the complete set — an empty list clears it. Open-elective slots
+  // are rejected: their faculty are allocated per candidate subject via
+  // setOptionFaculty.
+  async setFaculty(
+    id: number,
+    employeeIds: number[],
+  ): Promise<ProgrammeSemesterSubject> {
+    const row = await this.entries.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Subject entry not found');
+    if (row.subject_id === null) {
+      throw new BadRequestException(
+        'This is an open-elective slot — allocate faculty to its candidate subjects instead.',
+      );
+    }
+
+    await this.assertEmployeesAllocatable(employeeIds);
+
+    // Replace semantics: wipe the existing roster and re-insert. Mirrors how
+    // the elective option pool is kept in sync with the form's snapshot.
+    await this.dataSource.transaction(async (tx) => {
+      const facultyRepo = tx.getRepository(ProgrammeSemesterSubjectFaculty);
+      await facultyRepo.delete({ programme_semester_subject_id: id });
+      if (employeeIds.length > 0) {
+        const rows = employeeIds.map((eid) =>
+          facultyRepo.create({
+            programme_semester_subject_id: id,
+            employee_id: eid,
+          }),
+        );
+        await facultyRepo.save(rows);
+      }
+    });
+
+    return this.getOne(id);
+  }
+
+  // Replace the faculty roster for a single candidate subject of an
+  // open-elective slot. Returns the parent subject entry so the caller gets
+  // the whole refreshed graph (every candidate + its faculty).
+  async setOptionFaculty(
+    optionId: number,
+    employeeIds: number[],
+  ): Promise<ProgrammeSemesterSubject> {
+    const option = await this.options.findOne({ where: { id: optionId } });
+    if (!option) {
+      throw new NotFoundException('Elective candidate subject not found');
+    }
+
+    await this.assertEmployeesAllocatable(employeeIds);
+
+    await this.dataSource.transaction(async (tx) => {
+      const facultyRepo = tx.getRepository(ProgrammeSemesterSubjectOptionFaculty);
+      await facultyRepo.delete({
+        programme_semester_subject_option_id: optionId,
+      });
+      if (employeeIds.length > 0) {
+        const rows = employeeIds.map((eid) =>
+          facultyRepo.create({
+            programme_semester_subject_option_id: optionId,
+            employee_id: eid,
+          }),
+        );
+        await facultyRepo.save(rows);
+      }
+    });
+
+    return this.getOne(option.programme_semester_subject_id);
+  }
+
+  // Validate a faculty roster up-front so a bad id surfaces a 400 instead of
+  // an FK violation mid-transaction. Inactive employees can't be allocated.
+  private async assertEmployeesAllocatable(
+    employeeIds: number[],
+  ): Promise<void> {
+    if (employeeIds.length === 0) return;
+    const found = await this.employees
+      .createQueryBuilder('e')
+      .where('e.id IN (:...ids)', { ids: employeeIds })
+      .getMany();
+    const byId = new Map(found.map((e) => [e.id, e]));
+    const missing = employeeIds.filter((eid) => !byId.has(eid));
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `Unknown faculty id(s): ${missing.join(', ')}`,
+      );
+    }
+    const inactive = employeeIds
+      .map((eid) => byId.get(eid)!)
+      .filter((e) => !e.is_active);
+    if (inactive.length > 0) {
+      throw new BadRequestException(
+        `Inactive faculty can't be allocated: ${inactive
+          .map((e) => e.emp_code)
+          .join(', ')}`,
+      );
+    }
   }
 
   private async assertSubjectMatchesBatchRegulation(

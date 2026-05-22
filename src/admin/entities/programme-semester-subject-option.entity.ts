@@ -4,10 +4,12 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   Unique,
 } from 'typeorm';
 import { ProgrammeSemesterSubject } from './programme-semester-subject.entity';
+import { ProgrammeSemesterSubjectOptionFaculty } from './programme-semester-subject-option-faculty.entity';
 import { Subject } from './subject.entity';
 
 // One row per (elective slot, candidate subject) pair. The slot itself lives
@@ -37,6 +39,14 @@ export class ProgrammeSemesterSubjectOption {
   @ManyToOne(() => Subject, { onDelete: 'RESTRICT', eager: true })
   @JoinColumn({ name: 'subject_id' })
   subject: Subject;
+
+  // Faculty allocated to teach this candidate subject. Loaded via an explicit
+  // leftJoin, like the rest of the programme-semester-subject graph.
+  @OneToMany(
+    () => ProgrammeSemesterSubjectOptionFaculty,
+    (f) => f.programme_semester_subject_option,
+  )
+  faculty: ProgrammeSemesterSubjectOptionFaculty[];
 
   @CreateDateColumn()
   created_at: Date;

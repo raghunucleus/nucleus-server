@@ -1,9 +1,41 @@
+import { BadRequestException } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
-import { ZodValidationPipe, cleanupOpenApiDoc } from 'nestjs-zod';
+import { createZodValidationPipe, cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
+
+// nestjs-zod's default validation exception reports a generic
+// "Validation failed" message and tucks the real Zod issues into a separate
+// field that clients rarely read. This pipe folds the actual issue text into
+// the `message` so the UI can show a useful reason.
+const AppZodValidationPipe = createZodValidationPipe({
+  createValidationException: (error: unknown) => {
+    const issues =
+      error && typeof error === 'object' && 'issues' in error
+        ? (
+            error as {
+              issues?: Array<{
+                path?: Array<string | number>;
+                message?: string;
+              }>;
+            }
+          ).issues
+        : undefined;
+    if (Array.isArray(issues) && issues.length > 0) {
+      const message = issues
+        .map((issue) => {
+          const path = (issue.path ?? []).join('.');
+          return path ? `${path}: ${issue.message}` : issue.message;
+        })
+        .filter(Boolean)
+        .join('; ');
+      if (message) return new BadRequestException(message);
+    }
+    return new BadRequestException('Validation failed');
+  },
+});
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -13,7 +45,7 @@ async function bootstrap() {
   app.useLogger(logger);
   app.useGlobalInterceptors(new LoggerErrorInterceptor());
   app.enableShutdownHooks();
-  app.useGlobalPipes(new ZodValidationPipe());
+  app.useGlobalPipes(new AppZodValidationPipe());
 
   // The student/parent and employee front-ends run on a separate origin (Vite
   // dev server, or a static host in prod). In dev, reflect any origin so the
