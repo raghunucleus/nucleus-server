@@ -64,7 +64,7 @@ export class AttendanceGroupsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Rename an attendance group.' })
+  @ApiOperation({ summary: 'Update an attendance group.' })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAttendanceGroupDto,
@@ -72,13 +72,21 @@ export class AttendanceGroupsController {
     return this.groups.update(id, dto);
   }
 
-  @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @Post(':id/activate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Activate an attendance group.' })
+  activate(@Param('id', ParseIntPipe) id: number): Promise<AttendanceGroup> {
+    return this.groups.setActive(id, true);
+  }
+
+  @Post(':id/deactivate')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Delete an attendance group. Its students become unassigned.',
+    summary:
+      'Deactivate an attendance group. Members are preserved; new assignments are blocked.',
   })
-  remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
-    return this.groups.remove(id);
+  deactivate(@Param('id', ParseIntPipe) id: number): Promise<AttendanceGroup> {
+    return this.groups.setActive(id, false);
   }
 
   @Post(':id/students')

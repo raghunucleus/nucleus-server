@@ -81,6 +81,7 @@ export class AttendanceGroupsService {
     programme_id: number;
     admission_year_id: number;
     name: string;
+    code: string;
     description: string | null;
   }): Promise<AttendanceGroup> {
     const programme = await this.programmes.findOne({
@@ -100,11 +101,17 @@ export class AttendanceGroupsService {
       input.admission_year_id,
       input.name,
     );
+    await this.assertCodeUnique(
+      input.programme_id,
+      input.admission_year_id,
+      input.code,
+    );
     const saved = await this.groups.save(
       this.groups.create({
         programme_id: input.programme_id,
         admission_year_id: input.admission_year_id,
         name: input.name,
+        code: input.code,
         description: input.description,
       }),
     );
@@ -113,7 +120,7 @@ export class AttendanceGroupsService {
 
   async update(
     id: number,
-    patch: { name: string; description: string | null },
+    patch: { name: string; code: string; description: string | null },
   ): Promise<AttendanceGroup> {
     const row = await this.groups.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Attendance group not found');
@@ -125,28 +132,43 @@ export class AttendanceGroupsService {
         id,
       );
     }
+    if (patch.code !== row.code) {
+      await this.assertCodeUnique(
+        row.programme_id,
+        row.admission_year_id,
+        patch.code,
+        id,
+      );
+    }
     row.name = patch.name;
+    row.code = patch.code;
     row.description = patch.description;
     await this.groups.save(row);
     return this.getOne(id);
   }
 
-  // Delete an empty group. A group that still has members can't be deleted —
-  // its students must be moved or removed first.
-  async remove(id: number): Promise<void> {
+  // Toggle a group's active flag. Groups are never hard-deleted — deactivation
+  // takes the slot delete used to fill, so we apply the same precondition:
+  // the group must have no members. Move or remove its students first.
+  async setActive(id: number, active: boolean): Promise<AttendanceGroup> {
     const row = await this.groups.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Attendance group not found');
-    const memberCount = await this.studentGroups.count({
-      where: { attendance_group_id: id },
-    });
-    if (memberCount > 0) {
-      throw new ConflictException(
-        `This group still has ${memberCount} student${
-          memberCount === 1 ? '' : 's'
-        } — move or remove them before deleting it.`,
-      );
+    if (row.is_active === active) return this.getOne(id);
+    if (!active) {
+      const memberCount = await this.studentGroups.count({
+        where: { attendance_group_id: id },
+      });
+      if (memberCount > 0) {
+        throw new ConflictException(
+          `This group still has ${memberCount} student${
+            memberCount === 1 ? '' : 's'
+          } — move or remove them before deactivating it.`,
+        );
+      }
     }
-    await this.groups.remove(row);
+    row.is_active = active;
+    await this.groups.save(row);
+    return this.getOne(id);
   }
 
   // Place students in a group by setting their student_groups.attendance_group
@@ -161,6 +183,11 @@ export class AttendanceGroupsService {
     if (!group) {
       throw new NotFoundException(
         'Attendance group not found — it may have been deleted.',
+      );
+    }
+    if (!group.is_active) {
+      throw new ConflictException(
+        'This attendance group is inactive — reactivate it before adding students.',
       );
     }
 
@@ -259,6 +286,25 @@ export class AttendanceGroupsService {
     if (await qb.getOne()) {
       throw new ConflictException(
         'A group with this name already exists for this programme & year.',
+      );
+    }
+  }
+
+  private async assertCodeUnique(
+    programmeId: number,
+    admissionYearId: number,
+    code: string,
+    excludeId?: number,
+  ): Promise<void> {
+    const qb = this.groups
+      .createQueryBuilder('g')
+      .where('g.programme_id = :pid', { pid: programmeId })
+      .andWhere('g.admission_year_id = :ayid', { ayid: admissionYearId })
+      .andWhere('LOWER(g.code) = LOWER(:code)', { code });
+    if (excludeId !== undefined) qb.andWhere('g.id != :id', { id: excludeId });
+    if (await qb.getOne()) {
+      throw new ConflictException(
+        'A group with this code already exists for this programme & year.',
       );
     }
   }

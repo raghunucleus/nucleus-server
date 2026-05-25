@@ -26,6 +26,11 @@ import { StudentGroup } from './student-group.entity';
   'admission_year_id',
   'name',
 ])
+@Unique('UQ_att_groups_prog_year_code', [
+  'programme_id',
+  'admission_year_id',
+  'code',
+])
 @Index('IDX_att_groups_programme_id_admission_year_id', [
   'programme_id',
   'admission_year_id',
@@ -51,9 +56,20 @@ export class AttendanceGroup {
   @Column({ type: 'varchar', length: 64 })
   name: string;
 
+  // Short identifier shown alongside name (e.g. "A", "MORN-1"). Unique within
+  // a programme × admission-year batch.
+  @Column({ type: 'varchar', length: 32 })
+  code: string;
+
   // Optional free-text note about the group (e.g. "Morning lab batch").
   @Column({ type: 'varchar', length: 256, nullable: true })
   description: string | null;
+
+  // Soft-delete flag. Groups can never be hard-deleted — deactivating hides
+  // them from new assignments while preserving historical membership and any
+  // timetable links.
+  @Column({ type: 'boolean', default: true })
+  is_active: boolean;
 
   // Members of the group — student_groups rows whose attendance_group_id
   // points here. Loaded via an explicit leftJoin in the service.

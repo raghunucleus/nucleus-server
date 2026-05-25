@@ -40,6 +40,11 @@ import { ProgrammeSemesterSubjectOptionFaculty } from './entities/programme-seme
 import { Regulation } from './entities/regulation.entity';
 import { Semester } from './entities/semester.entity';
 import { Subject } from './entities/subject.entity';
+import { Timetable } from './entities/timetable.entity';
+import { TimetableCourse } from './entities/timetable-course.entity';
+import { TimetableCourseFaculty } from './entities/timetable-course-faculty.entity';
+import { TimetableEntry } from './entities/timetable-entry.entity';
+import { TimetablePeriod } from './entities/timetable-period.entity';
 import { MigrationsController } from './migrations/migrations.controller';
 import { MigrationsService } from './migrations/migrations.service';
 import { ProgrammeAdmissionYearsController } from './programme-admission-years/programme-admission-years.controller';
@@ -61,6 +66,8 @@ import { StudentsController } from './students/students.controller';
 import { StudentsService } from './students/students.service';
 import { SubjectsController } from './subjects/subjects.controller';
 import { SubjectsService } from './subjects/subjects.service';
+import { TimetablesController } from './timetables/timetables.controller';
+import { TimetablesService } from './timetables/timetables.service';
 import { AdminUsersController } from './users/admin-users.controller';
 import { AdminUsersService } from './users/admin-users.service';
 
@@ -87,6 +94,11 @@ import { AdminUsersService } from './users/admin-users.service';
       Student,
       StudentGroup,
       Subject,
+      Timetable,
+      TimetablePeriod,
+      TimetableCourse,
+      TimetableCourseFaculty,
+      TimetableEntry,
     ]),
     ConfigModule,
     PassportModule.register({ defaultStrategy: 'admin-jwt' }),
@@ -111,6 +123,7 @@ import { AdminUsersService } from './users/admin-users.service';
     RegulationsController,
     StudentsController,
     SubjectsController,
+    TimetablesController,
   ],
   providers: [
     AdminService,
@@ -129,6 +142,7 @@ import { AdminUsersService } from './users/admin-users.service';
     RegulationsService,
     StudentsService,
     SubjectsService,
+    TimetablesService,
     JwtStrategy,
     MigrationsService,
     TotpService,
