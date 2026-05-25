@@ -37,6 +37,7 @@ import { ProgrammeSemesterSubject } from './entities/programme-semester-subject.
 import { ProgrammeSemesterSubjectFaculty } from './entities/programme-semester-subject-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from './entities/programme-semester-subject-option.entity';
 import { ProgrammeSemesterSubjectOptionFaculty } from './entities/programme-semester-subject-option-faculty.entity';
+import { ProgrammeSemesterSubjectOptionStudent } from './entities/programme-semester-subject-option-student.entity';
 import { Regulation } from './entities/regulation.entity';
 import { Semester } from './entities/semester.entity';
 import { Subject } from './entities/subject.entity';
@@ -51,6 +52,8 @@ import { ProgrammeAdmissionYearsController } from './programme-admission-years/p
 import { ProgrammeAdmissionYearsService } from './programme-admission-years/programme-admission-years.service';
 import { ProgrammeSemesterSubjectsController } from './programme-semester-subjects/programme-semester-subjects.controller';
 import { ProgrammeSemesterSubjectsService } from './programme-semester-subjects/programme-semester-subjects.service';
+import { SlotEnrollmentsController } from './programme-semester-subjects/slot-enrollments.controller';
+import { SlotEnrollmentsService } from './programme-semester-subjects/slot-enrollments.service';
 import { ProgrammeSemestersController } from './programme-semesters/programme-semesters.controller';
 import { ProgrammeSemestersService } from './programme-semesters/programme-semesters.service';
 import { ProgrammesController } from './programmes/programmes.controller';
@@ -64,6 +67,12 @@ import { StudentGroup } from './entities/student-group.entity';
 import { StudentModule } from '../student/student.module';
 import { StudentsController } from './students/students.controller';
 import { StudentsService } from './students/students.service';
+import { SubjectType } from './entities/subject-type.entity';
+import { SubjectTypeMarkStructure } from './entities/subject-type-mark-structure.entity';
+import { SubjectTypeMarkStructuresController } from './subject-type-mark-structures/subject-type-mark-structures.controller';
+import { SubjectTypeMarkStructuresService } from './subject-type-mark-structures/subject-type-mark-structures.service';
+import { SubjectTypesController } from './subject-types/subject-types.controller';
+import { SubjectTypesService } from './subject-types/subject-types.service';
 import { SubjectsController } from './subjects/subjects.controller';
 import { SubjectsService } from './subjects/subjects.service';
 import { TimetablesController } from './timetables/timetables.controller';
@@ -89,11 +98,14 @@ import { AdminUsersService } from './users/admin-users.service';
       ProgrammeSemesterSubjectFaculty,
       ProgrammeSemesterSubjectOption,
       ProgrammeSemesterSubjectOptionFaculty,
+      ProgrammeSemesterSubjectOptionStudent,
       Regulation,
       Semester,
       Student,
       StudentGroup,
       Subject,
+      SubjectType,
+      SubjectTypeMarkStructure,
       Timetable,
       TimetablePeriod,
       TimetableCourse,
@@ -120,9 +132,12 @@ import { AdminUsersService } from './users/admin-users.service';
     ProgrammeSemestersController,
     ProgrammeAdmissionYearsController,
     ProgrammeSemesterSubjectsController,
+    SlotEnrollmentsController,
     RegulationsController,
     StudentsController,
     SubjectsController,
+    SubjectTypesController,
+    SubjectTypeMarkStructuresController,
     TimetablesController,
   ],
   providers: [
@@ -139,9 +154,12 @@ import { AdminUsersService } from './users/admin-users.service';
     ProgrammeSemestersService,
     ProgrammeAdmissionYearsService,
     ProgrammeSemesterSubjectsService,
+    SlotEnrollmentsService,
     RegulationsService,
     StudentsService,
     SubjectsService,
+    SubjectTypesService,
+    SubjectTypeMarkStructuresService,
     TimetablesService,
     JwtStrategy,
     MigrationsService,

@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Regulation } from './regulation.entity';
+import { SubjectType } from './subject-type.entity';
 
 @Entity({ name: 'subjects' })
 // Subject code is globally unique across all regulations. Names are unique
@@ -25,6 +26,13 @@ export class Subject {
   @ManyToOne(() => Regulation, { onDelete: 'RESTRICT', eager: true })
   @JoinColumn({ name: 'regulation_id' })
   regulation: Regulation;
+
+  @Column({ type: 'int' })
+  subject_type_id: number;
+
+  @ManyToOne(() => SubjectType, { onDelete: 'RESTRICT', eager: true })
+  @JoinColumn({ name: 'subject_type_id' })
+  subject_type: SubjectType;
 
   @Column({ type: 'varchar', length: 32 })
   code: string;

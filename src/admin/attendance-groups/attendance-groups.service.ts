@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { AttendanceGroup } from '../entities/attendance-group.entity';
+import { Employee } from '../entities/employee.entity';
 import { Programme } from '../entities/programme.entity';
 import { Student } from '../entities/student.entity';
 import { StudentGroup } from '../entities/student-group.entity';
@@ -25,6 +26,8 @@ export class AttendanceGroupsService {
     private readonly admissionYears: Repository<AdmissionYear>,
     @InjectRepository(Student)
     private readonly students: Repository<Student>,
+    @InjectRepository(Employee)
+    private readonly employees: Repository<Employee>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -39,6 +42,8 @@ export class AttendanceGroupsService {
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.members', 'members')
       .leftJoinAndSelect('members.student', 'member_student')
+      .leftJoin('g.group_incharge', 'gi')
+      .addSelect(['gi.id', 'gi.emp_code', 'gi.emp_display_name'])
       .where('g.programme_id = :pid', { pid: programmeId })
       .andWhere('g.admission_year_id = :ayid', { ayid: admissionYearId })
       .orderBy('g.name', 'ASC')
@@ -51,6 +56,8 @@ export class AttendanceGroupsService {
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.members', 'members')
       .leftJoinAndSelect('members.student', 'member_student')
+      .leftJoin('g.group_incharge', 'gi')
+      .addSelect(['gi.id', 'gi.emp_code', 'gi.emp_display_name'])
       .where('g.id = :id', { id })
       .orderBy('member_student.student_id', 'ASC')
       .getOne();
@@ -82,6 +89,7 @@ export class AttendanceGroupsService {
     admission_year_id: number;
     name: string;
     code: string;
+    group_incharge_employee_id: number;
     description: string | null;
   }): Promise<AttendanceGroup> {
     const programme = await this.programmes.findOne({
@@ -96,6 +104,7 @@ export class AttendanceGroupsService {
     if (!year) {
       throw new BadRequestException('Selected admission year does not exist');
     }
+    await this.assertEmployeeExists(input.group_incharge_employee_id);
     await this.assertNameUnique(
       input.programme_id,
       input.admission_year_id,
@@ -112,6 +121,7 @@ export class AttendanceGroupsService {
         admission_year_id: input.admission_year_id,
         name: input.name,
         code: input.code,
+        group_incharge_employee_id: input.group_incharge_employee_id,
         description: input.description,
       }),
     );
@@ -120,7 +130,12 @@ export class AttendanceGroupsService {
 
   async update(
     id: number,
-    patch: { name: string; code: string; description: string | null },
+    patch: {
+      name: string;
+      code: string;
+      group_incharge_employee_id: number;
+      description: string | null;
+    },
   ): Promise<AttendanceGroup> {
     const row = await this.groups.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Attendance group not found');
@@ -140,8 +155,12 @@ export class AttendanceGroupsService {
         id,
       );
     }
+    if (patch.group_incharge_employee_id !== row.group_incharge_employee_id) {
+      await this.assertEmployeeExists(patch.group_incharge_employee_id);
+    }
     row.name = patch.name;
     row.code = patch.code;
+    row.group_incharge_employee_id = patch.group_incharge_employee_id;
     row.description = patch.description;
     await this.groups.save(row);
     return this.getOne(id);
@@ -269,6 +288,16 @@ export class AttendanceGroupsService {
       { attendance_group_id: null },
     );
     return this.getOne(groupId);
+  }
+
+  private async assertEmployeeExists(employeeId: number): Promise<void> {
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new BadRequestException('Selected group in-charge employee does not exist');
+    }
   }
 
   private async assertNameUnique(

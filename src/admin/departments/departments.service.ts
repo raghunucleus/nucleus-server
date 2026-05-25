@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { DepartmentsSortField } from '../dto/list-departments.dto';
 import { Department } from '../entities/department.entity';
+import { Employee } from '../entities/employee.entity';
 
 export interface ListDepartmentsResult {
   rows: Department[];
@@ -29,12 +31,14 @@ interface CreateDepartmentInput {
   name: string;
   code: string;
   short_name: string;
+  hod_employee_id?: number | null;
 }
 
 interface UpdateDepartmentInput {
   name?: string;
   code?: string;
   short_name?: string;
+  hod_employee_id?: number | null;
 }
 
 @Injectable()
@@ -42,6 +46,8 @@ export class DepartmentsService {
   constructor(
     @InjectRepository(Department)
     private readonly departments: Repository<Department>,
+    @InjectRepository(Employee)
+    private readonly employees: Repository<Employee>,
   ) {}
 
   async list(opts: {
@@ -54,7 +60,10 @@ export class DepartmentsService {
     shortNameSearch?: string;
     status?: 'active' | 'inactive';
   }): Promise<ListDepartmentsResult> {
-    const qb = this.departments.createQueryBuilder('d');
+    const qb = this.departments
+      .createQueryBuilder('d')
+      .leftJoin('d.hod', 'hod')
+      .addSelect(['hod.id', 'hod.emp_code', 'hod.emp_display_name']);
 
     if (opts.nameSearch) {
       qb.andWhere('LOWER(d.name) LIKE :nn', {
@@ -97,7 +106,12 @@ export class DepartmentsService {
   }
 
   async getOne(id: number): Promise<Department> {
-    const department = await this.departments.findOne({ where: { id } });
+    const department = await this.departments
+      .createQueryBuilder('d')
+      .leftJoin('d.hod', 'hod')
+      .addSelect(['hod.id', 'hod.emp_code', 'hod.emp_display_name'])
+      .where('d.id = :id', { id })
+      .getOne();
     if (!department) throw new NotFoundException('Department not found');
     return department;
   }
@@ -109,13 +123,19 @@ export class DepartmentsService {
       short_name: input.short_name,
     });
 
+    if (input.hod_employee_id !== undefined && input.hod_employee_id !== null) {
+      await this.assertEmployeeExists(input.hod_employee_id);
+    }
+
     const department = this.departments.create({
       name: input.name,
       code: input.code,
       short_name: input.short_name,
+      hod_employee_id: input.hod_employee_id ?? null,
       is_active: true,
     });
-    return this.departments.save(department);
+    const saved = await this.departments.save(department);
+    return this.getOne(saved.id);
   }
 
   async update(id: number, patch: UpdateDepartmentInput): Promise<Department> {
@@ -138,21 +158,41 @@ export class DepartmentsService {
       excludeId: id,
     });
 
+    if (
+      patch.hod_employee_id !== undefined &&
+      patch.hod_employee_id !== null &&
+      patch.hod_employee_id !== department.hod_employee_id
+    ) {
+      await this.assertEmployeeExists(patch.hod_employee_id);
+    }
+
     if (patch.name !== undefined) department.name = patch.name;
     if (patch.code !== undefined) department.code = patch.code;
     if (patch.short_name !== undefined) department.short_name = patch.short_name;
+    if (patch.hod_employee_id !== undefined)
+      department.hod_employee_id = patch.hod_employee_id;
 
-    return this.departments.save(department);
+    await this.departments.save(department);
+    return this.getOne(id);
   }
 
   async setActive(id: number, active: boolean): Promise<Department> {
     const department = await this.departments.findOne({ where: { id } });
     if (!department) throw new NotFoundException('Department not found');
 
-    if (department.is_active === active) return department;
+    if (department.is_active === active) return this.getOne(id);
 
     department.is_active = active;
-    return this.departments.save(department);
+    await this.departments.save(department);
+    return this.getOne(id);
+  }
+
+  private async assertEmployeeExists(employeeId: number): Promise<void> {
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+      select: { id: true },
+    });
+    if (!employee) throw new BadRequestException('HOD employee not found');
   }
 
   private async assertUnique(opts: {

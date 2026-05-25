@@ -29,6 +29,7 @@ export const ListSubjectsSchema = z.object({
   nameSearch: optionalSearchString,
   status: z.enum(['active', 'inactive']).optional(),
   regulationId: z.coerce.number().int().positive().optional(),
+  subjectTypeId: z.coerce.number().int().positive().optional(),
 });
 
 export class ListSubjectsDto extends createZodDto(ListSubjectsSchema) {}

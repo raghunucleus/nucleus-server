@@ -17,6 +17,7 @@ export const UpdateDepartmentSchema = z
       )
       .optional(),
     short_name: z.string().trim().min(1).max(64).optional(),
+    hod_employee_id: z.coerce.number().int().positive().nullable().optional(),
   })
   .strict();
 

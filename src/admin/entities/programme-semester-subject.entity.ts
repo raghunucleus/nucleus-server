@@ -13,10 +13,21 @@ import { ProgrammeSemesterSubjectFaculty } from './programme-semester-subject-fa
 import { ProgrammeSemesterSubjectOption } from './programme-semester-subject-option.entity';
 import { Subject } from './subject.entity';
 
+export const PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES = [
+  'open_elective',
+  'honors',
+  'minors',
+] as const;
+
+export type ProgrammeSemesterSubjectSlotType =
+  (typeof PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES)[number];
+
 // A row represents EITHER a real subject offered in this batch's semester
-// (subject_id set, placeholder_name null) OR an unfilled open-elective slot
+// (subject_id set, placeholder_name + slot_type null) OR an unfilled slot
 // the student will later choose to fill (subject_id null, placeholder_name
-// set, e.g. "Open Elective 1"; with a candidate-subject pool via `options`).
+// + slot_type set; with a candidate-subject pool via `options`). slot_type
+// is one of 'open_elective' | 'honors' | 'minors' — same shape, different
+// category for downstream consumers / display.
 //
 // The partial unique index on (programme_semester_id, subject_id) WHERE
 // subject_id IS NOT NULL stops the same real subject being added twice to
@@ -40,10 +51,16 @@ export class ProgrammeSemesterSubject {
   @JoinColumn({ name: 'subject_id' })
   subject: Subject | null;
 
-  // Used only for elective slots (subject_id is null). For real subjects we
+  // Used only for slot rows (subject_id is null). For real subjects we
   // read the name off the joined `subject` row.
   @Column({ type: 'varchar', length: 64, nullable: true })
   placeholder_name: string | null;
+
+  // Slot category — null for real-subject rows; one of 'open_elective',
+  // 'honors', 'minors' for slot rows. The DB enforces this pairing via
+  // CHK_pss_slot_type_with_placeholder.
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  slot_type: ProgrammeSemesterSubjectSlotType | null;
 
   // Numeric with a single decimal place — covers integer credits (3, 4) and
   // half-credit subjects (1.5, 0.5).

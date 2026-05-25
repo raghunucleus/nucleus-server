@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES } from '../entities/programme-semester-subject.entity';
 
 // programme_semester_id is fixed at creation (a row is "owned" by that
 // semester). To re-target, delete and recreate.
@@ -19,10 +20,14 @@ export const UpdateProgrammeSemesterSubjectSchema = z
       .transform((v) =>
         typeof v === 'string' && v === '' ? null : v,
       ),
-    credits: z.coerce.number().multipleOf(0.5).min(0.5).max(30).optional(),
+    credits: z.coerce.number().multipleOf(0.5).min(0).max(30).optional(),
+    // null clears slot_type (only valid when swapping to a real subject in
+    // the same patch). For slot-to-slot category changes, pass the new value.
+    slot_type: z
+      .union([z.enum(PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES), z.null()])
+      .optional(),
     // When provided, REPLACES the existing candidate pool wholesale. Only
-    // meaningful for elective slots; rejected for real subjects in the
-    // service layer.
+    // meaningful for slot rows; rejected for real subjects in the service.
     option_subject_ids: z
       .array(z.coerce.number().int().positive())
       .max(50)

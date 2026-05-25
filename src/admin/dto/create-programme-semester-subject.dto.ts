@@ -1,9 +1,11 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES } from '../entities/programme-semester-subject.entity';
 
-// One of `subject_id` (real subject) or `placeholder_name` (open-elective
-// slot) must be set, never both. `option_subject_ids` is the candidate
-// pool for an elective slot and is required when the row is an elective.
+// One of `subject_id` (real subject) or `placeholder_name` (slot row) must
+// be set, never both. For slot rows, `slot_type` chooses the category
+// (open_elective / honors / minors) and `option_subject_ids` lists the
+// candidate pool — both required when the row is a slot.
 export const CreateProgrammeSemesterSubjectSchema = z
   .object({
     programme_semester_id: z.coerce.number().int().positive(),
@@ -15,13 +17,15 @@ export const CreateProgrammeSemesterSubjectSchema = z
       .max(64)
       .optional()
       .transform((v) => (v === '' || v === undefined ? undefined : v)),
+    slot_type: z.enum(PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES).optional(),
     option_subject_ids: z
       .array(z.coerce.number().int().positive())
       .max(50)
       .optional(),
     // Credits as a number on the wire; serialised back as numeric in PG. One
-    // decimal place; range 0.5 to 30 covers all practical credit values.
-    credits: z.coerce.number().multipleOf(0.5).min(0.5).max(30),
+    // decimal place; 0 is allowed for non-credit subjects (audit / seminar /
+    // mandatory non-graded entries); upper bound 30 covers all practical values.
+    credits: z.coerce.number().multipleOf(0.5).min(0).max(30),
   })
   .strict()
   .superRefine((val, ctx) => {
@@ -32,26 +36,41 @@ export const CreateProgrammeSemesterSubjectSchema = z
       ctx.addIssue({
         code: 'custom',
         message:
-          'Provide exactly one of subject_id (real subject) or placeholder_name (elective slot)',
+          'Provide exactly one of subject_id (real subject) or placeholder_name (slot)',
         path: ['subject_id'],
       });
       return;
     }
-    // Real subject rows never carry an option pool.
+    // Real subject rows never carry a slot_type or option pool.
+    if (hasSubject && val.slot_type !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'slot_type is only valid for slot rows',
+        path: ['slot_type'],
+      });
+    }
     if (hasSubject && val.option_subject_ids && val.option_subject_ids.length > 0) {
       ctx.addIssue({
         code: 'custom',
-        message: 'option_subject_ids is only valid for open-elective slots',
+        message: 'option_subject_ids is only valid for slot rows',
         path: ['option_subject_ids'],
       });
     }
-    // Elective slots must list at least one candidate subject.
+    // Slot rows must specify which kind of slot they are + at least one
+    // candidate subject.
     if (hasPlaceholder) {
+      if (val.slot_type === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'slot_type is required for slot rows',
+          path: ['slot_type'],
+        });
+      }
       const options = val.option_subject_ids ?? [];
       if (options.length === 0) {
         ctx.addIssue({
           code: 'custom',
-          message: 'Pick at least one candidate subject for the elective slot',
+          message: 'Pick at least one candidate subject for the slot',
           path: ['option_subject_ids'],
         });
       }

@@ -1,11 +1,9 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-// regulation_id is intentionally not editable here — a subject's regulation
-// is fixed at creation. subject_type IS editable.
-export const UpdateSubjectSchema = z
+export const UpdateSubjectTypeSchema = z
   .object({
-    subject_type_id: z.coerce.number().int().positive().optional(),
+    name: z.string().trim().min(1).max(128).optional(),
     code: z
       .string()
       .trim()
@@ -18,8 +16,7 @@ export const UpdateSubjectSchema = z
           .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
       )
       .optional(),
-    name: z.string().trim().min(1).max(255).optional(),
   })
   .strict();
 
-export class UpdateSubjectDto extends createZodDto(UpdateSubjectSchema) {}
+export class UpdateSubjectTypeDto extends createZodDto(UpdateSubjectTypeSchema) {}

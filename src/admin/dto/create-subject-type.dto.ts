@@ -1,10 +1,9 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-export const CreateSubjectSchema = z
+export const CreateSubjectTypeSchema = z
   .object({
-    regulation_id: z.coerce.number().int().positive(),
-    subject_type_id: z.coerce.number().int().positive(),
+    name: z.string().trim().min(1).max(128),
     code: z
       .string()
       .trim()
@@ -16,8 +15,7 @@ export const CreateSubjectSchema = z
           .string()
           .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
       ),
-    name: z.string().trim().min(1).max(255),
   })
   .strict();
 
-export class CreateSubjectDto extends createZodDto(CreateSubjectSchema) {}
+export class CreateSubjectTypeDto extends createZodDto(CreateSubjectTypeSchema) {}

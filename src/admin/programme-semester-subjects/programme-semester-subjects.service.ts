@@ -10,10 +10,14 @@ import type { ProgrammeSemesterSubjectsSortField } from '../dto/list-programme-s
 import { Employee } from '../entities/employee.entity';
 import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
-import { ProgrammeSemesterSubject } from '../entities/programme-semester-subject.entity';
+import {
+  ProgrammeSemesterSubject,
+  type ProgrammeSemesterSubjectSlotType,
+} from '../entities/programme-semester-subject.entity';
 import { ProgrammeSemesterSubjectFaculty } from '../entities/programme-semester-subject-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from '../entities/programme-semester-subject-option.entity';
 import { ProgrammeSemesterSubjectOptionFaculty } from '../entities/programme-semester-subject-option-faculty.entity';
+import { ProgrammeSemesterSubjectOptionStudent } from '../entities/programme-semester-subject-option-student.entity';
 import { Subject } from '../entities/subject.entity';
 
 export interface ListProgrammeSemesterSubjectsResult {
@@ -35,6 +39,7 @@ interface CreateInput {
   programme_semester_id: number;
   subject_id?: number;
   placeholder_name?: string;
+  slot_type?: ProgrammeSemesterSubjectSlotType;
   option_subject_ids?: number[];
   credits: number;
 }
@@ -42,6 +47,7 @@ interface CreateInput {
 interface UpdateInput {
   subject_id?: number | null;
   placeholder_name?: string | null;
+  slot_type?: ProgrammeSemesterSubjectSlotType | null;
   credits?: number;
   option_subject_ids?: number[];
 }
@@ -59,6 +65,8 @@ export class ProgrammeSemesterSubjectsService {
     private readonly programmeAdmissionYears: Repository<ProgrammeAdmissionYear>,
     @InjectRepository(ProgrammeSemesterSubjectOption)
     private readonly options: Repository<ProgrammeSemesterSubjectOption>,
+    @InjectRepository(ProgrammeSemesterSubjectOptionStudent)
+    private readonly optionStudents: Repository<ProgrammeSemesterSubjectOptionStudent>,
     @InjectRepository(Employee)
     private readonly employees: Repository<Employee>,
     private readonly dataSource: DataSource,
@@ -138,11 +146,11 @@ export class ProgrammeSemesterSubjectsService {
       throw new BadRequestException('Selected programme semester does not exist');
     }
 
-    const isElective = input.subject_id === undefined;
+    const isSlot = input.subject_id === undefined;
 
     // Real subject: must exist + belong to the batch's regulation, and not
     // already be configured for this semester.
-    if (!isElective) {
+    if (!isSlot) {
       const subject = await this.subjects.findOne({
         where: { id: input.subject_id! },
       });
@@ -159,12 +167,16 @@ export class ProgrammeSemesterSubjectsService {
         input.subject_id!,
       );
     } else {
-      // Elective: validate the option pool up-front so a bad subject id
-      // surfaces a 400 instead of an FK violation mid-transaction.
+      // Slot row: must specify which slot category it is and at least one
+      // candidate subject. Validate the option pool up-front so a bad
+      // subject id surfaces a 400 instead of an FK violation mid-transaction.
+      if (input.slot_type === undefined) {
+        throw new BadRequestException('slot_type is required for slot rows');
+      }
       const optionIds = input.option_subject_ids ?? [];
       if (optionIds.length === 0) {
         throw new BadRequestException(
-          'Pick at least one candidate subject for the elective slot',
+          'Pick at least one candidate subject for the slot',
         );
       }
       await this.validateOptionSubjects(
@@ -186,12 +198,13 @@ export class ProgrammeSemesterSubjectsService {
         programme_semester_id: input.programme_semester_id,
         subject_id: input.subject_id ?? null,
         placeholder_name: input.placeholder_name ?? null,
+        slot_type: isSlot ? input.slot_type! : null,
         credits: input.credits.toFixed(1),
         is_active: true,
       });
       const saved = await entryRepo.save(row);
 
-      if (isElective && input.option_subject_ids?.length) {
+      if (isSlot && input.option_subject_ids?.length) {
         const optionRows = input.option_subject_ids.map((sid) =>
           optionRepo.create({
             programme_semester_subject_id: saved.id,
@@ -222,6 +235,8 @@ export class ProgrammeSemesterSubjectsService {
       patch.placeholder_name !== undefined
         ? patch.placeholder_name
         : row.placeholder_name;
+    const nextSlotType =
+      patch.slot_type !== undefined ? patch.slot_type : row.slot_type;
 
     const hasSubject = nextSubjectId !== null && nextSubjectId !== undefined;
     const hasPlaceholder =
@@ -230,15 +245,23 @@ export class ProgrammeSemesterSubjectsService {
       nextPlaceholder !== '';
     if (hasSubject === hasPlaceholder) {
       throw new BadRequestException(
-        'Provide exactly one of subject_id (real subject) or placeholder_name (elective slot)',
+        'Provide exactly one of subject_id (real subject) or placeholder_name (slot)',
       );
     }
 
-    // Real-subject rows must not carry an option pool.
+    // Real-subject rows must not carry an option pool or slot_type.
     if (hasSubject && patch.option_subject_ids && patch.option_subject_ids.length > 0) {
       throw new BadRequestException(
-        'option_subject_ids is only valid for open-elective slots',
+        'option_subject_ids is only valid for slot rows',
       );
+    }
+    if (hasSubject && nextSlotType !== null) {
+      throw new BadRequestException(
+        'slot_type is only valid for slot rows',
+      );
+    }
+    if (!hasSubject && (nextSlotType === null || nextSlotType === undefined)) {
+      throw new BadRequestException('slot_type is required for slot rows');
     }
 
     if (
@@ -276,7 +299,7 @@ export class ProgrammeSemesterSubjectsService {
     if (!hasSubject && patch.option_subject_ids !== undefined) {
       if (patch.option_subject_ids.length === 0) {
         throw new BadRequestException(
-          'Pick at least one candidate subject for the elective slot',
+          'Pick at least one candidate subject for the slot',
         );
       }
       const ps = await this.programmeSemesters.findOne({
@@ -291,10 +314,10 @@ export class ProgrammeSemesterSubjectsService {
       }
     }
 
-    // If the row is becoming a real subject (was elective before), drop any
+    // If the row is becoming a real subject (was a slot before), drop any
     // existing options as part of the transition.
-    const wasElective = row.subject_id === null;
-    const optionsBecomeStale = hasSubject && wasElective;
+    const wasSlot = row.subject_id === null;
+    const optionsBecomeStale = hasSubject && wasSlot;
 
     await this.dataSource.transaction(async (tx) => {
       const entryRepo = tx.getRepository(ProgrammeSemesterSubject);
@@ -303,6 +326,10 @@ export class ProgrammeSemesterSubjectsService {
       if (patch.subject_id !== undefined) row.subject_id = patch.subject_id;
       if (patch.placeholder_name !== undefined)
         row.placeholder_name = patch.placeholder_name;
+      if (patch.slot_type !== undefined) row.slot_type = patch.slot_type;
+      // Switching to a real subject implicitly clears slot_type even if the
+      // patch didn't mention it, mirroring how options become stale.
+      if (hasSubject) row.slot_type = null;
       if (patch.credits !== undefined) row.credits = patch.credits.toFixed(1);
 
       await entryRepo.save(row);
@@ -311,7 +338,7 @@ export class ProgrammeSemesterSubjectsService {
         await optionRepo.delete({ programme_semester_subject_id: id });
       } else if (
         patch.option_subject_ids !== undefined &&
-        !hasSubject /* elective */
+        !hasSubject /* slot */
       ) {
         // Replace semantics: wipe existing pool and re-insert. Simpler than
         // computing diffs and correctly handles re-ordering / dedupe.
@@ -354,7 +381,7 @@ export class ProgrammeSemesterSubjectsService {
     if (!row) throw new NotFoundException('Subject entry not found');
     if (row.subject_id === null) {
       throw new BadRequestException(
-        'This is an open-elective slot — allocate faculty to its candidate subjects instead.',
+        'This is a slot row — allocate faculty to its candidate subjects instead.',
       );
     }
 
@@ -389,6 +416,20 @@ export class ProgrammeSemesterSubjectsService {
     const option = await this.options.findOne({ where: { id: optionId } });
     if (!option) {
       throw new NotFoundException('Elective candidate subject not found');
+    }
+
+    // Block emptying the faculty list when students are enrolled in this
+    // candidate — a class can't run without a teacher, and downstream
+    // timetable / attendance flows depend on at least one faculty being set.
+    if (employeeIds.length === 0) {
+      const enrolled = await this.optionStudents.count({
+        where: { programme_semester_subject_option_id: optionId },
+      });
+      if (enrolled > 0) {
+        throw new BadRequestException(
+          `Can't remove all faculty — ${enrolled} student${enrolled === 1 ? ' is' : 's are'} enrolled in this candidate. Unenroll them first.`,
+        );
+      }
     }
 
     await this.assertEmployeesAllocatable(employeeIds);

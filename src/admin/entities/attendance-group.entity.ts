@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { AdmissionYear } from './admission-year.entity';
+import { Employee } from './employee.entity';
 import { Programme } from './programme.entity';
 import { StudentGroup } from './student-group.entity';
 
@@ -34,6 +35,9 @@ import { StudentGroup } from './student-group.entity';
 @Index('IDX_att_groups_programme_id_admission_year_id', [
   'programme_id',
   'admission_year_id',
+])
+@Index('IDX_att_groups_group_incharge_employee_id', [
+  'group_incharge_employee_id',
 ])
 export class AttendanceGroup {
   @PrimaryGeneratedColumn()
@@ -64,6 +68,17 @@ export class AttendanceGroup {
   // Optional free-text note about the group (e.g. "Morning lab batch").
   @Column({ type: 'varchar', length: 256, nullable: true })
   description: string | null;
+
+  // Employee assigned as the group's in-charge. Nullable in the DB so groups
+  // created before this column existed can survive the migration; new groups
+  // are required to set one via the DTO.
+  @Column({ type: 'int', nullable: true })
+  group_incharge_employee_id: number | null;
+
+  // Non-eager to avoid a cycle with Employee.department (which is eager).
+  @ManyToOne(() => Employee, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'group_incharge_employee_id' })
+  group_incharge: Employee | null;
 
   // Soft-delete flag. Groups can never be hard-deleted — deactivating hides
   // them from new assignments while preserving historical membership and any
