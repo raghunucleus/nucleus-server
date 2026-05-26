@@ -62,6 +62,7 @@ import { RegulationsController } from './regulations/regulations.controller';
 import { RegulationsService } from './regulations/regulations.service';
 import { SemestersController } from './semesters/semesters.controller';
 import { SemestersService } from './semesters/semesters.service';
+import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
 import { Student } from './entities/student.entity';
 import { StudentGroup } from './entities/student-group.entity';
 import { StudentModule } from '../student/student.module';
@@ -116,6 +117,7 @@ import { AdminUsersService } from './users/admin-users.service';
     PassportModule.register({ defaultStrategy: 'admin-jwt' }),
     JwtModule.register({}),
     StudentModule,
+    EmployeeAuthModule,
   ],
   controllers: [
     AdminController,

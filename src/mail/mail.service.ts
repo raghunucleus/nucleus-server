@@ -173,6 +173,91 @@ export class MailService {
    * short-lived token; nothing actionable is exposed if the email is read by
    * someone else after the token has expired or been used.
    */
+  /**
+   * Sent when an admin provisions or resets an employee's login. Mirrors the
+   * student variant — the employee is forced to replace the temporary password
+   * on first login.
+   */
+  async sendEmployeeTempPassword(params: {
+    to: string;
+    displayName: string;
+    empCode: string;
+    tempPassword: string;
+    loginUrl: string;
+  }): Promise<void> {
+    const subject = 'Your Nucleus employee login';
+    const text = [
+      `Hello ${params.displayName},`,
+      '',
+      'A login has been created for your Nucleus employee account.',
+      '',
+      `Employee code: ${params.empCode}`,
+      `Temporary password: ${params.tempPassword}`,
+      '',
+      `Sign in here: ${params.loginUrl}`,
+      '',
+      'For your security you will be asked to set a new password the first',
+      'time you sign in. Do not share these credentials with anyone.',
+      '',
+      'If you did not expect this email, contact your institution immediately.',
+    ].join('\n');
+
+    await this.send({
+      to: params.to,
+      subject,
+      text,
+      html: wrapHtml(
+        `<p>Hello ${escapeHtml(params.displayName)},</p>
+         <p>A login has been created for your Nucleus employee account.</p>
+         <table cellpadding="0" cellspacing="0" style="margin:16px 0">
+           <tr><td style="padding:4px 0;color:#555">Employee code</td>
+               <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.empCode)}</td></tr>
+           <tr><td style="padding:4px 0;color:#555">Temporary password</td>
+               <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.tempPassword)}</td></tr>
+         </table>
+         <p><a href="${escapeAttr(params.loginUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Sign in to Nucleus</a></p>
+         <p style="color:#555">For your security you will be asked to set a new password the first time you sign in. Do not share these credentials with anyone.</p>
+         <p style="color:#999;font-size:12px">If you did not expect this email, contact your institution immediately.</p>`,
+      ),
+    });
+  }
+
+  /** Self-service password reset for employees. Mirrors the student variant. */
+  async sendEmployeePasswordReset(params: {
+    to: string;
+    displayName: string;
+    resetUrl: string;
+    expiresInMinutes: number;
+  }): Promise<void> {
+    const subject = 'Reset your Nucleus password';
+    const text = [
+      `Hello ${params.displayName},`,
+      '',
+      'We received a request to reset the password for your Nucleus employee',
+      'account. Use the link below to choose a new password:',
+      '',
+      params.resetUrl,
+      '',
+      `This link expires in ${params.expiresInMinutes} minutes and can be used once.`,
+      '',
+      'If you did not request this, you can safely ignore this email — your',
+      'password will not change.',
+    ].join('\n');
+
+    await this.send({
+      to: params.to,
+      subject,
+      text,
+      html: wrapHtml(
+        `<p>Hello ${escapeHtml(params.displayName)},</p>
+         <p>We received a request to reset the password for your Nucleus employee account.</p>
+         <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Choose a new password</a></p>
+         <p style="color:#555">This link expires in ${params.expiresInMinutes} minutes and can be used once.</p>
+         <p style="color:#999;font-size:12px">If you did not request this, you can safely ignore this email — your password will not change.</p>`,
+      ),
+    });
+  }
+
   async sendStudentPasswordReset(params: {
     to: string;
     displayName: string;

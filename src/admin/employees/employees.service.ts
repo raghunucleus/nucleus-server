@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { EmployeeAuthService } from '../../employee/auth/employee-auth.service';
 import type { EmployeesSortField } from '../dto/list-employees.dto';
 import { Department } from '../entities/department.entity';
 import { Designation } from '../entities/designation.entity';
@@ -82,6 +83,7 @@ export class EmployeesService {
     @InjectRepository(Designation)
     private readonly designations: Repository<Designation>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly employeeAuth: EmployeeAuthService,
   ) {}
 
   async list(opts: {
@@ -285,6 +287,34 @@ export class EmployeesService {
 
     employee.is_active = active;
     return this.employees.save(employee);
+  }
+
+  /**
+   * Provision (or reset) the employee's login: generates a random temporary
+   * password, emails it to their registered address, forces a change on first
+   * login, and revokes any sessions the account currently holds. Used both for
+   * the very first invite and for "reset password" later.
+   */
+  async resetLoginPassword(id: number): Promise<{ email: string }> {
+    const employee = await this.employees.findOne({
+      where: { id },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    return this.employeeAuth.adminResetPassword(id);
+  }
+
+  /**
+   * Directly set the employee's login password to an admin-chosen value. No
+   * email is sent; the employee is still forced to change it on first sign-in.
+   */
+  async setLoginPassword(id: number, password: string): Promise<void> {
+    const employee = await this.employees.findOne({
+      where: { id },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    await this.employeeAuth.adminSetPassword(id, password);
   }
 
   private async assertReferencesExist(opts: {

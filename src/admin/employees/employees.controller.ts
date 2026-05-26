@@ -17,6 +17,7 @@ import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { BulkCreateEmployeesDto } from '../dto/bulk-create-employees.dto';
 import { CreateEmployeeDto } from '../dto/create-employee.dto';
 import { ListEmployeesDto } from '../dto/list-employees.dto';
+import { SetEmployeePasswordDto } from '../dto/set-employee-password.dto';
 import { UpdateEmployeeDto } from '../dto/update-employee.dto';
 import { Employee } from '../entities/employee.entity';
 import {
@@ -81,6 +82,33 @@ export class EmployeesController {
     @Body() dto: UpdateEmployeeDto,
   ): Promise<Employee> {
     return this.employees.update(id, dto);
+  }
+
+  @Post(':id/reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Provision or reset the employee's login: emails a temporary password " +
+      'to their registered address and forces a change on first sign-in.',
+  })
+  resetPassword(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ email: string }> {
+    return this.employees.resetLoginPassword(id);
+  }
+
+  @Post(':id/set-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary:
+      "Directly set the employee's login password to a chosen value (no " +
+      'email is sent). Forces a change on first sign-in and revokes sessions.',
+  })
+  setPassword(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetEmployeePasswordDto,
+  ): Promise<void> {
+    return this.employees.setLoginPassword(id, dto.password);
   }
 
   @Post(':id/activate')

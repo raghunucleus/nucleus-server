@@ -6,8 +6,10 @@ import { join } from 'path';
 import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { EmployeeModule } from './employee/employee.module';
 import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
+import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
 import { StudentModule } from './student/student.module';
 
@@ -82,6 +84,8 @@ import { StudentModule } from './student/student.module';
     HealthModule,
     AdminModule,
     StudentModule,
+    EmployeeModule,
+    RbacModule,
   ],
   controllers: [AppController],
   providers: [AppService],

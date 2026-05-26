@@ -33,7 +33,9 @@ export class AttendanceGroupsService {
 
   // All attendance groups (with their student members) for one programme ×
   // admission-year batch. A member is a student_groups row whose
-  // attendance_group_id points at the group.
+  // attendance_group_id points at the group. (RBAC picker uses a separate
+  // flat fetcher in src/rbac/catalog/attribute-fetchers.ts — this endpoint
+  // stays strictly per-batch.)
   async list(
     programmeId: number,
     admissionYearId: number,
