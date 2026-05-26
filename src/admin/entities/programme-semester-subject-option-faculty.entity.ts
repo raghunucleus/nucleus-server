@@ -16,6 +16,11 @@ import { ProgrammeSemesterSubjectOption } from './programme-semester-subject-opt
 // allocated per candidate subject — not to the slot as a whole. A candidate
 // may be taught by several faculty; the unique constraint only stops the same
 // faculty being linked to the same candidate twice.
+//
+// TODO: this table will eventually move into the student-allocation flow —
+// students pick (candidate, teacher) in one step, so pre-allocating teachers
+// to candidates here becomes redundant. Until that redesign lands, the
+// slot-enrollments validator still requires these rows.
 @Entity({ name: 'programme_semester_subject_option_faculty' })
 @Unique('UQ_pss_opt_faculty_option_employee', [
   'programme_semester_subject_option_id',

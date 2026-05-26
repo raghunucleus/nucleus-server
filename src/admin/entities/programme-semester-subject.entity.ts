@@ -9,7 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ProgrammeSemester } from './programme-semester.entity';
-import { ProgrammeSemesterSubjectFaculty } from './programme-semester-subject-faculty.entity';
+import { ProgrammeSemesterSubjectGroupFaculty } from './programme-semester-subject-group-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from './programme-semester-subject-option.entity';
 import { Subject } from './subject.entity';
 
@@ -79,13 +79,20 @@ export class ProgrammeSemesterSubject {
   )
   options: ProgrammeSemesterSubjectOption[];
 
-  // Faculty allocated to teach this subject. A subject may be taught by
-  // multiple faculty. Loaded via an explicit leftJoin, like `options`.
+  // Per-group faculty cells. One row per (subject, attendance group) — a
+  // single teacher per cell. Loaded via an explicit leftJoin from the
+  // faculty-matrix endpoint; not eager-loaded here.
   @OneToMany(
-    () => ProgrammeSemesterSubjectFaculty,
+    () => ProgrammeSemesterSubjectGroupFaculty,
     (f) => f.programme_semester_subject,
   )
-  faculty: ProgrammeSemesterSubjectFaculty[];
+  group_faculty: ProgrammeSemesterSubjectGroupFaculty[];
+
+  // Virtual (non-DB) field populated by the list endpoint when the caller
+  // passes attendanceGroupId — carries the single teacher allocated to this
+  // subject for the requested group (0 or 1 element). Lets the timetable
+  // editor scope its palette without a second round-trip.
+  faculty?: ProgrammeSemesterSubjectGroupFaculty[];
 
   @CreateDateColumn()
   created_at: Date;

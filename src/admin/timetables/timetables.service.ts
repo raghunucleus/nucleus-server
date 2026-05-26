@@ -10,6 +10,7 @@ import { AttendanceGroup } from '../entities/attendance-group.entity';
 import { Employee } from '../entities/employee.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from '../entities/programme-semester-subject.entity';
+import { ProgrammeSemesterSubjectGroupFaculty } from '../entities/programme-semester-subject-group-faculty.entity';
 import { Subject } from '../entities/subject.entity';
 import { Timetable } from '../entities/timetable.entity';
 import { TimetableCourse } from '../entities/timetable-course.entity';
@@ -101,6 +102,8 @@ export class TimetablesService {
     private readonly attendanceGroups: Repository<AttendanceGroup>,
     @InjectRepository(ProgrammeSemesterSubject)
     private readonly semesterSubjects: Repository<ProgrammeSemesterSubject>,
+    @InjectRepository(ProgrammeSemesterSubjectGroupFaculty)
+    private readonly groupFaculty: Repository<ProgrammeSemesterSubjectGroupFaculty>,
     @InjectRepository(Subject)
     private readonly subjects: Repository<Subject>,
     @InjectRepository(Employee)
@@ -725,11 +728,9 @@ export class TimetablesService {
     let isElectiveSlot = false;
 
     if (input.programme_semester_subject_id !== undefined) {
-      const pss = await this.semesterSubjects
-        .createQueryBuilder('pss')
-        .leftJoinAndSelect('pss.faculty', 'faculty')
-        .where('pss.id = :id', { id: input.programme_semester_subject_id })
-        .getOne();
+      const pss = await this.semesterSubjects.findOne({
+        where: { id: input.programme_semester_subject_id },
+      });
       if (!pss || pss.programme_semester_id !== tt.programme_semester_id) {
         throw new BadRequestException(
           "That subject is not part of this timetable's semester",
@@ -737,7 +738,19 @@ export class TimetablesService {
       }
       pssId = pss.id;
       isElectiveSlot = pss.subject_id === null;
-      validFacultyIds = (pss.faculty ?? []).map((f) => f.employee_id);
+      // Faculty is now allocated per (subject, attendance group). The
+      // timetable is bound to one group, so the valid teacher for this cell
+      // is the one assigned to (subject, this timetable's group) — at most
+      // one row in the matrix table.
+      if (!isElectiveSlot) {
+        const cell = await this.groupFaculty.findOne({
+          where: {
+            programme_semester_subject_id: pss.id,
+            attendance_group_id: tt.attendance_group_id,
+          },
+        });
+        validFacultyIds = cell ? [cell.employee_id] : [];
+      }
     } else {
       const course = await this.courses
         .createQueryBuilder('c')

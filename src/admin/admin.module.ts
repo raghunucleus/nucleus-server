@@ -34,7 +34,7 @@ import { Programme } from './entities/programme.entity';
 import { ProgrammeAdmissionYear } from './entities/programme-admission-year.entity';
 import { ProgrammeSemester } from './entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from './entities/programme-semester-subject.entity';
-import { ProgrammeSemesterSubjectFaculty } from './entities/programme-semester-subject-faculty.entity';
+import { ProgrammeSemesterSubjectGroupFaculty } from './entities/programme-semester-subject-group-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from './entities/programme-semester-subject-option.entity';
 import { ProgrammeSemesterSubjectOptionFaculty } from './entities/programme-semester-subject-option-faculty.entity';
 import { ProgrammeSemesterSubjectOptionStudent } from './entities/programme-semester-subject-option-student.entity';
@@ -96,7 +96,7 @@ import { AdminUsersService } from './users/admin-users.service';
       ProgrammeAdmissionYear,
       ProgrammeSemester,
       ProgrammeSemesterSubject,
-      ProgrammeSemesterSubjectFaculty,
+      ProgrammeSemesterSubjectGroupFaculty,
       ProgrammeSemesterSubjectOption,
       ProgrammeSemesterSubjectOptionFaculty,
       ProgrammeSemesterSubjectOptionStudent,

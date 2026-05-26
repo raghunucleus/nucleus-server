@@ -20,6 +20,11 @@ export const ListProgrammeSemesterSubjectsSchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).default('asc'),
   status: z.enum(['active', 'inactive']).optional(),
   programmeSemesterId: z.coerce.number().int().positive().optional(),
+  // When set, each returned subject is hydrated with `faculty`: the single
+  // teacher allocated to that subject for this attendance group (or empty if
+  // unassigned). Used by the timetable editor to scope the palette's faculty
+  // list to the timetable's group.
+  attendanceGroupId: z.coerce.number().int().positive().optional(),
 });
 
 export class ListProgrammeSemesterSubjectsDto extends createZodDto(

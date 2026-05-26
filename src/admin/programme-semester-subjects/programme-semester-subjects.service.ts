@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import type { ProgrammeSemesterSubjectsSortField } from '../dto/list-programme-semester-subjects.dto';
+import { AttendanceGroup } from '../entities/attendance-group.entity';
 import { Employee } from '../entities/employee.entity';
 import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
@@ -14,7 +15,7 @@ import {
   ProgrammeSemesterSubject,
   type ProgrammeSemesterSubjectSlotType,
 } from '../entities/programme-semester-subject.entity';
-import { ProgrammeSemesterSubjectFaculty } from '../entities/programme-semester-subject-faculty.entity';
+import { ProgrammeSemesterSubjectGroupFaculty } from '../entities/programme-semester-subject-group-faculty.entity';
 import { ProgrammeSemesterSubjectOption } from '../entities/programme-semester-subject-option.entity';
 import { ProgrammeSemesterSubjectOptionFaculty } from '../entities/programme-semester-subject-option-faculty.entity';
 import { ProgrammeSemesterSubjectOptionStudent } from '../entities/programme-semester-subject-option-student.entity';
@@ -26,6 +27,23 @@ export interface ListProgrammeSemesterSubjectsResult {
   page: number;
   pageSize: number;
   pageCount: number;
+}
+
+// Payload for the Faculty configuration matrix screen. The client gets back
+// the three slices it needs in one round-trip: the real subjects offered in
+// the semester (slots are excluded — their faculty is allocated later, in the
+// student-allocation flow), the attendance groups for the batch, and the
+// existing cell assignments.
+export interface FacultyMatrixResult {
+  subjects: ProgrammeSemesterSubject[];
+  groups: AttendanceGroup[];
+  cells: {
+    id: number;
+    programme_semester_subject_id: number;
+    attendance_group_id: number;
+    employee_id: number;
+    employee: Employee;
+  }[];
 }
 
 const SORT_COLUMN: Record<ProgrammeSemesterSubjectsSortField, string> = {
@@ -67,6 +85,10 @@ export class ProgrammeSemesterSubjectsService {
     private readonly options: Repository<ProgrammeSemesterSubjectOption>,
     @InjectRepository(ProgrammeSemesterSubjectOptionStudent)
     private readonly optionStudents: Repository<ProgrammeSemesterSubjectOptionStudent>,
+    @InjectRepository(ProgrammeSemesterSubjectGroupFaculty)
+    private readonly groupFaculty: Repository<ProgrammeSemesterSubjectGroupFaculty>,
+    @InjectRepository(AttendanceGroup)
+    private readonly attendanceGroups: Repository<AttendanceGroup>,
     @InjectRepository(Employee)
     private readonly employees: Repository<Employee>,
     private readonly dataSource: DataSource,
@@ -79,6 +101,7 @@ export class ProgrammeSemesterSubjectsService {
     sortOrder: 'asc' | 'desc';
     status?: 'active' | 'inactive';
     programmeSemesterId?: number;
+    attendanceGroupId?: number;
   }): Promise<ListProgrammeSemesterSubjectsResult> {
     const qb = this.entries
       .createQueryBuilder('pss')
@@ -87,9 +110,7 @@ export class ProgrammeSemesterSubjectsService {
       .leftJoinAndSelect('pss.options', 'options')
       .leftJoinAndSelect('options.subject', 'option_subject')
       .leftJoinAndSelect('options.faculty', 'option_faculty')
-      .leftJoinAndSelect('option_faculty.employee', 'option_faculty_employee')
-      .leftJoinAndSelect('pss.faculty', 'faculty')
-      .leftJoinAndSelect('faculty.employee', 'faculty_employee');
+      .leftJoinAndSelect('option_faculty.employee', 'option_faculty_employee');
 
     if (opts.status === 'active') qb.andWhere('pss.is_active = TRUE');
     else if (opts.status === 'inactive') qb.andWhere('pss.is_active = FALSE');
@@ -104,11 +125,36 @@ export class ProgrammeSemesterSubjectsService {
       .addOrderBy('pss.id', 'ASC')
       .addOrderBy('options.id', 'ASC')
       .addOrderBy('option_faculty.id', 'ASC')
-      .addOrderBy('faculty.id', 'ASC')
       .skip((opts.page - 1) * opts.pageSize)
       .take(opts.pageSize);
 
     const [rows, total] = await qb.getManyAndCount();
+
+    // When the caller scopes to an attendance group, hydrate each real
+    // subject's `faculty` with the single teacher allocated to that
+    // (subject, group) cell — empty array when unassigned. Slot rows never
+    // carry per-group faculty, so they stay empty too.
+    if (opts.attendanceGroupId !== undefined && rows.length > 0) {
+      const subjectIds = rows.map((r) => r.id);
+      const cells = await this.groupFaculty
+        .createQueryBuilder('cell')
+        .leftJoinAndSelect('cell.employee', 'employee')
+        .where('cell.programme_semester_subject_id IN (:...ids)', {
+          ids: subjectIds,
+        })
+        .andWhere('cell.attendance_group_id = :agid', {
+          agid: opts.attendanceGroupId,
+        })
+        .getMany();
+      const bySubject = new Map<number, ProgrammeSemesterSubjectGroupFaculty>(
+        cells.map((c) => [c.programme_semester_subject_id, c]),
+      );
+      rows.forEach((r) => {
+        const cell = bySubject.get(r.id);
+        r.faculty = cell ? [cell] : [];
+      });
+    }
+
     return {
       rows,
       total,
@@ -127,12 +173,9 @@ export class ProgrammeSemesterSubjectsService {
       .leftJoinAndSelect('options.subject', 'option_subject')
       .leftJoinAndSelect('options.faculty', 'option_faculty')
       .leftJoinAndSelect('option_faculty.employee', 'option_faculty_employee')
-      .leftJoinAndSelect('pss.faculty', 'faculty')
-      .leftJoinAndSelect('faculty.employee', 'faculty_employee')
       .where('pss.id = :id', { id })
       .orderBy('options.id', 'ASC')
       .addOrderBy('option_faculty.id', 'ASC')
-      .addOrderBy('faculty.id', 'ASC')
       .getOne();
     if (!row) throw new NotFoundException('Subject entry not found');
     return row;
@@ -369,46 +412,139 @@ export class ProgrammeSemesterSubjectsService {
     return this.getOne(id);
   }
 
-  // Replace the faculty roster for a REAL subject entry. The provided list
-  // becomes the complete set — an empty list clears it. Open-elective slots
-  // are rejected: their faculty are allocated per candidate subject via
-  // setOptionFaculty.
-  async setFaculty(
-    id: number,
-    employeeIds: number[],
-  ): Promise<ProgrammeSemesterSubject> {
-    const row = await this.entries.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Subject entry not found');
-    if (row.subject_id === null) {
+  // Faculty configuration screen — load the (real subjects × attendance
+  // groups) matrix for this batch in one shot. Slot rows are excluded: their
+  // teacher is decided once a student picks a candidate, in the student-
+  // allocation flow. The endpoint is also a sanity-check: callers must pass
+  // a programme/admission-year pair that matches the semester they asked for.
+  async getFacultyMatrix(opts: {
+    programmeSemesterId: number;
+    programmeId: number;
+    admissionYearId: number;
+  }): Promise<FacultyMatrixResult> {
+    const ps = await this.programmeSemesters.findOne({
+      where: { id: opts.programmeSemesterId },
+    });
+    if (!ps) throw new NotFoundException('Programme semester not found');
+    if (
+      ps.programme_id !== opts.programmeId ||
+      ps.admission_year_id !== opts.admissionYearId
+    ) {
       throw new BadRequestException(
-        'This is a slot row — allocate faculty to its candidate subjects instead.',
+        "This semester doesn't belong to the given programme/admission year batch.",
       );
     }
 
-    await this.assertEmployeesAllocatable(employeeIds);
+    const subjects = await this.entries
+      .createQueryBuilder('pss')
+      .leftJoinAndSelect('pss.subject', 'subject')
+      .where('pss.programme_semester_id = :psid', {
+        psid: opts.programmeSemesterId,
+      })
+      .andWhere('pss.subject_id IS NOT NULL')
+      .orderBy('pss.is_active', 'DESC')
+      .addOrderBy('pss.id', 'ASC')
+      .getMany();
 
-    // Replace semantics: wipe the existing roster and re-insert. Mirrors how
-    // the elective option pool is kept in sync with the form's snapshot.
+    const groups = await this.attendanceGroups
+      .createQueryBuilder('g')
+      .where('g.programme_id = :pid', { pid: opts.programmeId })
+      .andWhere('g.admission_year_id = :ayid', { ayid: opts.admissionYearId })
+      .orderBy('g.is_active', 'DESC')
+      .addOrderBy('g.name', 'ASC')
+      .getMany();
+
+    const subjectIds = subjects.map((s) => s.id);
+    const cellsRaw = subjectIds.length
+      ? await this.groupFaculty
+          .createQueryBuilder('cell')
+          .leftJoinAndSelect('cell.employee', 'employee')
+          .where('cell.programme_semester_subject_id IN (:...ids)', {
+            ids: subjectIds,
+          })
+          .getMany()
+      : [];
+    const cells = cellsRaw.map((c) => ({
+      id: c.id,
+      programme_semester_subject_id: c.programme_semester_subject_id,
+      attendance_group_id: c.attendance_group_id,
+      employee_id: c.employee_id,
+      employee: c.employee,
+    }));
+
+    return { subjects, groups, cells };
+  }
+
+  // Upsert one matrix cell. employee_id null clears the cell — the row is
+  // deleted rather than kept around with a null teacher. Returns the fresh
+  // matrix so the client can re-render without a separate refetch.
+  async setGroupFaculty(input: {
+    programmeSemesterSubjectId: number;
+    attendanceGroupId: number;
+    employeeId: number | null;
+  }): Promise<FacultyMatrixResult> {
+    const subject = await this.entries.findOne({
+      where: { id: input.programmeSemesterSubjectId },
+    });
+    if (!subject) throw new NotFoundException('Subject entry not found');
+    if (subject.subject_id === null) {
+      throw new BadRequestException(
+        "This is a slot row — its faculty are allocated in the student-allocation flow, not here.",
+      );
+    }
+
+    const ps = await this.programmeSemesters.findOne({
+      where: { id: subject.programme_semester_id },
+    });
+    if (!ps) {
+      throw new NotFoundException('Programme semester not found for this subject');
+    }
+
+    const group = await this.attendanceGroups.findOne({
+      where: { id: input.attendanceGroupId },
+    });
+    if (!group) throw new NotFoundException('Attendance group not found');
+    if (
+      group.programme_id !== ps.programme_id ||
+      group.admission_year_id !== ps.admission_year_id
+    ) {
+      throw new BadRequestException(
+        "This group doesn't belong to the subject's programme/admission year batch.",
+      );
+    }
+
+    if (input.employeeId !== null) {
+      await this.assertEmployeeAllocatable(input.employeeId);
+    }
+
     await this.dataSource.transaction(async (tx) => {
-      const facultyRepo = tx.getRepository(ProgrammeSemesterSubjectFaculty);
-      await facultyRepo.delete({ programme_semester_subject_id: id });
-      if (employeeIds.length > 0) {
-        const rows = employeeIds.map((eid) =>
-          facultyRepo.create({
-            programme_semester_subject_id: id,
-            employee_id: eid,
+      const repo = tx.getRepository(ProgrammeSemesterSubjectGroupFaculty);
+      await repo.delete({
+        programme_semester_subject_id: input.programmeSemesterSubjectId,
+        attendance_group_id: input.attendanceGroupId,
+      });
+      if (input.employeeId !== null) {
+        await repo.save(
+          repo.create({
+            programme_semester_subject_id: input.programmeSemesterSubjectId,
+            attendance_group_id: input.attendanceGroupId,
+            employee_id: input.employeeId,
           }),
         );
-        await facultyRepo.save(rows);
       }
     });
 
-    return this.getOne(id);
+    return this.getFacultyMatrix({
+      programmeSemesterId: ps.id,
+      programmeId: ps.programme_id,
+      admissionYearId: ps.admission_year_id,
+    });
   }
 
   // Replace the faculty roster for a single candidate subject of an
   // open-elective slot. Returns the parent subject entry so the caller gets
-  // the whole refreshed graph (every candidate + its faculty).
+  // the whole refreshed graph (every candidate + its faculty). Will fold into
+  // the student-allocation flow in a future change.
   async setOptionFaculty(
     optionId: number,
     employeeIds: number[],
@@ -453,8 +589,8 @@ export class ProgrammeSemesterSubjectsService {
     return this.getOne(option.programme_semester_subject_id);
   }
 
-  // Validate a faculty roster up-front so a bad id surfaces a 400 instead of
-  // an FK violation mid-transaction. Inactive employees can't be allocated.
+  // Bulk variant of assertEmployeeAllocatable — used by the elective
+  // candidate-faculty endpoint, which still takes a list.
   private async assertEmployeesAllocatable(
     employeeIds: number[],
   ): Promise<void> {
@@ -478,6 +614,22 @@ export class ProgrammeSemesterSubjectsService {
         `Inactive faculty can't be allocated: ${inactive
           .map((e) => e.emp_code)
           .join(', ')}`,
+      );
+    }
+  }
+
+  // Validate one faculty up-front so a bad id surfaces a 400 instead of an FK
+  // violation mid-transaction. Inactive employees can't be allocated.
+  private async assertEmployeeAllocatable(employeeId: number): Promise<void> {
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+    });
+    if (!employee) {
+      throw new BadRequestException(`Unknown faculty id: ${employeeId}`);
+    }
+    if (!employee.is_active) {
+      throw new BadRequestException(
+        `Inactive faculty can't be allocated: ${employee.emp_code}`,
       );
     }
   }

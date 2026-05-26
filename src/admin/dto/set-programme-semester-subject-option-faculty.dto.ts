@@ -2,8 +2,9 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 // Replace-semantics: the provided list becomes the complete faculty roster
-// for the subject entry. An empty array clears all allocated faculty.
-export const SetProgrammeSemesterSubjectFacultySchema = z
+// for one elective candidate subject. An empty array clears all allocated
+// faculty. Will fold into the student-allocation flow in a future change.
+export const SetProgrammeSemesterSubjectOptionFacultySchema = z
   .object({
     employee_ids: z
       .array(z.coerce.number().int().positive())
@@ -16,6 +17,6 @@ export const SetProgrammeSemesterSubjectFacultySchema = z
   })
   .strict();
 
-export class SetProgrammeSemesterSubjectFacultyDto extends createZodDto(
-  SetProgrammeSemesterSubjectFacultySchema,
+export class SetProgrammeSemesterSubjectOptionFacultyDto extends createZodDto(
+  SetProgrammeSemesterSubjectOptionFacultySchema,
 ) {}

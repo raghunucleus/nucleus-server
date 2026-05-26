@@ -16,11 +16,14 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { CreateProgrammeSemesterSubjectDto } from '../dto/create-programme-semester-subject.dto';
+import { ListFacultyMatrixDto } from '../dto/list-faculty-matrix.dto';
 import { ListProgrammeSemesterSubjectsDto } from '../dto/list-programme-semester-subjects.dto';
-import { SetProgrammeSemesterSubjectFacultyDto } from '../dto/set-programme-semester-subject-faculty.dto';
+import { SetProgrammeSemesterSubjectGroupFacultyDto } from '../dto/set-programme-semester-subject-group-faculty.dto';
+import { SetProgrammeSemesterSubjectOptionFacultyDto } from '../dto/set-programme-semester-subject-option-faculty.dto';
 import { UpdateProgrammeSemesterSubjectDto } from '../dto/update-programme-semester-subject.dto';
 import { ProgrammeSemesterSubject } from '../entities/programme-semester-subject.entity';
 import {
+  FacultyMatrixResult,
   ListProgrammeSemesterSubjectsResult,
   ProgrammeSemesterSubjectsService,
 } from './programme-semester-subjects.service';
@@ -40,7 +43,31 @@ export class ProgrammeSemesterSubjectsController {
   list(
     @Query() query: ListProgrammeSemesterSubjectsDto,
   ): Promise<ListProgrammeSemesterSubjectsResult> {
-    return this.entries.list(query);
+    return this.entries.list({
+      page: query.page,
+      pageSize: query.pageSize,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+      status: query.status,
+      programmeSemesterId: query.programmeSemesterId,
+      attendanceGroupId: query.attendanceGroupId,
+    });
+  }
+
+  // Placed before `:id` so the literal path segment wins over the param.
+  @Get('faculty-matrix')
+  @ApiOperation({
+    summary:
+      "Faculty configuration matrix: real subjects, the batch's attendance groups, and existing (subject × group) cell assignments.",
+  })
+  facultyMatrix(
+    @Query() query: ListFacultyMatrixDto,
+  ): Promise<FacultyMatrixResult> {
+    return this.entries.getFacultyMatrix({
+      programmeSemesterId: query.programmeSemesterId,
+      programmeId: query.programmeId,
+      admissionYearId: query.admissionYearId,
+    });
   }
 
   @Get(':id')
@@ -93,28 +120,33 @@ export class ProgrammeSemesterSubjectsController {
     return this.entries.setActive(id, false);
   }
 
-  @Put(':id/faculty')
+  @Put(':id/groups/:groupId/faculty')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Replace the faculty allocated to a real-subject entry. Send the full list; an empty list clears it.',
+      "Set (or clear) the teacher for one (subject, attendance-group) cell. employee_id null clears it.",
   })
-  setFaculty(
+  setGroupFaculty(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: SetProgrammeSemesterSubjectFacultyDto,
-  ): Promise<ProgrammeSemesterSubject> {
-    return this.entries.setFaculty(id, dto.employee_ids);
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @Body() dto: SetProgrammeSemesterSubjectGroupFacultyDto,
+  ): Promise<FacultyMatrixResult> {
+    return this.entries.setGroupFaculty({
+      programmeSemesterSubjectId: id,
+      attendanceGroupId: groupId,
+      employeeId: dto.employee_id,
+    });
   }
 
   @Put('options/:optionId/faculty')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "Replace the faculty allocated to one candidate subject of an open-elective slot. Send the full list; an empty list clears it.",
+      "Replace the faculty roster for one candidate subject of an open-elective slot. Send the full list; an empty list clears it.",
   })
   setOptionFaculty(
     @Param('optionId', ParseIntPipe) optionId: number,
-    @Body() dto: SetProgrammeSemesterSubjectFacultyDto,
+    @Body() dto: SetProgrammeSemesterSubjectOptionFacultyDto,
   ): Promise<ProgrammeSemesterSubject> {
     return this.entries.setOptionFaculty(optionId, dto.employee_ids);
   }

@@ -41,7 +41,7 @@ export class ProgrammeSemesterSubjectOption {
   subject: Subject;
 
   // Faculty allocated to teach this candidate subject. Loaded via an explicit
-  // leftJoin, like the rest of the programme-semester-subject graph.
+  // leftJoin. Will fold into the student-allocation flow in a future change.
   @OneToMany(
     () => ProgrammeSemesterSubjectOptionFaculty,
     (f) => f.programme_semester_subject_option,
