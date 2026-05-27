@@ -2,12 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, MoreThan, Repository } from 'typeorm';
 import type { ProgrammeSemestersSortField } from '../dto/list-programme-semesters.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
+import { ClassSession } from '../entities/class-session.entity';
 import { Programme } from '../entities/programme.entity';
 import {
   ProgrammeSemester,
@@ -46,6 +48,8 @@ const SORT_COLUMN: Record<ProgrammeSemestersSortField, string> = {
 
 @Injectable()
 export class ProgrammeSemestersService {
+  private readonly logger = new Logger(ProgrammeSemestersService.name);
+
   constructor(
     @InjectRepository(ProgrammeSemester)
     private readonly links: Repository<ProgrammeSemester>,
@@ -55,6 +59,9 @@ export class ProgrammeSemestersService {
     private readonly admissionYears: Repository<AdmissionYear>,
     @InjectRepository(Semester)
     private readonly semesters: Repository<Semester>,
+    @InjectRepository(ClassSession)
+    private readonly classSessions: Repository<ClassSession>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async list(opts: {
@@ -180,6 +187,66 @@ export class ProgrammeSemestersService {
     };
   }
 
+  // Set / update planned academic-calendar dates. Both fields are
+  // independently nullable, but the DB check constraint enforces "end >= start
+  // when both are set". Used by:
+  //   - The session seeder as the hard upper bound (no sessions past end).
+  //   - The publish endpoint's overlap / window validation.
+  //   - The future daily auto-flip cron (upcoming → ongoing on start,
+  //     ongoing → completed on end).
+  async setDates(
+    id: number,
+    input: { planned_start_date: string | null; planned_end_date: string | null },
+  ): Promise<ProgrammeSemester> {
+    const row = await this.links.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Programme semester not found');
+    if (
+      input.planned_end_date !== null &&
+      input.planned_start_date !== null &&
+      input.planned_end_date < input.planned_start_date
+    ) {
+      throw new BadRequestException(
+        'planned_end_date must not be before planned_start_date',
+      );
+    }
+    row.planned_start_date = input.planned_start_date;
+    row.planned_end_date = input.planned_end_date;
+    await this.links.save(row);
+    return this.getOne(id);
+  }
+
+  // Trim scheduled sessions whose date falls after the PS's planned_end_date.
+  // Used to clean up the previously-seeded long tail when an admin tightens
+  // the semester window after the fact. Only touches 'scheduled' rows —
+  // completed sessions stay so attendance history isn't lost.
+  async trimSessionsPastPlannedEnd(
+    psId: number,
+  ): Promise<{ deleted: number; cancelled: number }> {
+    const ps = await this.links.findOne({ where: { id: psId } });
+    if (!ps) throw new NotFoundException('Programme semester not found');
+    if (!ps.planned_end_date) {
+      throw new BadRequestException(
+        'planned_end_date is not set — nothing to trim against.',
+      );
+    }
+    const cutoff = ps.planned_end_date;
+    return this.dataSource.transaction(async (tx) => {
+      // 'scheduled' (never marked) past the cap → delete outright.
+      const deleted = await tx.getRepository(ClassSession).delete({
+        programme_semester_id: psId,
+        status: 'scheduled',
+        session_date: MoreThan(cutoff),
+      });
+      // 'completed' past the cap (rare but possible if someone marked the
+      // wrong day) is left alone — admin should amend by hand. Returning
+      // counts so the UI can report what changed.
+      return {
+        deleted: deleted.affected ?? 0,
+        cancelled: 0,
+      };
+    });
+  }
+
   async setActive(id: number, active: boolean): Promise<ProgrammeSemester> {
     const row = await this.links.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Programme semester not found');
@@ -238,7 +305,35 @@ export class ProgrammeSemestersService {
 
     row.status = target;
     await this.links.save(row);
+
+    if (target === 'ongoing') {
+      await this.onSemesterStarted(row.id);
+    } else if (target === 'completed') {
+      await this.onSemesterEnded(row.id);
+    }
     return this.getOne(id);
+  }
+
+  // upcoming → ongoing is now a no-op for sessions. With weekly manual
+  // publishing, transitioning a semester doesn't auto-create anything; the
+  // group incharge publishes each week from the strip view.
+  private async onSemesterStarted(psId: number): Promise<void> {
+    this.logger.log(`onSemesterStarted: ps=${psId} (no auto-seed)`);
+  }
+
+  // ongoing → completed: cancel any still-scheduled future sessions for the
+  // batch. Past sessions stay as historical truth.
+  private async onSemesterEnded(psId: number): Promise<void> {
+    const today = isoDate(new Date());
+    await this.classSessions
+      .createQueryBuilder()
+      .update()
+      .set({ status: 'cancelled', cancel_reason: 'Semester ended' })
+      .where('programme_semester_id = :psId', { psId })
+      .andWhere("status = 'scheduled'")
+      .andWhere('session_date >= :today', { today })
+      .execute();
+    this.logger.log(`onSemesterEnded: ps=${psId} future sessions cancelled`);
   }
 
   private async assertProgrammeExists(id: number): Promise<void> {
@@ -251,4 +346,11 @@ export class ProgrammeSemestersService {
     if (!exists)
       throw new BadRequestException('Selected admission year does not exist');
   }
+}
+
+function isoDate(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

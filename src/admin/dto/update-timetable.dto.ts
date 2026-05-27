@@ -1,19 +1,13 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { DATE_RE } from './create-timetable.dto';
 
-// Metadata-only patch. Status moves through dedicated publish/archive
-// endpoints; periods through PUT .../periods. effective_to vs effective_from
-// is cross-checked in the service against the merged row.
+// Metadata-only patch — name and working_days. Periods are edited via
+// PUT .../periods. The timetable's date range comes from the parent
+// programme_semester's planned_start_date / planned_end_date now, so
+// there's nothing date-related on the timetable itself to patch.
 export const UpdateTimetableSchema = z
   .object({
     name: z.string().trim().min(1).max(96).optional(),
-    effective_from: z.string().regex(DATE_RE, 'Use YYYY-MM-DD').optional(),
-    // undefined → leave as-is; '' or null → clear (open-ended).
-    effective_to: z
-      .union([z.string().regex(DATE_RE, 'Use YYYY-MM-DD'), z.literal(''), z.null()])
-      .optional()
-      .transform((v) => (v === undefined ? undefined : v ? v : null)),
     working_days: z
       .array(z.number().int().min(1).max(7))
       .min(1)

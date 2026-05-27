@@ -18,6 +18,10 @@ export const CreateProgrammeSemesterSubjectSchema = z
       .optional()
       .transform((v) => (v === '' || v === undefined ? undefined : v)),
     slot_type: z.enum(PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES).optional(),
+    // Slot-row cohort scope: 'group' keeps each attendance group's cohort
+    // separate; 'programme_semester' merges identical (option, teacher)
+    // cohorts across groups. Ignored for real subjects (always group-scoped).
+    cohort_scope: z.enum(['group', 'programme_semester']).default('group'),
     option_subject_ids: z
       .array(z.coerce.number().int().positive())
       .max(50)

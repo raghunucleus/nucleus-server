@@ -26,6 +26,8 @@ export const UpdateProgrammeSemesterSubjectSchema = z
     slot_type: z
       .union([z.enum(PROGRAMME_SEMESTER_SUBJECT_SLOT_TYPES), z.null()])
       .optional(),
+    // Same as create — meaningful for slot rows only.
+    cohort_scope: z.enum(['group', 'programme_semester']).optional(),
     // When provided, REPLACES the existing candidate pool wholesale. Only
     // meaningful for slot rows; rejected for real subjects in the service.
     option_subject_ids: z

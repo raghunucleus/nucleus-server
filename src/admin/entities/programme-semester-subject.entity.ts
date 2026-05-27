@@ -62,6 +62,18 @@ export class ProgrammeSemesterSubject {
   @Column({ type: 'varchar', length: 16, nullable: true })
   slot_type: ProgrammeSemesterSubjectSlotType | null;
 
+  // How elective cohorts coalesce across attendance groups. Only meaningful
+  // for slot rows; ignored for real subjects (a regular subject's cohort is
+  // always the attendance group itself).
+  //   'group'              — each attendance group runs its own cohort even
+  //                          when (option, teacher) match elsewhere. Session
+  //                          rows carry the group_id.
+  //   'programme_semester' — students from any group taking the same
+  //                          (option, teacher) merge into one cohort.
+  //                          Session rows have group_id = NULL.
+  @Column({ type: 'varchar', length: 24, default: 'group' })
+  cohort_scope: 'group' | 'programme_semester';
+
   // Numeric with a single decimal place — covers integer credits (3, 4) and
   // half-credit subjects (1.5, 0.5).
   @Column({ type: 'numeric', precision: 4, scale: 1 })
@@ -93,6 +105,13 @@ export class ProgrammeSemesterSubject {
   // subject for the requested group (0 or 1 element). Lets the timetable
   // editor scope its palette without a second round-trip.
   faculty?: ProgrammeSemesterSubjectGroupFaculty[];
+
+  // Teachers allocated to this same subject in OTHER groups of the same
+  // programme_semester. Surfaced so the timetable editor can offer
+  // "borrow from another group" when the primary teacher is unavailable.
+  // Populated alongside `faculty` when the list endpoint is scoped to an
+  // attendance group.
+  alternate_faculty?: ProgrammeSemesterSubjectGroupFaculty[];
 
   @CreateDateColumn()
   created_at: Date;

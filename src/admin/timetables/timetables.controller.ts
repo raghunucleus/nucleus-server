@@ -16,18 +16,30 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
+import { CloneTimetableDto } from '../dto/clone-timetable.dto';
 import { CreateTimetableDto } from '../dto/create-timetable.dto';
 import { CreateTimetableCourseDto } from '../dto/create-timetable-course.dto';
-import { DuplicateTimetableDto } from '../dto/duplicate-timetable.dto';
 import { ListTimetablesDto } from '../dto/list-timetables.dto';
 import { SaveTimetablePeriodsDto } from '../dto/save-timetable-periods.dto';
 import { SetTimetableCourseFacultyDto } from '../dto/set-timetable-course-faculty.dto';
 import { UpdateTimetableDto } from '../dto/update-timetable.dto';
 import { UpdateTimetableCourseDto } from '../dto/update-timetable-course.dto';
 import { UpsertTimetableEntryDto } from '../dto/upsert-timetable-entry.dto';
+import {
+  WeekSummariesDto,
+  WeekWindowDto,
+} from '../dto/timetable-week.dto';
 import { Timetable } from '../entities/timetable.entity';
 import { TimetableEntry } from '../entities/timetable-entry.entity';
-import { TimetableSummary, TimetablesService } from './timetables.service';
+import {
+  TimetableSummary,
+  TimetablesService,
+  WeekSummary,
+} from './timetables.service';
+import type {
+  PreviewResult,
+  PublishResult,
+} from '../sessions/session-seeder.service';
 
 @ApiTags('timetables')
 @ApiBearerAuth('admin-access-token')
@@ -114,34 +126,68 @@ export class TimetablesController {
     return this.timetables.update(id, dto);
   }
 
-  @Post(':id/publish')
+  @Post(':id/preview-week')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Publish a draft timetable. Rejected if its effective dates overlap a published sibling.',
+      'Preview the sessions a given week would seed without writing anything.',
   })
-  publish(@Param('id', ParseIntPipe) id: number): Promise<Timetable> {
-    return this.timetables.publish(id);
+  previewWeek(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: WeekWindowDto,
+  ): Promise<PreviewResult> {
+    return this.timetables.previewWeek(id, { from: dto.from, to: dto.to });
   }
 
-  @Post(':id/archive')
+  @Post(':id/publish-week')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Archive a timetable (becomes read-only).' })
-  archive(@Param('id', ParseIntPipe) id: number): Promise<Timetable> {
-    return this.timetables.archive(id);
+  @ApiOperation({
+    summary:
+      "Publish one week's sessions from the timetable's current shape. Replaces any still-scheduled sessions in the window; completed and cancelled rows are untouched.",
+  })
+  publishWeek(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: WeekWindowDto,
+  ): Promise<PublishResult> {
+    return this.timetables.publishWeek(id, { from: dto.from, to: dto.to });
   }
 
-  @Post(':id/duplicate')
+  @Post(':id/week-summaries')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Per-week session counts (scheduled / completed / cancelled / rescheduled) for the strip view. Pass the Monday of each week to summarise.',
+  })
+  weekSummaries(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: WeekSummariesDto,
+  ): Promise<WeekSummary[]> {
+    return this.timetables.getWeekSummaries(id, dto.week_starts);
+  }
+
+  @Post(':id/clone')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary:
-      'Clone a timetable into a fresh draft — periods, courses and cells copied.',
+      "Clone a template into a fresh one in the same group — periods, courses and cells are copied so the admin can tweak the copy for a variant week.",
   })
-  duplicate(
+  clone(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: DuplicateTimetableDto,
+    @Body() dto: CloneTimetableDto,
   ): Promise<Timetable> {
-    return this.timetables.duplicate(id, dto);
+    return this.timetables.clone(id, dto);
+  }
+
+  @Post(':id/set-default')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Mark this template as the group's default — auto-selected in the Schedule preview modal. The previous default for the same group is unset.",
+  })
+  setDefault(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<Timetable> {
+    return this.timetables.setDefault(id);
   }
 
   @Delete(':id')

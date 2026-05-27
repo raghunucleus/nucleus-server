@@ -58,6 +58,7 @@ interface CreateInput {
   subject_id?: number;
   placeholder_name?: string;
   slot_type?: ProgrammeSemesterSubjectSlotType;
+  cohort_scope?: 'group' | 'programme_semester';
   option_subject_ids?: number[];
   credits: number;
 }
@@ -66,6 +67,7 @@ interface UpdateInput {
   subject_id?: number | null;
   placeholder_name?: string | null;
   slot_type?: ProgrammeSemesterSubjectSlotType | null;
+  cohort_scope?: 'group' | 'programme_semester';
   credits?: number;
   option_subject_ids?: number[];
 }
@@ -131,27 +133,42 @@ export class ProgrammeSemesterSubjectsService {
     const [rows, total] = await qb.getManyAndCount();
 
     // When the caller scopes to an attendance group, hydrate each real
-    // subject's `faculty` with the single teacher allocated to that
-    // (subject, group) cell — empty array when unassigned. Slot rows never
-    // carry per-group faculty, so they stay empty too.
+    // subject with both:
+    //   - faculty            : teacher allocated to (subject, this group)
+    //   - alternate_faculty  : teachers allocated to (subject, other groups)
+    // Slot rows never carry per-group faculty, so both stay empty for them.
     if (opts.attendanceGroupId !== undefined && rows.length > 0) {
       const subjectIds = rows.map((r) => r.id);
       const cells = await this.groupFaculty
         .createQueryBuilder('cell')
         .leftJoinAndSelect('cell.employee', 'employee')
+        .leftJoinAndSelect('cell.attendance_group', 'attendance_group')
         .where('cell.programme_semester_subject_id IN (:...ids)', {
           ids: subjectIds,
         })
-        .andWhere('cell.attendance_group_id = :agid', {
-          agid: opts.attendanceGroupId,
-        })
         .getMany();
-      const bySubject = new Map<number, ProgrammeSemesterSubjectGroupFaculty>(
-        cells.map((c) => [c.programme_semester_subject_id, c]),
-      );
+      const primaryBySubject = new Map<
+        number,
+        ProgrammeSemesterSubjectGroupFaculty
+      >();
+      const alternatesBySubject = new Map<
+        number,
+        ProgrammeSemesterSubjectGroupFaculty[]
+      >();
+      for (const cell of cells) {
+        if (cell.attendance_group_id === opts.attendanceGroupId) {
+          primaryBySubject.set(cell.programme_semester_subject_id, cell);
+        } else {
+          const list =
+            alternatesBySubject.get(cell.programme_semester_subject_id) ?? [];
+          list.push(cell);
+          alternatesBySubject.set(cell.programme_semester_subject_id, list);
+        }
+      }
       rows.forEach((r) => {
-        const cell = bySubject.get(r.id);
+        const cell = primaryBySubject.get(r.id);
         r.faculty = cell ? [cell] : [];
+        r.alternate_faculty = alternatesBySubject.get(r.id) ?? [];
       });
     }
 
@@ -242,6 +259,9 @@ export class ProgrammeSemesterSubjectsService {
         subject_id: input.subject_id ?? null,
         placeholder_name: input.placeholder_name ?? null,
         slot_type: isSlot ? input.slot_type! : null,
+        // Real subjects always run per-group; the DB column is non-null with
+        // a 'group' default. Slot rows take the caller-supplied scope.
+        cohort_scope: isSlot ? (input.cohort_scope ?? 'group') : 'group',
         credits: input.credits.toFixed(1),
         is_active: true,
       });
@@ -373,6 +393,11 @@ export class ProgrammeSemesterSubjectsService {
       // Switching to a real subject implicitly clears slot_type even if the
       // patch didn't mention it, mirroring how options become stale.
       if (hasSubject) row.slot_type = null;
+      if (patch.cohort_scope !== undefined && !hasSubject) {
+        row.cohort_scope = patch.cohort_scope;
+      }
+      // Real subjects always force back to 'group' — they never have cohorts.
+      if (hasSubject) row.cohort_scope = 'group';
       if (patch.credits !== undefined) row.credits = patch.credits.toFixed(1);
 
       await entryRepo.save(row);

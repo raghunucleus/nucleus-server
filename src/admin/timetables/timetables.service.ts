@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
 import { AttendanceGroup } from '../entities/attendance-group.entity';
+import { ClassSession } from '../entities/class-session.entity';
 import { Employee } from '../entities/employee.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from '../entities/programme-semester-subject.entity';
@@ -17,10 +18,30 @@ import { TimetableCourse } from '../entities/timetable-course.entity';
 import { TimetableCourseFaculty } from '../entities/timetable-course-faculty.entity';
 import { TimetableEntry } from '../entities/timetable-entry.entity';
 import { TimetablePeriod } from '../entities/timetable-period.entity';
+import {
+  PreviewResult,
+  PublishResult,
+  SessionSeederService,
+} from '../sessions/session-seeder.service';
 
-// A date far enough in the future to stand in for "open-ended" when
-// comparing effective ranges in SQL.
-const DATE_INFINITY = '9999-12-31';
+// One week's worth of class session metadata for the strip view. Counts
+// drive the "Published / Partial / Empty" badge; cancellations/completions
+// surface separately so the admin can spot a partial roll-out.
+export interface WeekSummary {
+  week_start: string;   // 'YYYY-MM-DD', a Monday
+  week_end: string;     // 'YYYY-MM-DD', the corresponding Sunday
+  scheduled: number;
+  completed: number;
+  cancelled: number;
+  rescheduled: number;
+  // True when at least one session exists for the window. Empty weeks mean
+  // "never published / no sessions inserted" — the admin can publish them
+  // from the strip view.
+  has_any: boolean;
+  // Templates that produced sessions in this week. Usually one entry; rare
+  // multi-template weeks (e.g. mid-week template switch) carry both.
+  templates: { id: number; name: string; session_count: number }[];
+}
 
 export interface TimetableSummary extends Timetable {
   period_count: number;
@@ -39,16 +60,12 @@ interface CreateInput {
   programme_semester_id: number;
   attendance_group_id: number;
   name: string;
-  effective_from: string;
-  effective_to: string | null;
   working_days: number[];
   periods: PeriodInput[];
 }
 
 interface UpdateInput {
   name?: string;
-  effective_from?: string;
-  effective_to?: string | null;
   working_days?: number[];
 }
 
@@ -78,13 +95,6 @@ interface EntryInput {
   note: string | null;
 }
 
-interface DuplicateInput {
-  name: string;
-  effective_from: string;
-  effective_to: string | null;
-  attendance_group_id?: number;
-}
-
 @Injectable()
 export class TimetablesService {
   constructor(
@@ -109,13 +119,15 @@ export class TimetablesService {
     @InjectRepository(Employee)
     private readonly employees: Repository<Employee>,
     private readonly dataSource: DataSource,
+    private readonly sessionSeeder: SessionSeederService,
   ) {}
 
   // --- reads ----------------------------------------------------------------
 
   // Timetables for a semester (and optionally one attendance group), each
-  // carrying lightweight counts for the list cards. Ordered by group, then by
-  // effective date so a group's revisions read as a timeline.
+  // carrying lightweight counts for the list cards. One timetable per
+  // (ps, group) — the list is just "groups in this semester that have a
+  // timetable yet."
   async list(
     programmeSemesterId?: number,
     attendanceGroupId?: number,
@@ -130,9 +142,7 @@ export class TimetablesService {
     if (attendanceGroupId !== undefined) {
       qb.andWhere('t.attendance_group_id = :agid', { agid: attendanceGroupId });
     }
-    qb.orderBy('attendance_group.name', 'ASC')
-      .addOrderBy('t.effective_from', 'ASC')
-      .addOrderBy('t.id', 'ASC');
+    qb.orderBy('attendance_group.name', 'ASC').addOrderBy('t.id', 'ASC');
     const rows = await qb.getMany();
     if (rows.length === 0) return [];
 
@@ -195,6 +205,16 @@ export class TimetablesService {
     }
     this.assertSameBatch(ps, group);
 
+    // First template for this group becomes default automatically. Later
+    // templates can be promoted via the setDefault endpoint.
+    const existingCount = await this.timetables.count({
+      where: {
+        programme_semester_id: input.programme_semester_id,
+        attendance_group_id: input.attendance_group_id,
+      },
+    });
+    const shouldBeDefault = existingCount === 0;
+
     const savedId = await this.dataSource.transaction(async (tx) => {
       const ttRepo = tx.getRepository(Timetable);
       const periodRepo = tx.getRepository(TimetablePeriod);
@@ -203,9 +223,7 @@ export class TimetablesService {
           programme_semester_id: input.programme_semester_id,
           attendance_group_id: input.attendance_group_id,
           name: input.name,
-          effective_from: input.effective_from,
-          effective_to: input.effective_to,
-          status: 'draft',
+          is_default: shouldBeDefault,
           working_days: [...input.working_days].sort((a, b) => a - b),
         }),
       );
@@ -226,42 +244,36 @@ export class TimetablesService {
     return this.getOne(savedId);
   }
 
+  // Promote a template to be the group's default. Within a transaction the
+  // previous default is unset first so the partial unique index never
+  // fires mid-operation.
+  async setDefault(id: number): Promise<Timetable> {
+    const tt = await this.loadOr404(id);
+    if (tt.is_default) return this.getOne(id);
+    await this.dataSource.transaction(async (tx) => {
+      const repo = tx.getRepository(Timetable);
+      await repo
+        .createQueryBuilder()
+        .update()
+        .set({ is_default: false })
+        .where('programme_semester_id = :psid', { psid: tt.programme_semester_id })
+        .andWhere('attendance_group_id = :gid', { gid: tt.attendance_group_id })
+        .andWhere('is_default = TRUE')
+        .execute();
+      await repo.update(id, { is_default: true });
+    });
+    return this.getOne(id);
+  }
+
   async update(id: number, patch: UpdateInput): Promise<Timetable> {
     const tt = await this.loadOr404(id);
-    this.assertEditable(tt);
-
-    const nextFrom = patch.effective_from ?? tt.effective_from;
-    const nextTo =
-      patch.effective_to !== undefined ? patch.effective_to : tt.effective_to;
-    if (nextTo !== null && nextTo < nextFrom) {
-      throw new BadRequestException(
-        'effective_to must not be before effective_from',
-      );
-    }
     const nextDays =
       patch.working_days !== undefined
         ? [...patch.working_days].sort((a, b) => a - b)
         : tt.working_days;
 
-    // A published timetable that moves its dates must still not overlap a
-    // sibling published timetable for the same group.
-    if (
-      tt.status === 'published' &&
-      (patch.effective_from !== undefined || patch.effective_to !== undefined)
-    ) {
-      await this.assertNoEffectiveOverlap(
-        tt.attendance_group_id,
-        tt.programme_semester_id,
-        nextFrom,
-        nextTo,
-        id,
-      );
-    }
-
     await this.dataSource.transaction(async (tx) => {
       if (patch.name !== undefined) tt.name = patch.name;
-      tt.effective_from = nextFrom;
-      tt.effective_to = nextTo;
       if (patch.working_days !== undefined) {
         tt.working_days = nextDays;
         // Cells on a day that is no longer worked are pruned.
@@ -275,48 +287,149 @@ export class TimetablesService {
     return this.getOne(id);
   }
 
-  async publish(id: number): Promise<Timetable> {
+  // --- per-week publish flow -----------------------------------------------
+
+  // Preview what publishing `week_start..week_end` would create. Returns
+  // the would-be sessions + holidays in the window + a flag per session
+  // indicating whether an identical session already exists.
+  async previewWeek(
+    id: number,
+    week: { from: string; to: string },
+  ): Promise<PreviewResult> {
+    await this.loadOr404(id);
+    return this.sessionSeeder.previewWindow(id, week);
+  }
+
+  // Commit the week. Replaces any still-scheduled sessions from this
+  // timetable's entries in the window with the current shape (subject /
+  // teacher / room edits picked up); completed and cancelled sessions
+  // stay untouched. Idempotent.
+  async publishWeek(
+    id: number,
+    week: { from: string; to: string },
+  ): Promise<PublishResult> {
+    await this.loadOr404(id);
+    return this.sessionSeeder.publishWindow(id, week);
+  }
+
+  // Per-week roll-up of session statuses across a date range — drives the
+  // strip-view badges. The summary is group-level: any template the group
+  // has counts toward the same buckets, so calling this with template A or
+  // template B of the same group returns the same data. `templates`
+  // surfaces which template each week was published from (multi-template
+  // weeks list both, with their respective counts).
+  async getWeekSummaries(
+    id: number,
+    week_starts: string[],
+  ): Promise<WeekSummary[]> {
+    if (week_starts.length === 0) return [];
     const tt = await this.loadOr404(id);
-    if (tt.status === 'published') return this.getOne(id);
-    if (tt.status === 'archived') {
+    const ranges = week_starts.map((ws) => ({
+      week_start: ws,
+      week_end: addDaysISO(ws, 6),
+    }));
+    const overallFrom = ranges
+      .map((r) => r.week_start)
+      .reduce((a, b) => (a < b ? a : b));
+    const overallTo = ranges
+      .map((r) => r.week_end)
+      .reduce((a, b) => (a > b ? a : b));
+
+    // Group-scoped sessions, including cross-group elective sessions whose
+    // entry sits on one of this group's templates.
+    const rows = await this.dataSource.query<
+      Array<{ session_date: string; status: string; timetable_id: number | null; timetable_name: string | null }>
+    >(
+      `SELECT
+         cs.session_date::text AS session_date,
+         cs.status,
+         t.id AS timetable_id,
+         t.name AS timetable_name
+       FROM "class_sessions" cs
+       LEFT JOIN "timetable_entries" te ON te.id = cs.timetable_entry_id
+       LEFT JOIN "timetables" t ON t.id = te.timetable_id
+       WHERE cs.session_date BETWEEN $3 AND $4
+         AND (
+           cs.attendance_group_id = $1
+           OR (cs.attendance_group_id IS NULL AND cs.programme_semester_id = $2 AND t.attendance_group_id = $1)
+         )`,
+      [tt.attendance_group_id, tt.programme_semester_id, overallFrom, overallTo],
+    );
+
+    const out: WeekSummary[] = ranges.map((r) => ({
+      week_start: r.week_start,
+      week_end: r.week_end,
+      scheduled: 0,
+      completed: 0,
+      cancelled: 0,
+      rescheduled: 0,
+      has_any: false,
+      templates: [],
+    }));
+    // Per-week per-template tallies kept on the side; folded into the bucket
+    // at the end so JSON ordering is stable (no Map iteration leakage).
+    const perBucket = new Map<
+      WeekSummary,
+      Map<number, { name: string; count: number }>
+    >();
+    for (const row of rows) {
+      const bucket = out.find(
+        (b) => row.session_date >= b.week_start && row.session_date <= b.week_end,
+      );
+      if (!bucket) continue;
+      bucket.has_any = true;
+      if (row.status === 'scheduled') bucket.scheduled += 1;
+      else if (row.status === 'completed') bucket.completed += 1;
+      else if (row.status === 'cancelled') bucket.cancelled += 1;
+      else if (row.status === 'rescheduled') bucket.rescheduled += 1;
+      if (row.timetable_id !== null && row.timetable_name !== null) {
+        let perTt = perBucket.get(bucket);
+        if (!perTt) {
+          perTt = new Map();
+          perBucket.set(bucket, perTt);
+        }
+        const ttKey = Number(row.timetable_id);
+        const existing = perTt.get(ttKey);
+        if (existing) existing.count += 1;
+        else perTt.set(ttKey, { name: row.timetable_name, count: 1 });
+      }
+    }
+    for (const [bucket, perTt] of perBucket) {
+      bucket.templates = Array.from(perTt.entries())
+        .map(([id, v]) => ({ id, name: v.name, session_count: v.count }))
+        .sort((a, b) => b.session_count - a.session_count);
+    }
+    return out;
+  }
+
+  async remove(id: number): Promise<void> {
+    const tt = await this.timetables.findOne({ where: { id } });
+    if (!tt) throw new NotFoundException('Timetable not found');
+    // periods, courses, course faculty and entries all cascade.
+    await this.timetables.remove(tt);
+  }
+
+  // Clone an existing template into a fresh one in the same group. Periods,
+  // exclusive courses (+ their faculty) and grid cells are all copied. The
+  // caller picks a new name; everything else carries over so the admin can
+  // tweak the copy for a special variant (e.g. clone "Regular week" → "Exam
+  // week" and rejig periods/cells).
+  async clone(id: number, input: { name: string }): Promise<Timetable> {
+    const src = await this.loadOr404(id);
+
+    // Block exact-name collisions in the same group so the list reads cleanly.
+    const sibling = await this.timetables.findOne({
+      where: {
+        programme_semester_id: src.programme_semester_id,
+        attendance_group_id: src.attendance_group_id,
+        name: input.name.trim(),
+      },
+    });
+    if (sibling) {
       throw new ConflictException(
-        "Archived timetables can't be published — duplicate it instead.",
+        `A template named "${input.name}" already exists for this group.`,
       );
     }
-    await this.assertNoEffectiveOverlap(
-      tt.attendance_group_id,
-      tt.programme_semester_id,
-      tt.effective_from,
-      tt.effective_to,
-      id,
-    );
-    tt.status = 'published';
-    await this.timetables.save(tt);
-    return this.getOne(id);
-  }
-
-  async archive(id: number): Promise<Timetable> {
-    const tt = await this.loadOr404(id);
-    if (tt.status !== 'archived') {
-      tt.status = 'archived';
-      await this.timetables.save(tt);
-    }
-    return this.getOne(id);
-  }
-
-  // Clone a timetable into a fresh draft — periods, exclusive courses (+ their
-  // faculty) and entries are all copied. Used to plan a future revision or to
-  // seed another section's timetable.
-  async duplicate(id: number, input: DuplicateInput): Promise<Timetable> {
-    const src = await this.loadOr404(id);
-    const targetGroupId = input.attendance_group_id ?? src.attendance_group_id;
-    const group = await this.attendanceGroups.findOne({
-      where: { id: targetGroupId },
-    });
-    if (!group) {
-      throw new BadRequestException('Selected attendance group does not exist');
-    }
-    this.assertSameBatch(src.programme_semester, group);
 
     const [periods, courses, entries] = await Promise.all([
       this.periods.find({
@@ -340,11 +453,8 @@ export class TimetablesService {
       const clone = await ttRepo.save(
         ttRepo.create({
           programme_semester_id: src.programme_semester_id,
-          attendance_group_id: targetGroupId,
-          name: input.name,
-          effective_from: input.effective_from,
-          effective_to: input.effective_to,
-          status: 'draft',
+          attendance_group_id: src.attendance_group_id,
+          name: input.name.trim(),
           working_days: src.working_days,
         }),
       );
@@ -386,7 +496,7 @@ export class TimetablesService {
         }
       }
 
-      // Semester-subject ids carry over unchanged (same semester); period and
+      // Semester-subject ids carry over unchanged (same PS); period and
       // course ids are remapped to the clone's fresh rows.
       for (const e of entries) {
         await entryRepo.save(
@@ -411,13 +521,6 @@ export class TimetablesService {
     return this.getOne(newId);
   }
 
-  async remove(id: number): Promise<void> {
-    const tt = await this.timetables.findOne({ where: { id } });
-    if (!tt) throw new NotFoundException('Timetable not found');
-    // periods, courses, course faculty and entries all cascade.
-    await this.timetables.remove(tt);
-  }
-
   // --- bell schedule --------------------------------------------------------
 
   // Replace the period rows. Rows with an `id` are updated in place so their
@@ -429,7 +532,6 @@ export class TimetablesService {
     incoming: SavePeriodInput[],
   ): Promise<Timetable> {
     const tt = await this.loadOr404(id);
-    this.assertEditable(tt);
 
     await this.dataSource.transaction(async (tx) => {
       const periodRepo = tx.getRepository(TimetablePeriod);
@@ -534,7 +636,6 @@ export class TimetablesService {
     input: CreateCourseInput,
   ): Promise<Timetable> {
     const tt = await this.loadOr404(timetableId);
-    this.assertEditable(tt);
     // A timetable-exclusive subject has no semester faculty allocation to
     // fall back on, so at least one teacher must be mapped up-front.
     if (input.employee_ids.length === 0) {
@@ -583,7 +684,6 @@ export class TimetablesService {
     const course = await this.courses.findOne({ where: { id: courseId } });
     if (!course) throw new NotFoundException('Timetable course not found');
     const tt = await this.loadOr404(course.timetable_id);
-    this.assertEditable(tt);
 
     const nextSubjectId =
       patch.subject_id !== undefined ? patch.subject_id : course.subject_id;
@@ -620,7 +720,6 @@ export class TimetablesService {
     const course = await this.courses.findOne({ where: { id: courseId } });
     if (!course) throw new NotFoundException('Timetable course not found');
     const tt = await this.loadOr404(course.timetable_id);
-    this.assertEditable(tt);
     const timetableId = course.timetable_id;
     // Faculty links and any cells using this course cascade away.
     await this.courses.remove(course);
@@ -636,7 +735,6 @@ export class TimetablesService {
     const course = await this.courses.findOne({ where: { id: courseId } });
     if (!course) throw new NotFoundException('Timetable course not found');
     const tt = await this.loadOr404(course.timetable_id);
-    this.assertEditable(tt);
     if (employeeIds.length === 0) {
       throw new BadRequestException(
         'A timetable subject must keep at least one faculty member.',
@@ -681,7 +779,6 @@ export class TimetablesService {
     input: EntryInput,
   ): Promise<TimetableEntry> {
     const tt = await this.loadOr404(timetableId);
-    this.assertEditable(tt);
 
     if (!tt.working_days.includes(input.day_of_week)) {
       throw new BadRequestException(
@@ -738,18 +835,16 @@ export class TimetablesService {
       }
       pssId = pss.id;
       isElectiveSlot = pss.subject_id === null;
-      // Faculty is now allocated per (subject, attendance group). The
-      // timetable is bound to one group, so the valid teacher for this cell
-      // is the one assigned to (subject, this timetable's group) — at most
-      // one row in the matrix table.
+      // Faculty is allocated per (subject, attendance group), so the
+      // primary teacher for a cell is "this subject × this group". To make
+      // covering for an absent teacher easy, we also allow any teacher
+      // allocated to the same subject for ANOTHER group ("borrowed"). The
+      // editor presents the group's own teacher first and labels alternates.
       if (!isElectiveSlot) {
-        const cell = await this.groupFaculty.findOne({
-          where: {
-            programme_semester_subject_id: pss.id,
-            attendance_group_id: tt.attendance_group_id,
-          },
+        const cells = await this.groupFaculty.find({
+          where: { programme_semester_subject_id: pss.id },
         });
-        validFacultyIds = cell ? [cell.employee_id] : [];
+        validFacultyIds = cells.map((c) => c.employee_id);
       }
     } else {
       const course = await this.courses
@@ -827,7 +922,6 @@ export class TimetablesService {
     periodId: number,
   ): Promise<void> {
     const tt = await this.loadOr404(timetableId);
-    this.assertEditable(tt);
     await this.entries.delete({
       timetable_id: timetableId,
       day_of_week: dayOfWeek,
@@ -843,14 +937,6 @@ export class TimetablesService {
     return tt;
   }
 
-  private assertEditable(tt: Timetable): void {
-    if (tt.status === 'archived') {
-      throw new ConflictException(
-        'Archived timetables are read-only — duplicate it to make changes.',
-      );
-    }
-  }
-
   private assertSameBatch(
     ps: ProgrammeSemester,
     group: AttendanceGroup,
@@ -861,39 +947,6 @@ export class TimetablesService {
     ) {
       throw new BadRequestException(
         'The attendance group and semester belong to different programme batches.',
-      );
-    }
-  }
-
-  // No two *published* timetables for the same group × semester may have
-  // overlapping effective ranges (null effective_to = open-ended).
-  private async assertNoEffectiveOverlap(
-    attendanceGroupId: number,
-    programmeSemesterId: number,
-    from: string,
-    to: string | null,
-    excludeId: number,
-  ): Promise<void> {
-    const clash = await this.timetables
-      .createQueryBuilder('t')
-      .where('t.attendance_group_id = :gid', { gid: attendanceGroupId })
-      .andWhere('t.programme_semester_id = :psid', { psid: programmeSemesterId })
-      .andWhere("t.status = 'published'")
-      .andWhere('t.id <> :id', { id: excludeId })
-      // Cast the string params to `date` — COALESCE of two untyped params
-      // defaults to `text`, which has no `<=` against a `date` column.
-      .andWhere(
-        't.effective_from <= COALESCE(CAST(:to AS date), CAST(:inf AS date))',
-        { to, inf: DATE_INFINITY },
-      )
-      .andWhere(
-        'COALESCE(t.effective_to, CAST(:inf AS date)) >= CAST(:from AS date)',
-        { from, inf: DATE_INFINITY },
-      )
-      .getOne();
-    if (clash) {
-      throw new ConflictException(
-        `These effective dates overlap the published timetable "${clash.name}". Adjust the dates so published timetables for this group don't overlap.`,
       );
     }
   }
@@ -973,4 +1026,14 @@ export class TimetablesService {
     if (!entry) throw new NotFoundException('Timetable entry not found');
     return entry;
   }
+}
+
+function addDaysISO(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split('-').map((p) => Number(p));
+  const base = new Date(Date.UTC(y, m - 1, d));
+  base.setUTCDate(base.getUTCDate() + days);
+  const yy = base.getUTCFullYear();
+  const mm = String(base.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(base.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
 }

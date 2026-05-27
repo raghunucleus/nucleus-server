@@ -7,6 +7,15 @@ import { AdmissionYearsController } from './admission-years/admission-years.cont
 import { AdmissionYearsService } from './admission-years/admission-years.service';
 import { AttendanceGroupsController } from './attendance-groups/attendance-groups.controller';
 import { AttendanceGroupsService } from './attendance-groups/attendance-groups.service';
+import { HolidaysController } from './holidays/holidays.controller';
+import { HolidaysService } from './holidays/holidays.service';
+import { AttendanceMarkingService } from './sessions/attendance-marking.service';
+import { ClassSessionsController } from './sessions/class-sessions.controller';
+import { ClassSessionsService } from './sessions/class-sessions.service';
+import { RosterService } from './sessions/roster.service';
+import { SessionSeederService } from './sessions/session-seeder.service';
+import { StudentAttendanceController } from './sessions/student-attendance.controller';
+import { StudentAttendanceQueryService } from './sessions/student-attendance-query.service';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { GoogleOidcService } from './auth/google-oidc.service';
@@ -22,10 +31,15 @@ import { DesignationsController } from './designations/designations.controller';
 import { DesignationsService } from './designations/designations.service';
 import { EmployeesController } from './employees/employees.controller';
 import { EmployeesService } from './employees/employees.service';
+import { AcademicHoliday } from './entities/academic-holiday.entity';
 import { AdminRecoveryCode } from './entities/admin-recovery-code.entity';
 import { Admin } from './entities/admin.entity';
 import { AdmissionYear } from './entities/admission-year.entity';
+import { AttendanceAdjustment } from './entities/attendance-adjustment.entity';
 import { AttendanceGroup } from './entities/attendance-group.entity';
+import { ClassSession } from './entities/class-session.entity';
+import { ClassSessionAttendance } from './entities/class-session-attendance.entity';
+import { ClassSessionAuditLog } from './entities/class-session-audit-log.entity';
 import { Degree } from './entities/degree.entity';
 import { Department } from './entities/department.entity';
 import { Designation } from './entities/designation.entity';
@@ -65,6 +79,8 @@ import { SemestersService } from './semesters/semesters.service';
 import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
 import { Student } from './entities/student.entity';
 import { StudentGroup } from './entities/student-group.entity';
+import { StudentGroupHistory } from './entities/student-group-history.entity';
+import { StudentSubjectAttendance } from './entities/student-subject-attendance.entity';
 import { StudentModule } from '../student/student.module';
 import { StudentsController } from './students/students.controller';
 import { StudentsService } from './students/students.service';
@@ -84,10 +100,15 @@ import { AdminUsersService } from './users/admin-users.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      AcademicHoliday,
       Admin,
       AdminRecoveryCode,
       AdmissionYear,
+      AttendanceAdjustment,
       AttendanceGroup,
+      ClassSession,
+      ClassSessionAttendance,
+      ClassSessionAuditLog,
       Degree,
       Department,
       Designation,
@@ -104,6 +125,8 @@ import { AdminUsersService } from './users/admin-users.service';
       Semester,
       Student,
       StudentGroup,
+      StudentGroupHistory,
+      StudentSubjectAttendance,
       Subject,
       SubjectType,
       SubjectTypeMarkStructure,
@@ -129,6 +152,9 @@ import { AdminUsersService } from './users/admin-users.service';
     EmployeesController,
     AdmissionYearsController,
     AttendanceGroupsController,
+    ClassSessionsController,
+    HolidaysController,
+    StudentAttendanceController,
     SemestersController,
     ProgrammesController,
     ProgrammeSemestersController,
@@ -151,11 +177,17 @@ import { AdminUsersService } from './users/admin-users.service';
     EmployeesService,
     AdmissionYearsService,
     AttendanceGroupsService,
+    AttendanceMarkingService,
+    ClassSessionsService,
+    HolidaysService,
+    RosterService,
+    StudentAttendanceQueryService,
     SemestersService,
     ProgrammesService,
     ProgrammeSemestersService,
     ProgrammeAdmissionYearsService,
     ProgrammeSemesterSubjectsService,
+    SessionSeederService,
     SlotEnrollmentsService,
     RegulationsService,
     StudentsService,

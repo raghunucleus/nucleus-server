@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { BulkCreateProgrammeSemestersDto } from '../dto/bulk-create-programme-semesters.dto';
 import { ListProgrammeSemestersDto } from '../dto/list-programme-semesters.dto';
+import { SetProgrammeSemesterDatesDto } from '../dto/set-programme-semester-dates.dto';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
 import {
   BulkCreateProgrammeSemestersResult,
@@ -94,5 +95,30 @@ export class ProgrammeSemestersController {
   })
   complete(@Param('id', ParseIntPipe) id: number): Promise<ProgrammeSemester> {
     return this.links.setStatus(id, 'completed');
+  }
+
+  @Post(':id/dates')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Set the planned start/end dates that gate the session seeder. Pass null on either field to clear it.',
+  })
+  setDates(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetProgrammeSemesterDatesDto,
+  ): Promise<ProgrammeSemester> {
+    return this.links.setDates(id, dto);
+  }
+
+  @Post(':id/trim-sessions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Delete still-scheduled sessions past planned_end_date. Completed sessions are left untouched.',
+  })
+  trimSessions(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ deleted: number; cancelled: number }> {
+    return this.links.trimSessionsPastPlannedEnd(id);
   }
 }

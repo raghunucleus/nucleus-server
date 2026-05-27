@@ -38,13 +38,6 @@ export const CreateTimetableSchema = z
     programme_semester_id: z.coerce.number().int().positive(),
     attendance_group_id: z.coerce.number().int().positive(),
     name: z.string().trim().min(1).max(96),
-    effective_from: z.string().regex(DATE_RE, 'Use YYYY-MM-DD'),
-    // Optional — empty/missing/null is normalised to null (open-ended).
-    effective_to: z
-      .string()
-      .regex(DATE_RE, 'Use YYYY-MM-DD')
-      .nullish()
-      .transform((v) => (v && v.length > 0 ? v : null)),
     // ISO weekday numbers (1 = Mon … 7 = Sun).
     working_days: z
       .array(z.number().int().min(1).max(7))
@@ -61,13 +54,6 @@ export const CreateTimetableSchema = z
         message: 'Period times must not overlap each other',
       }),
   })
-  .strict()
-  .refine(
-    (v) => v.effective_to === null || v.effective_to >= v.effective_from,
-    {
-      message: 'effective_to must not be before effective_from',
-      path: ['effective_to'],
-    },
-  );
+  .strict();
 
 export class CreateTimetableDto extends createZodDto(CreateTimetableSchema) {}

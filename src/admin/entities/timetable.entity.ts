@@ -15,14 +15,13 @@ import { TimetableCourse } from './timetable-course.entity';
 import { TimetableEntry } from './timetable-entry.entity';
 import { TimetablePeriod } from './timetable-period.entity';
 
-export type TimetableStatus = 'draft' | 'published' | 'archived';
-
-// A weekly class schedule for one attendance group within one
-// programme-semester. Effective dates let several timetables exist for the
-// same group × semester — a current one plus future-dated revisions — so the
-// schedule can be planned ahead. Among *published* timetables of the same
-// group × semester the effective ranges must not overlap (service-enforced);
-// drafts may overlap freely.
+// A weekly schedule template owned by one attendance group × programme
+// semester. A group may have several templates ("Regular", "Exam week",
+// "Diwali week"); the incharge picks which template to apply when
+// publishing a given week. The schedule's "effective range" is the
+// semester's planned dates (on ProgrammeSemester) and the existence of
+// class_sessions for a week marks that week as published. There is no
+// draft / published / archived status on the template itself.
 @Entity({ name: 'timetables' })
 @Index('IDX_timetables_programme_semester_id', ['programme_semester_id'])
 @Index('IDX_timetables_attendance_group_id', ['attendance_group_id'])
@@ -47,18 +46,12 @@ export class Timetable {
   @Column({ type: 'varchar', length: 96 })
   name: string;
 
-  // PG `date` — TypeORM hands these back as 'YYYY-MM-DD' strings.
-  @Column({ type: 'date' })
-  effective_from: string;
-
-  // Null means open-ended (runs until superseded by a later timetable).
-  @Column({ type: 'date', nullable: true })
-  effective_to: string | null;
-
-  // 'draft' | 'published' | 'archived'. Only published timetables count
-  // towards the no-overlap rule; archived timetables are read-only.
-  @Column({ type: 'varchar', length: 16, default: 'draft' })
-  status: TimetableStatus;
+  // The "go-to" template for this group. At most one row per (ps, group)
+  // carries this flag — enforced by a partial unique index. The Schedule
+  // view's preview modal auto-selects it so the common case ("Regular
+  // week") needs no extra click.
+  @Column({ type: 'boolean', default: false })
+  is_default: boolean;
 
   // ISO weekday numbers the timetable runs on (1 = Mon … 7 = Sun).
   @Column({ type: 'jsonb', default: () => `'[1,2,3,4,5]'` })

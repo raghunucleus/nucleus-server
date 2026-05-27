@@ -54,6 +54,18 @@ export class ProgrammeSemester {
   @Column({ type: 'varchar', length: 16, default: 'upcoming' })
   status: ProgrammeSemesterStatus;
 
+  // Academic calendar boundaries for this batch's semester. The session
+  // seeder uses planned_end_date as the hard upper bound — sessions are
+  // never created past it, regardless of what a timetable's effective_to
+  // says. Both nullable for migration compatibility; admins should fill
+  // them when creating / activating a semester so the seeder has a real
+  // cap instead of the 1-year safety horizon.
+  @Column({ type: 'date', nullable: true })
+  planned_start_date: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  planned_end_date: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 
