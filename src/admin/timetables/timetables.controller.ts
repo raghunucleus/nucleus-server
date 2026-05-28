@@ -136,7 +136,11 @@ export class TimetablesController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WeekWindowDto,
   ): Promise<PreviewResult> {
-    return this.timetables.previewWeek(id, { from: dto.from, to: dto.to });
+    return this.timetables.previewWeek(id, {
+      from: dto.from,
+      to: dto.to,
+      days_of_week: dto.days_of_week,
+    });
   }
 
   @Post(':id/publish-week')
@@ -149,7 +153,11 @@ export class TimetablesController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WeekWindowDto,
   ): Promise<PublishResult> {
-    return this.timetables.publishWeek(id, { from: dto.from, to: dto.to });
+    return this.timetables.publishWeek(id, {
+      from: dto.from,
+      to: dto.to,
+      days_of_week: dto.days_of_week,
+    });
   }
 
   @Post(':id/week-summaries')

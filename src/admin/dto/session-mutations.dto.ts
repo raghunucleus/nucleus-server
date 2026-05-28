@@ -21,6 +21,27 @@ export const SubstituteSessionSchema = z
   })
   .strict();
 
+// Bulk cancel for a slot: cancel every cohort (and any regular row) that
+// matches the supplied session ids in one transaction. The UI uses this to
+// cancel "Open Elective 1 this Friday" without iterating per cohort.
+export const BulkCancelSessionsSchema = z
+  .object({
+    session_ids: z.array(z.coerce.number().int().positive()).min(1).max(64),
+    reason: z.string().trim().min(1).max(256),
+  })
+  .strict();
+
+// Bulk substitute used when a single proctor covers an elective slot during
+// an exam / event. The clash check ignores siblings inside this same call —
+// otherwise the very first update would block all the rest.
+export const BulkSubstituteSessionsSchema = z
+  .object({
+    session_ids: z.array(z.coerce.number().int().positive()).min(1).max(64),
+    new_effective_employee_id: z.coerce.number().int().positive(),
+    reason: z.string().trim().max(256).optional(),
+  })
+  .strict();
+
 export const MoveSessionSchema = z
   .object({
     new_timetable_period_id: z.coerce.number().int().positive().optional(),
@@ -71,13 +92,23 @@ export const MarkAttendanceSchema = z
           .strict(),
       )
       .min(1)
-      .max(500),
+      // Cross-group open electives (attendance_group_id = NULL on the session)
+      // pull the whole batch's option pickers into one roster, which can run
+      // into the low thousands. Cap high enough to never reject a legitimate
+      // single-session roster while still rejecting obviously-bogus payloads.
+      .max(5000),
   })
   .strict();
 
 export class CancelSessionDto extends createZodDto(CancelSessionSchema) {}
 export class UncancelSessionDto extends createZodDto(UncancelSessionSchema) {}
 export class SubstituteSessionDto extends createZodDto(SubstituteSessionSchema) {}
+export class BulkCancelSessionsDto extends createZodDto(
+  BulkCancelSessionsSchema,
+) {}
+export class BulkSubstituteSessionsDto extends createZodDto(
+  BulkSubstituteSessionsSchema,
+) {}
 export class MoveSessionDto extends createZodDto(MoveSessionSchema) {}
 export class CreateAdHocSessionDto extends createZodDto(
   CreateAdHocSessionSchema,

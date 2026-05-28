@@ -16,6 +16,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { ListClassSessionsDto } from '../dto/list-class-sessions.dto';
 import {
+  BulkCancelSessionsDto,
+  BulkSubstituteSessionsDto,
   CancelSessionDto,
   CreateAdHocSessionDto,
   MarkAttendanceDto,
@@ -28,7 +30,11 @@ import {
   AttendanceMarkingService,
   type MarkResult,
 } from './attendance-marking.service';
-import { ClassSessionsService, type ActorContext } from './class-sessions.service';
+import {
+  ClassSessionsService,
+  type ActorContext,
+  type BulkMutationResult,
+} from './class-sessions.service';
 import { RosterService, type RosterStudent } from './roster.service';
 
 @ApiTags('class-sessions')
@@ -109,6 +115,32 @@ export class ClassSessionsController {
     @Req() req: { user?: { id?: string | number } },
   ): Promise<ClassSession> {
     return this.sessionsService.substitute(id, dto, this.actor(req));
+  }
+
+  @Post('bulk-cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Cancel many sessions in one transaction (e.g. every cohort of an elective slot).',
+  })
+  bulkCancel(
+    @Body() dto: BulkCancelSessionsDto,
+    @Req() req: { user?: { id?: string | number } },
+  ): Promise<BulkMutationResult> {
+    return this.sessionsService.bulkCancel(dto, this.actor(req));
+  }
+
+  @Post('bulk-substitute')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Assign the same effective teacher to many sessions (proctor for an entire elective slot).',
+  })
+  bulkSubstitute(
+    @Body() dto: BulkSubstituteSessionsDto,
+    @Req() req: { user?: { id?: string | number } },
+  ): Promise<BulkMutationResult> {
+    return this.sessionsService.bulkSubstitute(dto, this.actor(req));
   }
 
   @Post(':id/move')

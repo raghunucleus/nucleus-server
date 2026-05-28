@@ -38,6 +38,22 @@ export interface SubstituteInput {
   reason?: string;
 }
 
+export interface BulkCancelInput {
+  session_ids: number[];
+  reason: string;
+}
+
+export interface BulkSubstituteInput {
+  session_ids: number[];
+  new_effective_employee_id: number;
+  reason?: string;
+}
+
+export interface BulkMutationResult {
+  updated: number;
+  skipped: { id: number; reason: string }[];
+}
+
 export interface MoveInput {
   // Move within the same group's bell schedule. New period must belong to
   // some timetable for the same group; service validates.
@@ -274,6 +290,174 @@ export class ClassSessionsService {
     });
   }
 
+  // Cancel every session in one shot. Used by the admin "Cancel whole slot"
+  // affordance — cancelling "Open Elective 1 this Friday" hits N cohort
+  // sessions; doing them in a single transaction means either all-or-nothing
+  // and avoids the half-cancelled state where some cohorts stayed scheduled
+  // because the loop crashed midway.
+  //
+  // Per-id failures (already cancelled, completed-locked, semester closed)
+  // are reported in `skipped` rather than aborting the whole call: cancelling
+  // a slot where one cohort already had attendance marked should still
+  // cancel the rest.
+  async bulkCancel(
+    input: BulkCancelInput,
+    actor: ActorContext,
+  ): Promise<BulkMutationResult> {
+    this.assertActor(actor);
+    if (input.session_ids.length === 0) {
+      return { updated: 0, skipped: [] };
+    }
+    const skipped: { id: number; reason: string }[] = [];
+    let updated = 0;
+    await this.dataSource.transaction(async (tx) => {
+      const repo = tx.getRepository(ClassSession);
+      const rows = await repo
+        .createQueryBuilder('cs')
+        .leftJoinAndSelect('cs.programme_semester', 'programme_semester')
+        .where('cs.id IN (:...ids)', { ids: input.session_ids })
+        .getMany();
+      const foundIds = new Set(rows.map((r) => r.id));
+      for (const id of input.session_ids) {
+        if (!foundIds.has(id)) {
+          skipped.push({ id, reason: 'not found' });
+        }
+      }
+      for (const row of rows) {
+        if (row.programme_semester.status !== 'ongoing') {
+          skipped.push({
+            id: row.id,
+            reason: `semester is ${row.programme_semester.status}`,
+          });
+          continue;
+        }
+        if (row.status === 'cancelled') {
+          skipped.push({ id: row.id, reason: 'already cancelled' });
+          continue;
+        }
+        if (row.status === 'completed') {
+          skipped.push({
+            id: row.id,
+            reason: 'attendance already marked — amend instead',
+          });
+          continue;
+        }
+        const before = snapshot(row);
+        row.status = 'cancelled';
+        row.cancel_reason = input.reason;
+        await repo.save(row);
+        await this.writeAudit(tx, {
+          class_session_id: row.id,
+          action: 'cancel',
+          before,
+          after: snapshot(row),
+          reason: input.reason,
+          actor,
+        });
+        updated += 1;
+      }
+    });
+    return { updated, skipped };
+  }
+
+  // Bulk substitute: set the same effective_employee on every session in the
+  // call. Models the "one proctor for the whole elective slot" pattern.
+  //
+  // The per-row clash check still applies — but it excludes the sibling ids
+  // in this call so the substitute doesn't collide with themselves across
+  // the cohorts they're being assigned to.
+  async bulkSubstitute(
+    input: BulkSubstituteInput,
+    actor: ActorContext,
+  ): Promise<BulkMutationResult> {
+    this.assertActor(actor);
+    if (input.session_ids.length === 0) {
+      return { updated: 0, skipped: [] };
+    }
+    const emp = await this.employees.findOne({
+      where: { id: input.new_effective_employee_id },
+    });
+    if (!emp || !emp.is_active) {
+      throw new BadRequestException(
+        'Substitute teacher does not exist or is inactive',
+      );
+    }
+    const idSet = new Set(input.session_ids);
+    const skipped: { id: number; reason: string }[] = [];
+    let updated = 0;
+    await this.dataSource.transaction(async (tx) => {
+      const repo = tx.getRepository(ClassSession);
+      const rows = await repo
+        .createQueryBuilder('cs')
+        .leftJoinAndSelect('cs.programme_semester', 'programme_semester')
+        .where('cs.id IN (:...ids)', { ids: input.session_ids })
+        .getMany();
+      const foundIds = new Set(rows.map((r) => r.id));
+      for (const id of input.session_ids) {
+        if (!foundIds.has(id)) skipped.push({ id, reason: 'not found' });
+      }
+      for (const row of rows) {
+        if (row.programme_semester.status !== 'ongoing') {
+          skipped.push({
+            id: row.id,
+            reason: `semester is ${row.programme_semester.status}`,
+          });
+          continue;
+        }
+        if (row.status === 'cancelled') {
+          skipped.push({
+            id: row.id,
+            reason: 'cancelled — re-open before substituting',
+          });
+          continue;
+        }
+        if (row.effective_employee_id === input.new_effective_employee_id) {
+          // Already on this teacher — no-op silently (not really a "skip").
+          continue;
+        }
+        // Clash check, excluding the sibling rows in this bulk call so the
+        // proctor can be assigned to every cohort of the slot in one shot.
+        const clash = await repo
+          .createQueryBuilder('cs')
+          .where('cs.effective_employee_id = :eid', {
+            eid: input.new_effective_employee_id,
+          })
+          .andWhere('cs.session_date = :date', { date: row.session_date })
+          .andWhere('cs.timetable_period_id = :pid', {
+            pid: row.timetable_period_id,
+          })
+          .andWhere('cs.status IN (:...statuses)', {
+            statuses: ['scheduled', 'completed'],
+          })
+          .andWhere('cs.id NOT IN (:...exclude)', {
+            exclude: Array.from(idSet),
+          })
+          .getOne();
+        if (clash) {
+          skipped.push({
+            id: row.id,
+            reason:
+              'substitute already teaching another session at this period',
+          });
+          continue;
+        }
+        const before = snapshot(row);
+        row.effective_employee_id = input.new_effective_employee_id;
+        await repo.save(row);
+        await this.writeAudit(tx, {
+          class_session_id: row.id,
+          action: 'substitute',
+          before,
+          after: snapshot(row),
+          reason: input.reason ?? null,
+          actor,
+        });
+        updated += 1;
+      }
+    });
+    return { updated, skipped };
+  }
+
   // Move within the same date (new period) or to a new date (same period).
   // Both at once is a "reschedule" — different audit action.
   async move(
@@ -450,15 +634,23 @@ export class ClassSessionsService {
   // --- helpers --------------------------------------------------------------
 
   // Shared mutation envelope. Verifies the session exists + the programme
-  // semester is still ongoing, opens a transaction, runs the body, returns
-  // the freshly hydrated row.
+  // semester is still ongoing, opens a transaction, runs the body, then —
+  // AFTER the transaction commits — re-hydrates the row via the default
+  // repository so the caller (and the UI on the other end of the API)
+  // sees the persisted changes.
+  //
+  // `this.getOne` uses the default Repository, i.e. a different
+  // connection from the transactional `tx`. Calling it inside the
+  // transaction returns pre-commit state — which made "Assign alternate
+  // teacher" look like a no-op because the response still had the old
+  // effective_employee. Keep the hydrate strictly post-commit.
   private async mutate(
     id: number,
     actor: ActorContext,
     body: (tx: EntityManager, row: ClassSession) => Promise<ClassSession>,
   ): Promise<ClassSession> {
     this.assertActor(actor);
-    return this.dataSource.transaction(async (tx) => {
+    await this.dataSource.transaction(async (tx) => {
       const row = await tx
         .getRepository(ClassSession)
         .createQueryBuilder('cs')
@@ -472,8 +664,8 @@ export class ClassSessionsService {
         );
       }
       await body(tx, row);
-      return this.getOne(row.id);
     });
+    return this.getOne(id);
   }
 
   private async writeAudit(

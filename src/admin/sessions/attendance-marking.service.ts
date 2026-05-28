@@ -134,6 +134,16 @@ export class AttendanceMarkingService {
       const existingByStudent = new Map(
         existing.map((r) => [r.student_id, r] as const),
       );
+      // Snapshot the original (pre-mutation) statuses so both the
+      // amend-diff and the audit log's `before` payload see the OLD
+      // values. The upsert loop below mutates `prior.status` in place
+      // (since TypeORM tracks the entity by reference); without this
+      // snapshot, the later diff would compare the new status against
+      // itself and miss every flip — which silently broke the rollup
+      // count on every absent→present amend.
+      const originalStatusByStudent = new Map<number, AttendanceStatus>(
+        existing.map((r) => [r.student_id, r.status] as const),
+      );
 
       // Upsert one row per student in input.
       const now = new Date();
@@ -169,9 +179,9 @@ export class AttendanceMarkingService {
       const attendedDeltas = new Map<number, number>();
       const heldDeltas = new Map<number, number>();
 
-      const wasCountedAs = (s: ClassSessionAttendance | undefined): boolean =>
-        s !== undefined &&
-        (COUNTED_AS_PRESENT as AttendanceStatus[]).includes(s.status);
+      const wasCountedAs = (prior: AttendanceStatus | undefined): boolean =>
+        prior !== undefined &&
+        (COUNTED_AS_PRESENT as AttendanceStatus[]).includes(prior);
       const isCountedAs = (status: AttendanceStatus): boolean =>
         (COUNTED_AS_PRESENT as AttendanceStatus[]).includes(status);
 
@@ -187,10 +197,11 @@ export class AttendanceMarkingService {
           );
         }
       } else {
-        // Amend — recompute the diff per submitted student.
+        // Amend — recompute the diff per submitted student. Use the
+        // pre-mutation snapshot above so was/now actually differ.
         for (const [studentId, status] of byStudent) {
-          const prior = existingByStudent.get(studentId);
-          const wasPresent = wasCountedAs(prior);
+          const priorStatus = originalStatusByStudent.get(studentId);
+          const wasPresent = wasCountedAs(priorStatus);
           const nowPresent = isCountedAs(status);
           if (wasPresent === nowPresent) continue;
           attendedDeltas.set(
@@ -215,14 +226,20 @@ export class AttendanceMarkingService {
         await tx.getRepository(ClassSession).save(session);
       }
 
-      // Audit row — one per mark/amend regardless of student count.
+      // Audit row — one per mark/amend regardless of student count. The
+      // `before` payload reads the pre-mutation snapshot so it captures
+      // the ORIGINAL statuses (not the freshly-mutated `existing` rows).
       const auditRepo = tx.getRepository(ClassSessionAuditLog);
       await auditRepo.save(
         auditRepo.create({
           class_session_id: session.id,
           action: 'mark_attendance',
           before: isAmending
-            ? { entries: existing.map((r) => ({ student_id: r.student_id, status: r.status })) }
+            ? {
+                entries: Array.from(originalStatusByStudent.entries()).map(
+                  ([student_id, status]) => ({ student_id, status }),
+                ),
+              }
             : null,
           after: {
             entries: upserts.map((r) => ({

@@ -19,6 +19,11 @@ import { TimetablePeriod } from '../entities/timetable-period.entity';
 export interface SeedWindow {
   from: string; // 'YYYY-MM-DD', inclusive
   to: string;   // 'YYYY-MM-DD', inclusive
+  // Optional ISO weekday filter (1=Mon..7=Sun). When set, both the wipe
+  // (publish only) and the seed loop ignore weekdays outside this list,
+  // so callers can publish a partial week without touching the days they
+  // didn't pick. Omit / leave empty for the original full-window behavior.
+  days_of_week?: number[];
 }
 
 // Snapshot of one would-be session, used by the preview endpoint so the
@@ -114,9 +119,11 @@ export class SessionSeederService {
       const cohortCache = new Map<number, CohortRow[]>();
       const workingDays = new Set(tt.working_days);
       const entriesByDay = groupEntriesByDay(entries, workingDays);
+      const dowFilter = toDowFilter(window2.days_of_week);
 
       for (const date of enumerateDates(window2.from, window2.to)) {
         const weekday = isoWeekday(date);
+        if (dowFilter && !dowFilter.has(weekday)) continue;
         const dayEntries = entriesByDay.get(weekday);
         if (!dayEntries || dayEntries.length === 0) continue;
         if (this.dateIsFullyBlocked(holidays, date)) {
@@ -236,6 +243,10 @@ export class SessionSeederService {
       // switch templates between weeks (Regular vs Exam-week vs ...) without
       // mixing two templates' rows in the same date range.
       //
+      // When `days_of_week` is set, the wipe is restricted to those
+      // weekdays — so publishing only Thu+Fri+Sat with template B leaves
+      // Mon–Wed's existing template-A rows alone.
+      //
       // Preserved:
       //   - completed / cancelled sessions (historical truth)
       //   - ad-hoc sessions (timetable_entry_id IS NULL, deliberately
@@ -248,7 +259,8 @@ export class SessionSeederService {
       //     programme_semester_id matches AND whose entry belonged to a
       //     template of THIS group — captured by the entry's
       //     timetable_id.attendance_group_id filter.
-      const wipe = await tx
+      const dowFilter = toDowFilter(clamped.days_of_week);
+      const wipeQb = tx
         .getRepository(ClassSession)
         .createQueryBuilder()
         .delete()
@@ -270,8 +282,13 @@ export class SessionSeederService {
             gid: tt.attendance_group_id,
             psid: tt.programme_semester_id,
           },
-        )
-        .execute();
+        );
+      if (dowFilter) {
+        wipeQb.andWhere('day_of_week IN (:...dows)', {
+          dows: Array.from(dowFilter),
+        });
+      }
+      const wipe = await wipeQb.execute();
 
       const [entries, holidays] = await Promise.all([
         this.loadEntries(tx, tt.id),
@@ -285,6 +302,7 @@ export class SessionSeederService {
 
       for (const date of enumerateDates(clamped.from, clamped.to)) {
         const weekday = isoWeekday(date);
+        if (dowFilter && !dowFilter.has(weekday)) continue;
         const dayEntries = entriesByDay.get(weekday);
         if (!dayEntries || dayEntries.length === 0) continue;
         if (this.dateIsFullyBlocked(holidays, date)) {
@@ -307,7 +325,9 @@ export class SessionSeederService {
       }
 
       this.logger.log(
-        `publishWindow: timetable=${timetableId} range=${clamped.from}..${clamped.to} replaced=${wipe.affected ?? 0} inserted=${inserted} skipped_holidays=${skippedHolidays}`,
+        `publishWindow: timetable=${timetableId} range=${clamped.from}..${clamped.to}` +
+          (dowFilter ? ` dow=[${Array.from(dowFilter).sort().join(',')}]` : '') +
+          ` replaced=${wipe.affected ?? 0} inserted=${inserted} skipped_holidays=${skippedHolidays}`,
       );
       return {
         inserted,
@@ -343,7 +363,11 @@ export class SessionSeederService {
         ? ps.planned_end_date
         : w.to;
     if (to < from) return null;
-    return { from, to };
+    // Preserve days_of_week through the clamp — only `from` / `to` need
+    // narrowing to the semester's planned window; the weekday filter is
+    // unaffected. Dropping it here silently turns a partial-week publish
+    // into a full-week one.
+    return { from, to, days_of_week: w.days_of_week };
   }
 
   // Expand one cell into the rows it would seed for a given date — one row
@@ -657,6 +681,17 @@ function enumerateDates(fromStr: string, toStr: string): string[] {
 function isoWeekday(dateStr: string): number {
   const d = parseDate(dateStr).getUTCDay();
   return d === 0 ? 7 : d;
+}
+
+/**
+ * Normalize the optional `days_of_week` request field into a Set for
+ * fast `.has()` checks during the date-enumeration loop. Returns null
+ * when no filter is requested (or an empty array slipped through), so
+ * the caller can treat "absent" and "full window" identically.
+ */
+function toDowFilter(input: number[] | undefined): Set<number> | null {
+  if (!input || input.length === 0) return null;
+  return new Set(input);
 }
 
 function groupEntriesByDay(

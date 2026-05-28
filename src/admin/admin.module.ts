@@ -202,6 +202,22 @@ import { AdminUsersService } from './users/admin-users.service';
     RequireTotpEnrolledGuard,
     MasterAdminGuard,
   ],
-  exports: [AdminService],
+  exports: [
+    AdminService,
+    // Surfaced to the employee-facing modules so an attendance incharge can
+    // wrap the same timetable + session-seeding logic with group-ownership
+    // checks instead of forcing them to re-implement the workflow. The PSS,
+    // ProgrammeSemesters and Employees services power the lookup endpoints
+    // the incharge schedule editor calls when picking subjects, semesters,
+    // or employee faculty. ClassSessionsService + RosterService back the
+    // incharge's live schedule surface (cancel / substitute / move / list).
+    TimetablesService,
+    SessionSeederService,
+    ProgrammeSemestersService,
+    ProgrammeSemesterSubjectsService,
+    EmployeesService,
+    ClassSessionsService,
+    RosterService,
+  ],
 })
 export class AdminModule {}

@@ -294,7 +294,7 @@ export class TimetablesService {
   // indicating whether an identical session already exists.
   async previewWeek(
     id: number,
-    week: { from: string; to: string },
+    week: { from: string; to: string; days_of_week?: number[] },
   ): Promise<PreviewResult> {
     await this.loadOr404(id);
     return this.sessionSeeder.previewWindow(id, week);
@@ -303,10 +303,11 @@ export class TimetablesService {
   // Commit the week. Replaces any still-scheduled sessions from this
   // timetable's entries in the window with the current shape (subject /
   // teacher / room edits picked up); completed and cancelled sessions
-  // stay untouched. Idempotent.
+  // stay untouched. When `days_of_week` is supplied the wipe + seed are
+  // restricted to those weekdays. Idempotent.
   async publishWeek(
     id: number,
-    week: { from: string; to: string },
+    week: { from: string; to: string; days_of_week?: number[] },
   ): Promise<PublishResult> {
     await this.loadOr404(id);
     return this.sessionSeeder.publishWindow(id, week);

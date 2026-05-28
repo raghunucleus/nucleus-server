@@ -1,6 +1,7 @@
 import { SetMetadata } from '@nestjs/common';
 
 export const REQUIRE_SCREEN_METADATA = 'rbac:requireScreen';
+export const REQUIRE_ANY_SCREEN_METADATA = 'rbac:requireAnyScreen';
 
 export interface RequireScreenSpec {
   screenKey: string;
@@ -26,3 +27,25 @@ export const RequireScreen = (
     screenKey,
     action,
   });
+
+/**
+ * Allow access if the caller has ANY of the listed (screen, action) pairs.
+ * Used for endpoints shared by two side-menu surfaces — e.g. a lookup the
+ * incharge needs from both the templates page and the schedule page. The
+ * server-side ownership scoping happens inside the handler; the screen
+ * check is just "do they have a relevant menu item at all".
+ *
+ *     @RequireAnyScreen(
+ *       { screenKey: 'timetable.incharge.templates.manage', action: 'view' },
+ *       { screenKey: 'timetable.incharge.schedule.manage',  action: 'view' },
+ *     )
+ *
+ * Pair with `ScreenAccessGuard` like `@RequireScreen`.
+ */
+export const RequireAnyScreen = (
+  ...specs: RequireScreenSpec[]
+): MethodDecorator & ClassDecorator =>
+  SetMetadata<string, RequireScreenSpec[]>(
+    REQUIRE_ANY_SCREEN_METADATA,
+    specs,
+  );

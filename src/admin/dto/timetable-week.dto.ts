@@ -6,6 +6,19 @@ export const WeekWindowSchema = z
   .object({
     from: z.string().regex(DATE_RE, 'Use YYYY-MM-DD'),
     to: z.string().regex(DATE_RE, 'Use YYYY-MM-DD'),
+    // Optional ISO weekday filter (1=Mon..7=Sun). When omitted, every
+    // working day inside [from, to] is considered (the original behavior).
+    // When present, both the wipe and the seed are scoped to these
+    // weekdays — used to publish a different template for a subset of
+    // the week (e.g. Thu+Fri+Sat) without touching the rest.
+    days_of_week: z
+      .array(z.number().int().min(1).max(7))
+      .min(1)
+      .max(7)
+      .refine((a) => new Set(a).size === a.length, {
+        message: 'days_of_week must contain unique values',
+      })
+      .optional(),
   })
   .strict()
   .refine((v) => v.to >= v.from, {

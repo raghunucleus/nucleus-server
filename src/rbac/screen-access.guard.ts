@@ -8,14 +8,16 @@ import { Reflector } from '@nestjs/core';
 import type { AuthenticatedEmployee } from '../employee/auth/employee-jwt.strategy';
 import { PermissionsService } from './permissions.service';
 import {
+  REQUIRE_ANY_SCREEN_METADATA,
   REQUIRE_SCREEN_METADATA,
   RequireScreenSpec,
 } from './require-screen.decorator';
 
 /**
- * Reads `@RequireScreen(...)` metadata and asserts the current authenticated
- * employee has the screen + action via `PermissionsService`. Intended to run
- * AFTER `EmployeeJwtAuthGuard` so `req.user` is populated.
+ * Reads `@RequireScreen(...)` / `@RequireAnyScreen(...)` metadata and asserts
+ * the current authenticated employee has the screen + action via
+ * `PermissionsService`. Intended to run AFTER `EmployeeJwtAuthGuard` so
+ * `req.user` is populated.
  *
  * Throws ForbiddenException on missing access — never reveals whether the
  * screen exists in the catalog (just "Access denied").
@@ -32,8 +34,11 @@ export class ScreenAccessGuard implements CanActivate {
       REQUIRE_SCREEN_METADATA,
       [ctx.getHandler(), ctx.getClass()],
     );
-    // No @RequireScreen on this handler — let it through.
-    if (!spec) return true;
+    const anySpecs = this.reflector.getAllAndOverride<
+      RequireScreenSpec[] | undefined
+    >(REQUIRE_ANY_SCREEN_METADATA, [ctx.getHandler(), ctx.getClass()]);
+    // No @RequireScreen / @RequireAnyScreen on this handler — let it through.
+    if (!spec && (!anySpecs || anySpecs.length === 0)) return true;
 
     const req = ctx
       .switchToHttp()
@@ -43,14 +48,29 @@ export class ScreenAccessGuard implements CanActivate {
       throw new ForbiddenException('Access denied');
     }
 
-    const ok = await this.permissions.hasAction(
-      user.id,
-      spec.screenKey,
-      spec.action,
-    );
-    if (!ok) {
-      throw new ForbiddenException('Access denied');
+    if (spec) {
+      const ok = await this.permissions.hasAction(
+        user.id,
+        spec.screenKey,
+        spec.action,
+      );
+      if (!ok) {
+        throw new ForbiddenException('Access denied');
+      }
+      return true;
     }
-    return true;
+
+    // @RequireAnyScreen — pass if any of the listed (screen, action) pairs
+    // is granted to the caller.
+    for (const s of anySpecs!) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await this.permissions.hasAction(
+        user.id,
+        s.screenKey,
+        s.action,
+      );
+      if (ok) return true;
+    }
+    throw new ForbiddenException('Access denied');
   }
 }

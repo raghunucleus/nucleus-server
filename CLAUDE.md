@@ -93,3 +93,34 @@ Every protected employee-facing controller method MUST follow this contract. Vio
 3. **For mutations on a specific row**, verify the target's scope key is in the accessible list before writing — or accept any value when the helper returned `'all'`. A `PATCH /:id` with no scope check leaks across tenants the moment the guard says "yes, you can edit *some* department's timetable".
 
 4. **No magic interceptors.** Every controller does the scoping explicitly so guards remain greppable and reviewable. Raw SQL / non-TypeORM queries are still subject to the contract — wrap them with the same helpers.
+
+## Student-facing API isolation
+
+Every student-facing controller method MUST derive the acting student exclusively from the JWT — never from a route param, query string, or request body. A student can only ever see and mutate their own data.
+
+1. **Mount student endpoints under `/student/*`** and guard them with `StudentJwtAuthGuard` (plus `RequirePasswordChangedGuard` unless the route is the change-password flow itself). Never reuse `/admin/*` or `/employee/*` controllers for student traffic.
+
+   ```ts
+   @UseGuards(StudentJwtAuthGuard, RequirePasswordChangedGuard)
+   @ApiBearerAuth('student-access-token')
+   @Controller('student/timetable')
+   export class StudentTimetableController { ... }
+   ```
+
+2. **Read the student id from the token via `@GetStudent()`** and pass it straight to the service. No `:studentId` path param, no `student_id` body field, no `?student_id=` query — there is no legitimate reason for a student to scope a request to any id other than their own.
+
+   ```ts
+   // good
+   @Get('week')
+   week(@GetStudent() s: AuthenticatedStudent, @Query() q: WeekQueryDto) {
+     return this.svc.week(s.id, q.week_start, q.week_end);
+   }
+
+   // bad — accepts an arbitrary studentId, trivially leaks across students
+   @Get(':studentId/week')
+   week(@Param('studentId') id: number, @Query() q: WeekQueryDto) { ... }
+   ```
+
+3. **If a student-facing service is shared with admin/employee code**, keep the shared service signature as `(studentId, ...)` but only ever pass `req.user.id` from the student controller. The same service is fine to call from `/admin/*` with an arbitrary id under the admin RBAC contract above; mixing the two on a single route is not.
+
+4. **Never trust client-supplied identifiers** for joins, filters, or audit fields on student routes. `programme_semester_id`, `attendance_group_id`, `subject_id` etc. that aren't explicit user input must be derived server-side from the token's student.
