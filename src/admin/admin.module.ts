@@ -31,6 +31,8 @@ import { DesignationsController } from './designations/designations.controller';
 import { DesignationsService } from './designations/designations.service';
 import { EmployeesController } from './employees/employees.controller';
 import { EmployeesService } from './employees/employees.service';
+import { InstitutionSettingsController } from './institution-settings/institution-settings.controller';
+import { InstitutionSettingsService } from './institution-settings/institution-settings.service';
 import { AcademicHoliday } from './entities/academic-holiday.entity';
 import { AdminRecoveryCode } from './entities/admin-recovery-code.entity';
 import { Admin } from './entities/admin.entity';
@@ -44,6 +46,7 @@ import { Degree } from './entities/degree.entity';
 import { Department } from './entities/department.entity';
 import { Designation } from './entities/designation.entity';
 import { Employee } from './entities/employee.entity';
+import { InstitutionSetting } from './entities/institution-setting.entity';
 import { Programme } from './entities/programme.entity';
 import { ProgrammeAdmissionYear } from './entities/programme-admission-year.entity';
 import { ProgrammeSemester } from './entities/programme-semester.entity';
@@ -113,6 +116,7 @@ import { AdminUsersService } from './users/admin-users.service';
       Department,
       Designation,
       Employee,
+      InstitutionSetting,
       Programme,
       ProgrammeAdmissionYear,
       ProgrammeSemester,
@@ -150,6 +154,7 @@ import { AdminUsersService } from './users/admin-users.service';
     DepartmentsController,
     DesignationsController,
     EmployeesController,
+    InstitutionSettingsController,
     AdmissionYearsController,
     AttendanceGroupsController,
     ClassSessionsController,
@@ -175,6 +180,7 @@ import { AdminUsersService } from './users/admin-users.service';
     DepartmentsService,
     DesignationsService,
     EmployeesService,
+    InstitutionSettingsService,
     AdmissionYearsService,
     AttendanceGroupsService,
     AttendanceMarkingService,

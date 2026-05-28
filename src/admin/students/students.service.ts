@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { DataSource, In, Repository } from 'typeorm';
 import { StudentAuthService } from '../../student/student-auth.service';
+import { StorageService } from '../../storage/storage.service';
 import type { StudentsSortField } from '../dto/list-students.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { Programme } from '../entities/programme.entity';
@@ -51,6 +53,13 @@ const SORT_COLUMN: Record<StudentsSortField, string> = {
   updated_at: 'updated_at',
 };
 
+// Allowed ID-card photo types → file extension used in the object key.
+const PHOTO_EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
 interface CreateStudentInput {
   student_id: string;
   programme_id: number;
@@ -89,6 +98,7 @@ export class StudentsService {
     private readonly programmeAdmissionYears: Repository<ProgrammeAdmissionYear>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly studentAuth: StudentAuthService,
+    private readonly storage: StorageService,
   ) {}
 
   async list(opts: {
@@ -476,6 +486,53 @@ export class StudentsService {
 
     student.is_active = active;
     return this.students.save(student);
+  }
+
+  /**
+   * Store (or replace) the student's ID-card photo in object storage. The key
+   * is a random UUID — never the roll number — so it can't be guessed from any
+   * public identifier. The previous object, if any, is deleted afterwards as
+   * best-effort cleanup.
+   */
+  async setPhoto(
+    id: number,
+    file: { buffer: Buffer; mimetype: string },
+  ): Promise<Student> {
+    const student = await this.students.findOne({ where: { id } });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const ext = PHOTO_EXT_BY_MIME[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException(
+        'Unsupported image type. Use JPEG, PNG, or WebP.',
+      );
+    }
+
+    const previousKey = student.photo_key;
+    const key = `student-photos/${randomUUID()}.${ext}`;
+    await this.storage.putObject(key, file.buffer, file.mimetype);
+
+    student.photo_key = key;
+    const saved = await this.students.save(student);
+
+    if (previousKey && previousKey !== key) {
+      await this.storage.deleteObject(previousKey);
+    }
+    return saved;
+  }
+
+  /** Remove the student's ID-card photo (object + reference). */
+  async removePhoto(id: number): Promise<Student> {
+    const student = await this.students.findOne({ where: { id } });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const key = student.photo_key;
+    if (!key) return student;
+
+    student.photo_key = null;
+    const saved = await this.students.save(student);
+    await this.storage.deleteObject(key);
+    return saved;
   }
 
   private async assertReferencesExist(opts: {

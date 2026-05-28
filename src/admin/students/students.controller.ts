@@ -1,17 +1,29 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
+  MaxFileSizeValidator,
   Param,
+  ParseFilePipe,
   ParseIntPipe,
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { BulkCreateStudentsDto } from '../dto/bulk-create-students.dto';
@@ -109,6 +121,44 @@ export class StudentsController {
     @Body() dto: SetStudentPasswordDto,
   ): Promise<void> {
     return this.students.setLoginPassword(id, dto.password);
+  }
+
+  @Post(':id/photo')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({
+    summary:
+      "Upload (or replace) the student's ID-card photo. Stored in object " +
+      'storage under a random key; served to clients via presigned URLs only.',
+  })
+  setPhoto(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          // 5 MB cap. Mime/type is validated in the service against the
+          // allowed set (JPEG/PNG/WebP) so the key extension stays trusted.
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ): Promise<Student> {
+    return this.students.setPhoto(id, file);
+  }
+
+  @Delete(':id/photo')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Remove the student's ID-card photo." })
+  removePhoto(@Param('id', ParseIntPipe) id: number): Promise<Student> {
+    return this.students.removePhoto(id);
   }
 
   @Post(':id/activate')

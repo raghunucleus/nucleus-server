@@ -82,6 +82,14 @@ export class Student {
   @Column({ type: 'varchar', length: 255 })
   email: string;
 
+  // Object-storage key of the student's ID-card photo (S3/MinIO), e.g.
+  // "student-photos/<uuid>.jpg". A random UUID — never the roll number — so the
+  // key is not enumerable or derivable from any public identifier. The bytes are
+  // served to clients only via short-lived presigned URLs; this column never
+  // holds a public URL. Null when no photo has been uploaded.
+  @Column({ type: 'text', nullable: true })
+  photo_key: string | null;
+
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 

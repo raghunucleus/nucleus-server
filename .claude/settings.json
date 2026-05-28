@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const f='C:/Users/akrivia/AppData/Local/Temp/claude/c--Users-akrivia-Documents-Projects-nucleus-nucleus-server/e28c84f6-1700-4c33-b4bc-b49a53adb599/tasks/bx31jm62y.output';const fs=require\\('fs'\\);const start=Date.now\\(\\);function poll\\(\\){const t=fs.existsSync\\(f\\)?fs.readFileSync\\(f,'utf8'\\):'';if\\(t.includes\\('Server is running'\\)||t.includes\\('Error'\\)||t.includes\\('error TS'\\)||Date.now\\(\\)-start>60000\\){process.stdout.write\\(t.slice\\(-3000\\)\\);process.exit\\(0\\);}setTimeout\\(poll,1500\\);}poll\\(\\);\")",
+      "Bash(node -e \"const bcrypt=require\\('bcrypt'\\);bcrypt.hash\\('Test@1234',12\\).then\\(h=>console.log\\(h\\)\\)\")"
+    ]
+  }
+}

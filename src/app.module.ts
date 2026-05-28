@@ -11,6 +11,7 @@ import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
+import { StorageModule } from './storage/storage.module';
 import { StudentModule } from './student/student.module';
 
 @Module({
@@ -80,6 +81,7 @@ import { StudentModule } from './student/student.module';
       }),
     }),
     RedisModule,
+    StorageModule,
     MailModule,
     HealthModule,
     AdminModule,
