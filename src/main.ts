@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
 import { createZodValidationPipe, cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
+import { RedisIoAdapter } from './redis/redis-io.adapter';
 
 // nestjs-zod's default validation exception reports a generic
 // "Validation failed" message and tucks the real Zod issues into a separate
@@ -71,6 +72,12 @@ async function bootstrap() {
   // still trips well before any DoS-shaped payload becomes interesting.
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', { limit: '10mb', extended: true });
+
+  // Socket.IO transport for student chat, fanned out across instances via Redis
+  // pub/sub. Idle on a single instance, but ready for horizontal scaling.
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Nucleus Server')
