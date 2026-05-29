@@ -29,6 +29,12 @@ export interface ChatMessageDto {
   sender_id: number;
   body: string;
   created_at: string;
+  /**
+   * Sender's display name. Only populated on the realtime `message:new` event
+   * (so a global in-app notification can name the sender); REST history omits
+   * it — the thread screen already knows the other participant's name.
+   */
+  sender_name?: string;
 }
 
 /** A row in the caller's conversation list. */
@@ -199,6 +205,40 @@ export class ChatService {
   }
 
   /**
+   * Full-history search within a single conversation the caller participates in,
+   * newest first. Matches `query` as a literal substring of the message body
+   * (case-insensitive). LIKE wildcards in the user's input are escaped so `%`
+   * and `_` match themselves. Pages back with `before` like {@link listMessages}.
+   */
+  async searchMessages(
+    meId: number,
+    convId: number,
+    query: string,
+    limit: number,
+    before?: number,
+  ): Promise<ChatMessagesPage> {
+    await this.getParticipantConversation(meId, convId);
+    const term = query.trim();
+    if (!term) return { items: [], has_more: false };
+
+    // Backslash is Postgres' default LIKE escape char; neutralise it plus the
+    // two wildcards so the term is matched literally.
+    const escaped = term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+    const qb = this.messages
+      .createQueryBuilder('m')
+      .where('m.conversation_id = :convId', { convId })
+      .andWhere('m.body ILIKE :pattern', { pattern: `%${escaped}%` })
+      .orderBy('m.id', 'DESC')
+      .take(limit + 1);
+    if (before) qb.andWhere('m.id < :before', { before });
+
+    const rows = await qb.getMany();
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return { items: page.map((m) => this.toDto(m)), has_more: hasMore };
+  }
+
+  /**
    * Move the caller's read cursor to the latest message in the conversation.
    * Returns the new cursor and the other participant so the gateway can notify
    * them. One UPDATE; no per-message writes.
@@ -312,6 +352,19 @@ export class ChatService {
       [meId],
     );
     return Number(row[0]?.total ?? 0);
+  }
+
+  /**
+   * A student's display name (one indexed PK lookup). Used by the gateway to
+   * label the realtime `message:new` event so recipients can show an in-app
+   * notification naming the sender. Falls back to a generic label if the row
+   * has vanished (e.g. deactivated mid-conversation).
+   */
+  async displayName(studentId: number): Promise<string> {
+    const rows = await this.messages.manager.query<
+      Array<{ display_name: string }>
+    >(`SELECT display_name FROM "students" WHERE id = $1`, [studentId]);
+    return rows[0]?.display_name ?? 'Someone';
   }
 
   /** Active groupmates the caller may start a chat with (excluding themselves). */

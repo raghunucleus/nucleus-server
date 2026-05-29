@@ -16,7 +16,10 @@
       "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\akrivia\\\\Documents\\\\Projects\\\\nucleus\\\\nucleus-ui\\\\src\" -Recurse -File | Select-Object -First 50 | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"c:\\\\Users\\\\akrivia\\\\Documents\\\\Projects\\\\nucleus\\\\nucleus-ui\"\\), \".\" })",
       "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\akrivia\\\\Documents\\\\Projects\\\\nucleus\\\\nucleus-ui\\\\src\" -Recurse -File | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"c:\\\\Users\\\\akrivia\\\\Documents\\\\Projects\\\\nucleus\\\\nucleus-ui\"\\), \".\" })",
       "Bash(node -e \"const l=require\\('lucide-react'\\); ['MessageCircle','Send','Check','CheckCheck','Clock','Plus','CircleAlert','Loader2','Search','ArrowLeft','RefreshCw'].forEach\\(n=>console.log\\(n, n in l\\)\\)\")",
-      "Bash(echo \"=== tsc exit: $? ===\")"
+      "Bash(echo \"=== tsc exit: $? ===\")",
+      "Bash(dir \"c:\\\\Users\\\\akrivia\\\\Documents\\\\Projects\\\\nucleus\\\\nucleus-mobile\\\\app\")",
+      "Bash(dir \"c:\\\\Users\\\\akrivia\\\\Documents\\\\Projects\\\\nucleus\\\\nucleus-mobile\\\\components\")",
+      "Bash(dir \"c:\\\\Users\\\\akrivia\\\\Documents\\\\Projects\\\\nucleus\\\\nucleus-mobile\\\\app\\\\connect\")"
     ]
   }
 }

@@ -105,6 +105,26 @@ export class ChatController {
     return this.chat.listMessages(s.id, id, before, clamp(limit, 1, MAX_PAGE));
   }
 
+  @Get('conversations/:id/messages/search')
+  @ApiOperation({
+    summary:
+      "Search a conversation's full history for messages whose body contains " +
+      '`q` (case-insensitive, newest first). Scoped to a conversation the ' +
+      'caller participates in. Page older matches with `before=<oldest id seen>`.',
+  })
+  @ApiQuery({ name: 'q', required: true, description: 'Search term (min 1 char).' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
+  @ApiQuery({ name: 'before', required: false, description: 'Return matches with id < this.' })
+  searchMessages(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('q') q: string,
+    @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
+    @Query('before', new ParseIntPipe({ optional: true })) before?: number,
+  ): Promise<ChatMessagesPage> {
+    return this.chat.searchMessages(s.id, id, q ?? '', clamp(limit, 1, MAX_PAGE), before);
+  }
+
   @Get('unread-count')
   @ApiOperation({ summary: 'Total unread messages across all conversations — for the Connect badge.' })
   async unread(

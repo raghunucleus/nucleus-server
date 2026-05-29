@@ -65,8 +65,12 @@ export class ChatGateway implements OnGatewayConnection {
     try {
       const conv = await this.chat.getOrCreateConversation(me, toStudentId);
       const msg = await this.chat.saveMessage(conv, me, body);
+      // `sender_name` lets the recipient render an in-app notification naming
+      // the sender from any screen, without a follow-up lookup.
+      const senderName = await this.chat.displayName(me);
       const dto = {
         ...this.chat.toDto(msg),
+        sender_name: senderName,
         client_temp_id: clientTempId ?? null,
       };
 
