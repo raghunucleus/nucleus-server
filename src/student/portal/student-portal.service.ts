@@ -244,7 +244,7 @@ export class StudentPortalService {
         cs.timetable_period_id,
         tp.label AS period_label,
         tp.start_time::text AS start_time,
-        tp.end_time::text AS end_time,
+        COALESCE(tp_end.end_time, tp.end_time)::text AS end_time,
         cs.span,
         cs.id AS session_id,
         cs.subject_id,
@@ -260,6 +260,13 @@ export class StudentPortalService {
         cs.room
       FROM "class_sessions" cs
       JOIN "timetable_periods" tp ON tp.id = cs.timetable_period_id
+      -- A spanned class (span > 1, e.g. a lab) runs from its anchor period
+      -- through the period at position + span - 1. The admin service guarantees
+      -- a span never crosses a break or runs past the last period, so this row
+      -- always exists and is non-break; take its end_time as the run's end.
+      LEFT JOIN "timetable_periods" tp_end
+        ON tp_end.timetable_id = tp.timetable_id
+       AND tp_end.position = tp.position + cs.span - 1
       JOIN "subjects" sub ON sub.id = cs.subject_id
       LEFT JOIN "employees" emp ON emp.id = cs.effective_employee_id
       LEFT JOIN "class_session_attendance" csa
@@ -406,7 +413,7 @@ export class StudentPortalService {
         cs.day_of_week,
         tp.label AS period_label,
         tp.start_time::text AS start_time,
-        tp.end_time::text AS end_time,
+        COALESCE(tp_end.end_time, tp.end_time)::text AS end_time,
         cs.status AS session_status,
         cs.cancel_reason,
         csa.status AS attendance_status,
@@ -415,6 +422,10 @@ export class StudentPortalService {
         cs.room
       FROM "class_sessions" cs
       JOIN "timetable_periods" tp ON tp.id = cs.timetable_period_id
+      -- End of a spanned run (lab): the period at position + span - 1. See week().
+      LEFT JOIN "timetable_periods" tp_end
+        ON tp_end.timetable_id = tp.timetable_id
+       AND tp_end.position = tp.position + cs.span - 1
       LEFT JOIN "employees" emp ON emp.id = cs.effective_employee_id
       LEFT JOIN "class_session_attendance" csa
         ON csa.class_session_id = cs.id AND csa.student_id = $1
