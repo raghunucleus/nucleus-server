@@ -11,8 +11,12 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import type { StudentAccessPayload } from '../student-auth.service';
+import { StudentNotificationService } from '../notification/student-notification.service';
 import { ChatService } from './chat.service';
 import { ConversationRefSchema, SendMessageSchema } from './dto/chat.dto';
+
+// Notification body is a short preview, not the full message.
+const NOTIFICATION_PREVIEW_LENGTH = 200;
 
 /**
  * Realtime transport for student chat. Auth happens once, at the handshake:
@@ -34,6 +38,7 @@ export class ChatGateway implements OnGatewayConnection {
     private readonly chat: ChatService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly notifications: StudentNotificationService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -92,6 +97,31 @@ export class ChatGateway implements OnGatewayConnection {
           message_id: msg.id,
         });
       }
+
+      // Push-only notification: chat has its own history (the conversation) and
+      // unread badge, so we DON'T persist a notifications row or emit the in-app
+      // event (that would bloat the table and duplicate the Connect list). We
+      // only fire an OS push, and the service sends it solely to recipients with
+      // no live in-app socket. Fire-and-forget — never let it affect the ack.
+      void this.notifications
+        .send(
+          toStudentId,
+          {
+            module: 'chat',
+            type: 'message',
+            title: senderName,
+            body: msg.body.slice(0, NOTIFICATION_PREVIEW_LENGTH),
+            target: {
+              type: 'conversation',
+              id: conv.id,
+              params: { otherStudentId: String(me), otherName: senderName },
+            },
+          },
+          { persist: false },
+        )
+        .catch((err) =>
+          this.logger.error(`Notification send failed: ${String(err)}`),
+        );
 
       return { ok: true, message: dto };
     } catch (err) {

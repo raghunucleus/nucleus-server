@@ -14,6 +14,7 @@ import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
 import { StorageModule } from './storage/storage.module';
 import { StudentModule } from './student/student.module';
+import { StudentNotificationModule } from './student/notification/student-notification.module';
 
 @Module({
   imports: [
@@ -88,6 +89,7 @@ import { StudentModule } from './student/student.module';
     HealthModule,
     AdminModule,
     StudentModule,
+    StudentNotificationModule,
     EmployeeModule,
     RbacModule,
   ],
