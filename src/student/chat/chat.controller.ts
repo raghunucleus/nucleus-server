@@ -20,6 +20,7 @@ import { RequirePasswordChangedGuard } from '../auth/require-password-changed.gu
 import { StudentJwtAuthGuard } from '../auth/student-jwt-auth.guard';
 import type { AuthenticatedStudent } from '../auth/student-jwt.strategy';
 import {
+  ChatContactsPage,
   ChatConversationSummary,
   ChatMessagesPage,
   ChatService,
@@ -56,10 +57,23 @@ export class ChatController {
   @ApiOperation({
     summary:
       "Active classmates in the caller's own attendance group (from the JWT) " +
-      'that they can start a one-to-one chat with.',
+      'that they can start a one-to-one chat with. Name-ordered, with ' +
+      'server-side search (`q` over name or roll number) and offset pagination.',
   })
-  contacts(@GetStudent() s: AuthenticatedStudent) {
-    return this.chat.listContacts(s.id);
+  @ApiQuery({ name: 'q', required: false, description: 'Search over display name or roll number.' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
+  @ApiQuery({ name: 'offset', required: false, description: 'Rows to skip (default 0).' })
+  contacts(
+    @GetStudent() s: AuthenticatedStudent,
+    @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('q') q?: string,
+  ): Promise<ChatContactsPage> {
+    return this.chat.listContacts(s.id, {
+      limit: clamp(limit, 1, MAX_PAGE),
+      offset: Number.isFinite(offset) && offset > 0 ? Math.trunc(offset) : 0,
+      q,
+    });
   }
 
   @Get('conversations')

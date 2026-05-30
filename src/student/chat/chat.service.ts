@@ -55,6 +55,12 @@ export interface ChatMessagesPage {
   has_more: boolean;
 }
 
+/** A page of new-chat contacts. `total` ignores limit/offset (drives "has more"). */
+export interface ChatContactsPage {
+  total: number;
+  items: ChatContact[];
+}
+
 @Injectable()
 export class ChatService {
   constructor(
@@ -367,13 +373,30 @@ export class ChatService {
     return rows[0]?.display_name ?? 'Someone';
   }
 
-  /** Active groupmates the caller may start a chat with (excluding themselves). */
-  async listContacts(meId: number): Promise<ChatContact[]> {
+  /**
+   * Active groupmates the caller may start a chat with (excluding themselves),
+   * name-ordered, with server-side search and offset pagination. `q` matches a
+   * display name OR roll number (case-insensitive, wildcards escaped). `total`
+   * is the full match count ignoring limit/offset, so the client knows when to
+   * stop paging. Computed in one query via `COUNT(*) OVER()`.
+   */
+  async listContacts(
+    meId: number,
+    opts: { limit: number; offset: number; q?: string },
+  ): Promise<ChatContactsPage> {
+    const term = opts.q?.trim();
+    // Escape LIKE wildcards so a literal "%" / "_" in the search isn't a wildcard.
+    const like = term ? `%${term.replace(/[%_\\]/g, '\\$&')}%` : null;
     const rows = await this.studentGroups.manager.query<
-      Array<{ id: number; display_name: string; student_id: string }>
+      Array<{
+        id: number;
+        display_name: string;
+        student_id: string;
+        total: string;
+      }>
     >(
       `
-      SELECT s.id, s.display_name, s.student_id
+      SELECT s.id, s.display_name, s.student_id, COUNT(*) OVER() AS total
       FROM "student_groups" sg
       JOIN "students" s ON s.id = sg.student_id
       WHERE sg.attendance_group_id = (
@@ -382,15 +405,20 @@ export class ChatService {
         AND sg.attendance_group_id IS NOT NULL
         AND s.id <> $1
         AND s.is_active = TRUE
+        AND ($2::text IS NULL OR s.display_name ILIKE $2 OR s.student_id ILIKE $2)
       ORDER BY s.display_name ASC
+      LIMIT $3 OFFSET $4
       `,
-      [meId],
+      [meId, like, opts.limit, opts.offset],
     );
-    return rows.map((r) => ({
-      id: Number(r.id),
-      display_name: r.display_name,
-      student_id: r.student_id,
-    }));
+    return {
+      total: rows.length ? Number(rows[0].total) : 0,
+      items: rows.map((r) => ({
+        id: Number(r.id),
+        display_name: r.display_name,
+        student_id: r.student_id,
+      })),
+    };
   }
 
   toDto(m: ChatMessage): ChatMessageDto {
