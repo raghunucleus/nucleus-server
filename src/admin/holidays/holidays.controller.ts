@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { CreateAcademicHolidayDto } from '../dto/create-academic-holiday.dto';
 import { ListAcademicHolidaysDto } from '../dto/list-academic-holidays.dto';
+import { UpdateAcademicHolidayDto } from '../dto/update-academic-holiday.dto';
 import { AcademicHoliday } from '../entities/academic-holiday.entity';
 import { DeclareResult, HolidaysService } from './holidays.service';
 
@@ -29,8 +31,7 @@ export class HolidaysController {
 
   @Get()
   @ApiOperation({
-    summary:
-      'List holidays. Filter by date range and/or scope; programme/group filters fold in institution-wide ones.',
+    summary: 'List institution-wide holidays, optionally filtered by date range.',
   })
   list(@Query() query: ListAcademicHolidaysDto): Promise<AcademicHoliday[]> {
     return this.holidays.list(query);
@@ -49,6 +50,21 @@ export class HolidaysController {
     const adminId =
       req.user?.id !== undefined ? Number(req.user.id) : undefined;
     return this.holidays.declare(dto, { admin_id: adminId });
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    summary:
+      'Edit a holiday. Pass cancel_existing_sessions=true to also cancel scheduled sessions newly caught by the edited range; previously-cancelled sessions are never restored.',
+  })
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateAcademicHolidayDto,
+    @Req() req: { user?: { id?: string | number } },
+  ): Promise<DeclareResult> {
+    const adminId =
+      req.user?.id !== undefined ? Number(req.user.id) : undefined;
+    return this.holidays.update(id, dto, { admin_id: adminId });
   }
 
   @Delete(':id')

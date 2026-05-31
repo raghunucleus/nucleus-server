@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -16,6 +17,9 @@ import { z } from 'zod';
 import { DATE_RE } from '../../admin/dto/create-timetable.dto';
 import {
   CancelSessionDto,
+  CreateAdHocSessionDto,
+  EditSessionDto,
+  MoveManySessionsDto,
   MoveSessionDto,
   SubstituteSessionDto,
   UncancelSessionDto,
@@ -55,6 +59,19 @@ const ListSessionsQuerySchema = z
     path: ['to'],
   });
 class ListSessionsQueryDto extends createZodDto(ListSessionsQuerySchema) {}
+
+const HolidaysQuerySchema = z
+  .object({
+    attendance_group_id: z.coerce.number().int().positive(),
+    from: z.string().regex(DATE_RE, 'Use YYYY-MM-DD'),
+    to: z.string().regex(DATE_RE, 'Use YYYY-MM-DD'),
+  })
+  .strict()
+  .refine((v) => v.to >= v.from, {
+    message: 'to must not be before from',
+    path: ['to'],
+  });
+class HolidaysQueryDto extends createZodDto(HolidaysQuerySchema) {}
 
 /**
  * Live, day/week-of session management for an attendance group incharge.
@@ -108,6 +125,25 @@ export class InchargeSessionsController {
     );
   }
 
+  // Declared before `:id` so the static path wins over the param route.
+  @Get('holidays')
+  @RequireScreen('timetable.incharge.schedule.manage', 'view')
+  @ApiOperation({
+    summary:
+      'Declared holidays overlapping a date window for one owned group (institution / programme / group scope).',
+  })
+  holidays(
+    @GetEmployee() employee: AuthenticatedEmployee,
+    @Query() query: HolidaysQueryDto,
+  ) {
+    return this.svc.listHolidays(
+      employee.id,
+      query.attendance_group_id,
+      query.from,
+      query.to,
+    );
+  }
+
   @Get(':id')
   @RequireScreen('timetable.incharge.schedule.manage', 'view')
   @ApiOperation({ summary: 'Fetch one session with full relations.' })
@@ -128,6 +164,20 @@ export class InchargeSessionsController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<RosterStudent[]> {
     return this.svc.getRoster(employee.id, id);
+  }
+
+  @Post('ad-hoc')
+  @HttpCode(HttpStatus.CREATED)
+  @RequireScreen('timetable.incharge.schedule.manage', 'edit')
+  @ApiOperation({
+    summary:
+      'Push a one-off / makeup class for a day in an owned group (not tied to a timetable cell).',
+  })
+  createAdHoc(
+    @GetEmployee() employee: AuthenticatedEmployee,
+    @Body() dto: CreateAdHocSessionDto,
+  ): Promise<ClassSession> {
+    return this.svc.createAdHoc(employee.id, dto);
   }
 
   @Post(':id/cancel')
@@ -182,5 +232,34 @@ export class InchargeSessionsController {
     @Body() dto: MoveSessionDto,
   ): Promise<ClassSession> {
     return this.svc.move(employee.id, id, dto);
+  }
+
+  @Post('move-batch')
+  @HttpCode(HttpStatus.OK)
+  @RequireScreen('timetable.incharge.schedule.manage', 'edit')
+  @ApiOperation({
+    summary:
+      "Move several sessions to the same destination atomically — reschedules an elective slot's options together (all move or none).",
+  })
+  moveBatch(
+    @GetEmployee() employee: AuthenticatedEmployee,
+    @Body() dto: MoveManySessionsDto,
+  ): Promise<ClassSession[]> {
+    const { session_ids, ...input } = dto;
+    return this.svc.moveMany(employee.id, session_ids, input);
+  }
+
+  @Patch(':id')
+  @RequireScreen('timetable.incharge.schedule.manage', 'edit')
+  @ApiOperation({
+    summary:
+      "Edit a session's subject / teacher / room / note in place (not its date or period — use move for that).",
+  })
+  editSession(
+    @GetEmployee() employee: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EditSessionDto,
+  ): Promise<ClassSession> {
+    return this.svc.editSession(employee.id, id, dto);
   }
 }

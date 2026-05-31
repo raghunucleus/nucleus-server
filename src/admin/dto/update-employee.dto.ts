@@ -14,11 +14,27 @@ const empCodeSchema = z
       .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
   );
 
+// null/'' clears the date of birth; undefined leaves it untouched.
+const dobSchema = z
+  .union([
+    z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+    z.literal(''),
+    z.null(),
+  ])
+  .optional()
+  .transform((v): string | null | undefined =>
+    v === '' ? null : v,
+  );
+
 export const UpdateEmployeeSchema = z
   .object({
     emp_code: empCodeSchema.optional(),
     emp_display_name: z.string().trim().min(1).max(128).optional(),
     gender: z.enum(GENDERS).optional(),
+    dob: dobSchema,
     department_id: z.coerce.number().int().positive().optional(),
     designation_id: z.coerce.number().int().positive().optional(),
     mobile_number: z

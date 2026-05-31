@@ -12,6 +12,7 @@ import { Employee } from './employee.entity';
 
 export type ClassSessionAuditAction =
   | 'create'
+  | 'edit'
   | 'cancel'
   | 'uncancel'
   | 'substitute'

@@ -21,6 +21,7 @@ import { TimetablePeriod } from '../entities/timetable-period.entity';
 import {
   PreviewResult,
   PublishResult,
+  type SeedWindow,
   SessionSeederService,
 } from '../sessions/session-seeder.service';
 
@@ -305,10 +306,7 @@ export class TimetablesService {
   // teacher / room edits picked up); completed and cancelled sessions
   // stay untouched. When `days_of_week` is supplied the wipe + seed are
   // restricted to those weekdays. Idempotent.
-  async publishWeek(
-    id: number,
-    week: { from: string; to: string; days_of_week?: number[] },
-  ): Promise<PublishResult> {
+  async publishWeek(id: number, week: SeedWindow): Promise<PublishResult> {
     await this.loadOr404(id);
     return this.sessionSeeder.publishWindow(id, week);
   }
@@ -406,8 +404,24 @@ export class TimetablesService {
   async remove(id: number): Promise<void> {
     const tt = await this.timetables.findOne({ where: { id } });
     if (!tt) throw new NotFoundException('Timetable not found');
-    // periods, courses, course faculty and entries all cascade.
-    await this.timetables.remove(tt);
+    await this.dataSource.transaction(async (tx) => {
+      // Future, still-scheduled sessions seeded from this template would
+      // otherwise be orphaned — the FK sets their timetable_entry_id to NULL,
+      // and the publish wipe only deletes rows with a non-null entry, so they
+      // linger forever as stale periods on students' timetables. Drop them
+      // first. Completed/cancelled sessions are left as history.
+      await tx.query(
+        `DELETE FROM "class_sessions"
+         WHERE status = 'scheduled'
+           AND session_date >= CURRENT_DATE
+           AND timetable_entry_id IN (
+             SELECT id FROM "timetable_entries" WHERE timetable_id = $1
+           )`,
+        [id],
+      );
+      // periods, courses, course faculty and entries all cascade.
+      await tx.getRepository(Timetable).remove(tt);
+    });
   }
 
   // Clone an existing template into a fresh one in the same group. Periods,

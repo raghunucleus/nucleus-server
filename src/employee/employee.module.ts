@@ -3,9 +3,12 @@ import { Module } from '@nestjs/common';
 import { AccountantModule } from './accountant/accountant.module';
 import { AttendanceInchargeModule } from './attendance-incharge/attendance-incharge.module';
 import { EmployeeAuthModule } from './auth/employee-auth.module';
+import { EmployeeBirthdaysModule } from './birthdays/employee-birthdays.module';
 import { CashierModule } from './cashier/cashier.module';
+import { EmployeeCommonModule } from './common/employee-common.module';
 import { ExamCellModule } from './exam-cell/exam-cell.module';
 import { HodModule } from './hod/hod.module';
+import { EmployeeIdCardModule } from './id-card/employee-id-card.module';
 import { ManagementModule } from './management/management.module';
 import { PrincipalModule } from './principal/principal.module';
 import { TeacherModule } from './teacher/teacher.module';
@@ -24,6 +27,9 @@ import { TeacherModule } from './teacher/teacher.module';
 @Module({
   imports: [
     EmployeeAuthModule,
+    EmployeeCommonModule,
+    EmployeeBirthdaysModule,
+    EmployeeIdCardModule,
     HodModule,
     TeacherModule,
     ExamCellModule,

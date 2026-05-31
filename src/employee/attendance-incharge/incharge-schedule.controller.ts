@@ -283,11 +283,17 @@ export class InchargeScheduleController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WeekWindowDto,
   ): Promise<PublishResult> {
-    return this.svc.publishWeek(employee.id, id, {
-      from: dto.from,
-      to: dto.to,
-      days_of_week: dto.days_of_week,
-    });
+    return this.svc.publishWeek(
+      employee.id,
+      id,
+      {
+        from: dto.from,
+        to: dto.to,
+        days_of_week: dto.days_of_week,
+        exclude: dto.exclude,
+      },
+      dto.notify ?? true,
+    );
   }
 
   @Post(':id/week-summaries')

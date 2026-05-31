@@ -22,11 +22,24 @@ const codeSchema = z
   .transform((v) => v.toUpperCase())
   .pipe(z.string().regex(/^[A-Z0-9._-]+$/));
 
+const dobSchema = z
+  .union([
+    z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+    z.literal(''),
+    z.null(),
+  ])
+  .optional()
+  .transform((v): string | null => (v === undefined || v === '' ? null : v));
+
 export const BulkCreateEmployeeRowSchema = z
   .object({
     emp_code: empCodeSchema,
     emp_display_name: z.string().trim().min(1).max(128),
     gender: z.enum(GENDERS),
+    dob: dobSchema,
     department_code: codeSchema,
     designation_code: codeSchema,
     mobile_number: z

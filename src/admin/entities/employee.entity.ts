@@ -36,6 +36,10 @@ export class Employee {
   @Column({ type: 'varchar', length: 16 })
   gender: string;
 
+  // Date of birth — optional. Stored as a bare date (no time/zone).
+  @Column({ type: 'date', nullable: true })
+  dob: string | null;
+
   @Column({ type: 'int' })
   department_id: number;
 

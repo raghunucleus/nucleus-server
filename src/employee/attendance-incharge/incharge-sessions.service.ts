@@ -9,7 +9,9 @@ import { Repository } from 'typeorm';
 import { ClassSession } from '../../admin/entities/class-session.entity';
 import {
   ActorContext,
+  type AdHocInput,
   ClassSessionsService,
+  type EditInput,
   type ListOpts,
 } from '../../admin/sessions/class-sessions.service';
 import { RosterService, type RosterStudent } from '../../admin/sessions/roster.service';
@@ -82,6 +84,18 @@ export class InchargeSessionsService {
     return this.roster.forSession(sessionId);
   }
 
+  /** Declared holidays overlapping [from, to] for one owned group — drives the
+   *  "scheduling on a holiday" warning in the UI. */
+  async listHolidays(
+    employeeId: number,
+    attendanceGroupId: number,
+    from: string,
+    to: string,
+  ) {
+    await this.requireOwnedGroup(employeeId, attendanceGroupId);
+    return this.classSessions.holidaysForGroup(attendanceGroupId, from, to);
+  }
+
   // --- mutations ------------------------------------------------------------
 
   async cancel(
@@ -125,11 +139,90 @@ export class InchargeSessionsService {
     input: {
       new_timetable_period_id?: number;
       new_session_date?: string;
+      allow_conflict?: boolean;
+      allow_holiday?: boolean;
       reason?: string;
     },
   ): Promise<ClassSession> {
-    await this.requireOwnedSessionById(employeeId, sessionId);
+    const row = await this.requireOwnedSessionById(employeeId, sessionId);
+    // A class can never be scheduled into the past — you can't hold a lesson
+    // on a day that has already gone. We block on the *effective* target
+    // date: the new date when one is supplied, otherwise the row's current
+    // date (a period-only move on an already-past session is still a past
+    // slot). Independent of whether the week has been published — see the
+    // incharge schedule UI, which mirrors this with a `min` on the picker.
+    const targetDate = input.new_session_date ?? row.session_date;
+    if (targetDate < isoToday()) {
+      throw new BadRequestException(
+        "Can't reschedule a class into the past — pick today or a later date.",
+      );
+    }
     return this.classSessions.move(sessionId, input, this.actor(employeeId));
+  }
+
+  /**
+   * Move several owned sessions to the same destination atomically — used to
+   * reschedule an elective slot's option children as one unit. Every id must
+   * belong to an owned group, and none may land in the past.
+   */
+  async moveMany(
+    employeeId: number,
+    sessionIds: number[],
+    input: {
+      new_timetable_period_id?: number;
+      new_session_date?: string;
+      allow_conflict?: boolean;
+      allow_holiday?: boolean;
+      reason?: string;
+    },
+  ): Promise<ClassSession[]> {
+    const rows = await Promise.all(
+      sessionIds.map((id) => this.requireOwnedSessionById(employeeId, id)),
+    );
+    const today = isoToday();
+    for (const row of rows) {
+      const targetDate = input.new_session_date ?? row.session_date;
+      if (targetDate < today) {
+        throw new BadRequestException(
+          "Can't reschedule a class into the past — pick today or a later date.",
+        );
+      }
+    }
+    return this.classSessions.moveMany(
+      sessionIds,
+      input,
+      this.actor(employeeId),
+    );
+  }
+
+  /** In-place edit of a session's subject / teacher / room / note (not its
+   *  date or period — use `move` for that). Group-ownership scoped. */
+  async editSession(
+    employeeId: number,
+    sessionId: number,
+    input: EditInput,
+  ): Promise<ClassSession> {
+    await this.requireOwnedSessionById(employeeId, sessionId);
+    return this.classSessions.editSession(
+      sessionId,
+      input,
+      this.actor(employeeId),
+    );
+  }
+
+  /**
+   * Push a one-off / makeup class for a single day in an owned group, not
+   * tied to any timetable cell — useful for sudden changes. The session is
+   * stamped `timetable_entry_id = NULL`, so a later week-republish keeps it.
+   * Delegates the field validation (period not a break, teacher active,
+   * semester ongoing, subject in this semester) to the admin service.
+   */
+  async createAdHoc(
+    employeeId: number,
+    input: AdHocInput,
+  ): Promise<ClassSession> {
+    await this.requireOwnedGroup(employeeId, input.attendance_group_id);
+    return this.classSessions.createAdHoc(input, this.actor(employeeId));
   }
 
   // --- internals -----------------------------------------------------------
@@ -179,4 +272,14 @@ export class InchargeSessionsService {
       );
     }
   }
+}
+
+// Today as 'YYYY-MM-DD' in UTC. Matches `ClassSessionsService.today()` so the
+// past-date guards across the move/uncancel flows stay consistent.
+function isoToday(): string {
+  const d = new Date();
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

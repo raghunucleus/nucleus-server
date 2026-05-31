@@ -19,6 +19,30 @@ export const WeekWindowSchema = z
         message: 'days_of_week must contain unique values',
       })
       .optional(),
+    // Preview rows the caller chose NOT to publish (e.g. a class that would
+    // clash with a kept marked one). Each entry identifies a seed row by its
+    // slot key; the seeder skips matching rows during publish. Publish-only —
+    // preview ignores it so the UI can still show + toggle the rows.
+    exclude: z
+      .array(
+        z
+          .object({
+            session_date: z.string().regex(DATE_RE),
+            timetable_period_id: z.number().int().positive(),
+            programme_semester_subject_id: z.number().int().positive(),
+            programme_semester_subject_option_id: z
+              .number()
+              .int()
+              .positive()
+              .nullable(),
+          })
+          .strict(),
+      )
+      .max(500)
+      .optional(),
+    // When true (the incharge publish dialog default), notify the group's
+    // students that their timetable for this week changed. Publish-only.
+    notify: z.boolean().optional(),
   })
   .strict()
   .refine((v) => v.to >= v.from, {

@@ -36,6 +36,7 @@ interface CreateEmployeeInput {
   emp_code: string;
   emp_display_name: string;
   gender: string;
+  dob: string | null;
   department_id: number;
   designation_id: number;
   mobile_number: string;
@@ -48,6 +49,7 @@ interface UpdateEmployeeInput {
   emp_code?: string;
   emp_display_name?: string;
   gender?: string;
+  dob?: string | null;
   department_id?: number;
   designation_id?: number;
   mobile_number?: string;
@@ -66,6 +68,7 @@ export interface BulkCreateRow {
   emp_code: string;
   emp_display_name: string;
   gender: string;
+  dob: string | null;
   department_code: string;
   designation_code: string;
   mobile_number: string;
@@ -206,6 +209,7 @@ export class EmployeesService {
       emp_code: input.emp_code,
       emp_display_name: input.emp_display_name,
       gender: input.gender,
+      dob: input.dob,
       department_id: input.department_id,
       designation_id: input.designation_id,
       mobile_number: input.mobile_number,
@@ -266,6 +270,7 @@ export class EmployeesService {
     if (patch.emp_display_name !== undefined)
       employee.emp_display_name = patch.emp_display_name;
     if (patch.gender !== undefined) employee.gender = patch.gender;
+    if (patch.dob !== undefined) employee.dob = patch.dob;
     if (patch.department_id !== undefined)
       employee.department_id = patch.department_id;
     if (patch.designation_id !== undefined)
@@ -602,6 +607,7 @@ export class EmployeesService {
           emp_code: r.emp_code,
           emp_display_name: r.emp_display_name,
           gender: r.gender,
+          dob: r.dob,
           department_id: dept.id,
           designation_id: desig.id,
           mobile_number: r.mobile_number,

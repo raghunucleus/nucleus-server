@@ -24,6 +24,28 @@ export interface SeedWindow {
   // so callers can publish a partial week without touching the days they
   // didn't pick. Omit / leave empty for the original full-window behavior.
   days_of_week?: number[];
+  // Seed rows the caller explicitly dropped (publish only): the seeder skips
+  // any expanded row matching one of these slot keys, so a class the user
+  // chose not to publish (e.g. one clashing with a kept marked class) is not
+  // written. Identified by (date, period, PSS, option).
+  exclude?: SeedExcludeKey[];
+}
+
+export interface SeedExcludeKey {
+  session_date: string;
+  timetable_period_id: number;
+  programme_semester_subject_id: number;
+  programme_semester_subject_option_id: number | null;
+}
+
+// Canonical string for a SeedExcludeKey / matching seed row.
+function excludeKey(
+  sessionDate: string,
+  periodId: number,
+  pssId: number,
+  optionId: number | null,
+): string {
+  return `${sessionDate}|${periodId}|${pssId}|${optionId ?? 0}`;
 }
 
 // Snapshot of one would-be session, used by the preview endpoint so the
@@ -56,6 +78,27 @@ export interface PreviewSession {
   // True if a session with the same UQ_class_sessions_key already exists,
   // so the admin knows clicking Publish is a no-op for this row.
   already_exists: boolean;
+  // True when this (date, period) slot already holds a MARKED (completed)
+  // class. Publishing keeps the held class and skips seeding this row, so the
+  // UI can flag "already marked — kept" instead of pretending it's new.
+  kept_marked: boolean;
+}
+
+// A surviving completed/cancelled session in the window that a (re)publish
+// will leave untouched. Listed in the preview so the teacher sees exactly
+// which classes are kept as history before they publish a different template.
+export interface KeptSession {
+  session_date: string;
+  day_of_week: number;
+  timetable_period_id: number;
+  period_label: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  subject_id: number;
+  subject_code: string | null;
+  subject_name: string | null;
+  teacher_name: string | null;
+  status: 'completed' | 'cancelled';
 }
 
 export interface PreviewResult {
@@ -64,6 +107,8 @@ export interface PreviewResult {
   // Dates inside [from, to] that produce no sessions because of a holiday
   // covering them entirely.
   blocked_dates: string[];
+  // Completed/cancelled sessions in the window that publishing won't change.
+  kept_sessions: KeptSession[];
 }
 
 export interface PublishResult {
@@ -72,6 +117,11 @@ export interface PublishResult {
   // Sessions deleted before re-seeding (kept-but-replaced rows from a
   // previous publish that no longer match the current timetable shape).
   replaced: number;
+  // Rows NOT seeded because their (date, period) slot already held a marked
+  // (completed) class — kept as history rather than stacked over.
+  kept_marked: number;
+  // Rows NOT seeded because the caller explicitly dropped them (exclude list).
+  excluded: number;
 }
 
 // One row pulled per (option, teacher) cohort during elective expansion.
@@ -101,25 +151,30 @@ export class SessionSeederService {
     const tt = await this.loadTimetable(timetableId);
     const window2 = this.clampWindow(tt, window);
     if (window2 === null) {
-      return { sessions: [], holidays: [], blocked_dates: [] };
+      return { sessions: [], holidays: [], blocked_dates: [], kept_sessions: [] };
     }
     return this.dataSource.transaction(async (tx) => {
-      const [entries, holidays] = await Promise.all([
+      const dowFilter = toDowFilter(window2.days_of_week);
+      const [entries, holidays, occupied, keptSessions] = await Promise.all([
         this.loadEntries(tx, tt.id),
         this.loadApplicableHolidays(tx, tt, window2.from, window2.to),
+        // Slots already held by a marked (completed) class — a (re)publish
+        // keeps those and skips seeding over them, so preview must mirror it.
+        this.loadOccupiedSlots(tx, tt, window2.from, window2.to, dowFilter),
+        this.loadKeptSessions(tx, tt, window2.from, window2.to, dowFilter),
       ]);
       // First pass: build the raw session rows + existence flag. Names are
       // hydrated in a single batch lookup after the loop so we don't issue
       // N×3 queries per session.
       type RawRow = Awaited<ReturnType<typeof this.expandEntry>>[number] & {
         already_exists: boolean;
+        kept_marked: boolean;
       };
       const raw: RawRow[] = [];
       const blockedDates: string[] = [];
       const cohortCache = new Map<number, CohortRow[]>();
       const workingDays = new Set(tt.working_days);
       const entriesByDay = groupEntriesByDay(entries, workingDays);
-      const dowFilter = toDowFilter(window2.days_of_week);
 
       for (const date of enumerateDates(window2.from, window2.to)) {
         const weekday = isoWeekday(date);
@@ -142,6 +197,14 @@ export class SessionSeederService {
             raw.push({
               ...row,
               already_exists: await this.sessionExists(tx, row),
+              kept_marked: occupied.has(
+                slotKey(
+                  row.session_date,
+                  row.attendance_group_id,
+                  row.timetable_period_id,
+                  row.programme_semester_subject_option_id,
+                ),
+              ),
             });
           }
         }
@@ -157,6 +220,7 @@ export class SessionSeederService {
           end_date: h.end_date,
         })),
         blocked_dates: blockedDates,
+        kept_sessions: keptSessions,
       };
     });
   }
@@ -179,6 +243,7 @@ export class SessionSeederService {
       scheduled_employee_id: number;
       room: string | null;
       already_exists: boolean;
+      kept_marked: boolean;
     }>,
   ): Promise<PreviewSession[]> {
     if (raw.length === 0) return [];
@@ -260,6 +325,16 @@ export class SessionSeederService {
       //     template of THIS group — captured by the entry's
       //     timetable_id.attendance_group_id filter.
       const dowFilter = toDowFilter(clamped.days_of_week);
+      const excludeSet = new Set(
+        (clamped.exclude ?? []).map((e) =>
+          excludeKey(
+            e.session_date,
+            e.timetable_period_id,
+            e.programme_semester_subject_id,
+            e.programme_semester_subject_option_id,
+          ),
+        ),
+      );
       const wipeQb = tx
         .getRepository(ClassSession)
         .createQueryBuilder()
@@ -290,12 +365,17 @@ export class SessionSeederService {
       }
       const wipe = await wipeQb.execute();
 
-      const [entries, holidays] = await Promise.all([
+      const [entries, holidays, occupied] = await Promise.all([
         this.loadEntries(tx, tt.id),
         this.loadApplicableHolidays(tx, tt, clamped.from, clamped.to),
+        // Slots already held by a marked (completed) class survive the wipe;
+        // we keep them as history and skip seeding a second class over them.
+        this.loadOccupiedSlots(tx, tt, clamped.from, clamped.to, dowFilter),
       ]);
       let inserted = 0;
       let skippedHolidays = 0;
+      let keptMarked = 0;
+      let excluded = 0;
       const cohortCache = new Map<number, CohortRow[]>();
       const workingDays = new Set(tt.working_days);
       const entriesByDay = groupEntriesByDay(entries, workingDays);
@@ -318,6 +398,37 @@ export class SessionSeederService {
             weekday,
             cohortCache,
           )) {
+            // The caller explicitly dropped this row in the publish dialog
+            // (e.g. it clashed with a kept marked class) — honor that.
+            if (
+              excludeSet.size > 0 &&
+              excludeSet.has(
+                excludeKey(
+                  row.session_date,
+                  row.timetable_period_id,
+                  row.programme_semester_subject_id,
+                  row.programme_semester_subject_option_id,
+                ),
+              )
+            ) {
+              excluded += 1;
+              continue;
+            }
+            // Don't stack a fresh class on a slot that already holds a marked
+            // (completed) class — keep the held one, count it as kept.
+            if (
+              occupied.has(
+                slotKey(
+                  row.session_date,
+                  row.attendance_group_id,
+                  row.timetable_period_id,
+                  row.programme_semester_subject_option_id,
+                ),
+              )
+            ) {
+              keptMarked += 1;
+              continue;
+            }
             const ok = await this.insertSession(tx, row);
             if (ok) inserted += 1;
           }
@@ -327,12 +438,14 @@ export class SessionSeederService {
       this.logger.log(
         `publishWindow: timetable=${timetableId} range=${clamped.from}..${clamped.to}` +
           (dowFilter ? ` dow=[${Array.from(dowFilter).sort().join(',')}]` : '') +
-          ` replaced=${wipe.affected ?? 0} inserted=${inserted} skipped_holidays=${skippedHolidays}`,
+          ` replaced=${wipe.affected ?? 0} inserted=${inserted} kept_marked=${keptMarked} excluded=${excluded} skipped_holidays=${skippedHolidays}`,
       );
       return {
         inserted,
         skipped_holidays: skippedHolidays,
         replaced: wipe.affected ?? 0,
+        kept_marked: keptMarked,
+        excluded,
       };
     });
   }
@@ -367,7 +480,7 @@ export class SessionSeederService {
     // narrowing to the semester's planned window; the weekday filter is
     // unaffected. Dropping it here silently turns a partial-week publish
     // into a full-week one.
-    return { from, to, days_of_week: w.days_of_week };
+    return { from, to, days_of_week: w.days_of_week, exclude: w.exclude };
   }
 
   // Expand one cell into the rows it would seed for a given date — one row
@@ -618,24 +731,133 @@ export class SessionSeederService {
     fromStr: string,
     toStr: string,
   ): Promise<AcademicHoliday[]> {
+    // Holidays are institution-wide — every holiday overlapping the window
+    // applies to this group.
+    void tt;
     return tx
       .createQueryBuilder(AcademicHoliday, 'h')
       .where('h.date <= :to AND COALESCE(h.end_date, h.date) >= :from', {
         from: fromStr,
         to: toStr,
       })
-      .andWhere(
-        `(
-          h.scope = 'institution'
-          OR (h.scope = 'programme' AND h.programme_id = :pid)
-          OR (h.scope = 'group' AND h.attendance_group_id = :gid)
-        )`,
-        {
-          pid: tt.programme_semester.programme_id,
-          gid: tt.attendance_group_id,
-        },
-      )
       .getMany();
+  }
+
+  // Slots in [from, to] for this group that already hold a MARKED (completed)
+  // class. Keyed the same way the reseed keys its rows so a (re)publish can
+  // skip seeding over a held class. Scoped to the group's own sessions plus
+  // cross-group elective cohorts (attendance_group_id IS NULL) that this
+  // timetable also seeds.
+  private async loadOccupiedSlots(
+    tx: EntityManager,
+    tt: Timetable,
+    fromStr: string,
+    toStr: string,
+    dowFilter: Set<number> | null,
+  ): Promise<Set<string>> {
+    const rows: Array<{
+      session_date: string;
+      attendance_group_id: number | null;
+      timetable_period_id: number;
+      programme_semester_subject_option_id: number | null;
+    }> = await tx.query(
+      `SELECT session_date::text AS session_date,
+              attendance_group_id,
+              timetable_period_id,
+              programme_semester_subject_option_id
+       FROM "class_sessions"
+       WHERE session_date BETWEEN $1 AND $2
+         AND status = 'completed'
+         AND programme_semester_id = $3
+         AND (attendance_group_id = $4 OR attendance_group_id IS NULL)`,
+      [fromStr, toStr, tt.programme_semester_id, tt.attendance_group_id],
+    );
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (dowFilter && !dowFilter.has(isoWeekday(r.session_date))) continue;
+      set.add(
+        slotKey(
+          r.session_date,
+          r.attendance_group_id,
+          r.timetable_period_id,
+          r.programme_semester_subject_option_id,
+        ),
+      );
+    }
+    return set;
+  }
+
+  // Completed/cancelled sessions in [from, to] for this group, hydrated with
+  // subject/teacher/period names. Listed in the preview so the teacher sees
+  // which classes a (re)publish keeps untouched.
+  private async loadKeptSessions(
+    tx: EntityManager,
+    tt: Timetable,
+    fromStr: string,
+    toStr: string,
+    dowFilter: Set<number> | null,
+  ): Promise<KeptSession[]> {
+    const rows: Array<{
+      session_date: string;
+      day_of_week: number;
+      timetable_period_id: number;
+      subject_id: number;
+      effective_employee_id: number;
+      status: 'completed' | 'cancelled';
+    }> = await tx.query(
+      `SELECT session_date::text AS session_date,
+              day_of_week,
+              timetable_period_id,
+              subject_id,
+              effective_employee_id,
+              status
+       FROM "class_sessions"
+       WHERE session_date BETWEEN $1 AND $2
+         AND status IN ('completed', 'cancelled')
+         AND programme_semester_id = $3
+         AND (attendance_group_id = $4 OR attendance_group_id IS NULL)
+       ORDER BY session_date ASC, timetable_period_id ASC`,
+      [fromStr, toStr, tt.programme_semester_id, tt.attendance_group_id],
+    );
+    const filtered = dowFilter
+      ? rows.filter((r) => dowFilter.has(isoWeekday(r.session_date)))
+      : rows;
+    if (filtered.length === 0) return [];
+
+    const subjectIds = Array.from(new Set(filtered.map((r) => r.subject_id)));
+    const empIds = Array.from(
+      new Set(filtered.map((r) => r.effective_employee_id)),
+    );
+    const periodIds = Array.from(
+      new Set(filtered.map((r) => r.timetable_period_id)),
+    );
+    const [subjects, employees, periods] = await Promise.all([
+      tx.find(Subject, { where: { id: In(subjectIds) } }),
+      tx.find(Employee, { where: { id: In(empIds) } }),
+      tx.find(TimetablePeriod, { where: { id: In(periodIds) } }),
+    ]);
+    const subjMap = new Map(subjects.map((s) => [s.id, s]));
+    const empMap = new Map(employees.map((e) => [e.id, e]));
+    const periodMap = new Map(periods.map((p) => [p.id, p]));
+
+    return filtered.map((r) => {
+      const sub = subjMap.get(r.subject_id);
+      const emp = empMap.get(r.effective_employee_id);
+      const period = periodMap.get(r.timetable_period_id);
+      return {
+        session_date: r.session_date,
+        day_of_week: Number(r.day_of_week),
+        timetable_period_id: r.timetable_period_id,
+        period_label: period?.label ?? null,
+        start_time: period?.start_time ?? null,
+        end_time: period?.end_time ?? null,
+        subject_id: r.subject_id,
+        subject_code: sub?.code ?? null,
+        subject_name: sub?.name ?? null,
+        teacher_name: emp?.emp_display_name ?? null,
+        status: r.status,
+      };
+    });
   }
 
   private dateIsFullyBlocked(
@@ -681,6 +903,18 @@ function enumerateDates(fromStr: string, toStr: string): string[] {
 function isoWeekday(dateStr: string): number {
   const d = parseDate(dateStr).getUTCDay();
   return d === 0 ? 7 : d;
+}
+
+// Identity of one timetable slot a session can occupy: a given class on a
+// given date in a given period (one per cohort for electives). Matches the
+// granularity at which the reseed decides "is this slot already taken".
+function slotKey(
+  date: string,
+  groupId: number | null,
+  periodId: number,
+  optionId: number | null,
+): string {
+  return `${date}|${groupId ?? 0}|${periodId}|${optionId ?? 0}`;
 }
 
 /**

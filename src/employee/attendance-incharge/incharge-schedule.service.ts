@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -15,15 +16,18 @@ import type { TimetableEntry } from '../../admin/entities/timetable-entry.entity
 import { EmployeesService } from '../../admin/employees/employees.service';
 import { ProgrammeSemestersService } from '../../admin/programme-semesters/programme-semesters.service';
 import { ProgrammeSemesterSubjectsService } from '../../admin/programme-semester-subjects/programme-semester-subjects.service';
+import { RosterService } from '../../admin/sessions/roster.service';
 import {
   PreviewResult,
   PublishResult,
+  type SeedWindow,
 } from '../../admin/sessions/session-seeder.service';
 import {
   TimetableSummary,
   TimetablesService,
   WeekSummary,
 } from '../../admin/timetables/timetables.service';
+import { StudentNotificationService } from '../../student/notification/student-notification.service';
 
 export interface InchargeGroupSummary {
   id: number;
@@ -71,7 +75,11 @@ export class InchargeScheduleService {
     private readonly programmeSemestersService: ProgrammeSemestersService,
     private readonly pssService: ProgrammeSemesterSubjectsService,
     private readonly employeesService: EmployeesService,
+    private readonly roster: RosterService,
+    private readonly notifications: StudentNotificationService,
   ) {}
+
+  private readonly logger = new Logger(InchargeScheduleService.name);
 
   // --- groups --------------------------------------------------------------
 
@@ -337,10 +345,50 @@ export class InchargeScheduleService {
   async publishWeek(
     employeeId: number,
     id: number,
-    week: { from: string; to: string; days_of_week?: number[] },
+    week: SeedWindow,
+    notify = true,
   ): Promise<PublishResult> {
-    await this.requireOwnedTimetable(employeeId, id);
-    return this.timetablesService.publishWeek(id, week);
+    const tt = await this.requireOwnedTimetable(employeeId, id);
+    const result = await this.timetablesService.publishWeek(id, week);
+    // Only notify when publishing actually touched the live schedule. A no-op
+    // (e.g. a fully holiday-blocked window that seeds nothing) shouldn't ping
+    // students with "your timetable changed".
+    const changed = result.inserted > 0 || result.replaced > 0;
+    if (notify && changed) {
+      // Best-effort: a notification failure must never fail the publish (it's
+      // already committed). Students get an in-app + push alert that deep-links
+      // to the published week.
+      await this.notifyStudentsOfPublish(tt.attendance_group_id, week).catch(
+        (err) =>
+          this.logger.error(
+            `Publish notify failed (group=${tt.attendance_group_id}): ${String(err)}`,
+          ),
+      );
+    }
+    return result;
+  }
+
+  /** Tell every student in the group their timetable for this week changed,
+   *  with a target that deep-links to that week on web + mobile. */
+  private async notifyStudentsOfPublish(
+    attendanceGroupId: number,
+    week: SeedWindow,
+  ): Promise<void> {
+    const studentIds = await this.roster.studentIdsForGroup(attendanceGroupId);
+    if (studentIds.length === 0) return;
+    await this.notifications.send(studentIds, {
+      module: 'timetable',
+      type: 'week-published',
+      title: 'Timetable updated',
+      body: `Your class timetable for ${formatWeekRange(week.from, week.to)} has been updated. Tap to view your week.`,
+      target: {
+        type: 'week',
+        id: week.from,
+        // `week` (the Monday/week-start, YYYY-MM-DD) is what both clients use
+        // to open that week directly.
+        params: { week: week.from },
+      },
+    });
   }
 
   // --- lookups for the schedule editor -------------------------------------
@@ -516,4 +564,20 @@ export class InchargeScheduleService {
     return course;
   }
 
+}
+
+// Readable week range for a notification body, e.g. "25 May – 31 May 2026".
+function formatWeekRange(from: string, to: string): string {
+  const dm = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' });
+  const dmy = new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (start.getFullYear() !== end.getFullYear()) {
+    return `${dmy.format(start)} – ${dmy.format(end)}`;
+  }
+  return `${dm.format(start)} – ${dmy.format(end)}`;
 }

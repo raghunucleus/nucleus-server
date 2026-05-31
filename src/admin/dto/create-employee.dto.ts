@@ -14,11 +14,24 @@ const empCodeSchema = z
       .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
   );
 
+const dobSchema = z
+  .union([
+    z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+    z.literal(''),
+    z.null(),
+  ])
+  .optional()
+  .transform((v): string | null => (v === undefined || v === '' ? null : v));
+
 export const CreateEmployeeSchema = z
   .object({
     emp_code: empCodeSchema,
     emp_display_name: z.string().trim().min(1).max(128),
     gender: z.enum(GENDERS),
+    dob: dobSchema,
     department_id: z.coerce.number().int().positive(),
     designation_id: z.coerce.number().int().positive(),
     mobile_number: z

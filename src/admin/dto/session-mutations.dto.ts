@@ -46,6 +46,29 @@ export const MoveSessionSchema = z
   .object({
     new_timetable_period_id: z.coerce.number().int().positive().optional(),
     new_session_date: z.string().regex(DATE_RE).optional(),
+    // Caller acknowledges a timing conflict and wants to schedule anyway.
+    allow_conflict: z.coerce.boolean().optional(),
+    // Caller acknowledges the target date is a holiday and wants to anyway.
+    allow_holiday: z.coerce.boolean().optional(),
+    reason: z.string().trim().max(256).optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.new_timetable_period_id !== undefined ||
+      v.new_session_date !== undefined,
+    { message: 'Pass new_timetable_period_id and/or new_session_date' },
+  );
+
+// Move several sessions to the same destination at once (atomic) — used to
+// reschedule an elective slot's option children together.
+export const MoveManySessionsSchema = z
+  .object({
+    session_ids: z.array(z.coerce.number().int().positive()).min(1).max(50),
+    new_timetable_period_id: z.coerce.number().int().positive().optional(),
+    new_session_date: z.string().regex(DATE_RE).optional(),
+    allow_conflict: z.coerce.boolean().optional(),
+    allow_holiday: z.coerce.boolean().optional(),
     reason: z.string().trim().max(256).optional(),
   })
   .strict()
@@ -71,9 +94,37 @@ export const CreateAdHocSessionSchema = z
     scheduled_employee_id: z.coerce.number().int().positive(),
     room: z.string().trim().max(48).nullish(),
     note: z.string().trim().max(256).nullish(),
+    // Caller acknowledges the date is a holiday and wants to add anyway.
+    allow_holiday: z.coerce.boolean().optional(),
     reason: z.string().trim().max(256).optional(),
   })
   .strict();
+
+// In-place edit of a session's content (subject / teacher / room / note).
+// Date + period are NOT here — those go through move. Every field is optional;
+// at least one must be present so the call actually changes something.
+export const EditSessionSchema = z
+  .object({
+    programme_semester_subject_id: z.coerce.number().int().positive().optional(),
+    programme_semester_subject_option_id: z.coerce
+      .number()
+      .int()
+      .positive()
+      .nullish(),
+    scheduled_employee_id: z.coerce.number().int().positive().optional(),
+    room: z.string().trim().max(48).nullish(),
+    note: z.string().trim().max(256).nullish(),
+    reason: z.string().trim().max(256).optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.programme_semester_subject_id !== undefined ||
+      v.scheduled_employee_id !== undefined ||
+      v.room !== undefined ||
+      v.note !== undefined,
+    { message: 'Pass at least one field to change' },
+  );
 
 export const MarkAttendanceSchema = z
   .object({
@@ -110,6 +161,10 @@ export class BulkSubstituteSessionsDto extends createZodDto(
   BulkSubstituteSessionsSchema,
 ) {}
 export class MoveSessionDto extends createZodDto(MoveSessionSchema) {}
+export class MoveManySessionsDto extends createZodDto(
+  MoveManySessionsSchema,
+) {}
+export class EditSessionDto extends createZodDto(EditSessionSchema) {}
 export class CreateAdHocSessionDto extends createZodDto(
   CreateAdHocSessionSchema,
 ) {}

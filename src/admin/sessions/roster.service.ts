@@ -31,6 +31,19 @@ export class RosterService {
   //              with the matching option + (scheduled) teacher. For
   //              per-group cohorts the join also filters by group via
   //              student_groups.
+  /** Active student ids enrolled in an attendance group — used to notify a
+   *  whole group at once (e.g. when an incharge publishes a week's timetable). */
+  async studentIdsForGroup(attendanceGroupId: number): Promise<number[]> {
+    const rows = await this.students
+      .createQueryBuilder('s')
+      .innerJoin('student_groups', 'sg', 'sg.student_id = s.id')
+      .where('sg.attendance_group_id = :gid', { gid: attendanceGroupId })
+      .andWhere('s.is_active = TRUE')
+      .select('s.id', 'id')
+      .getRawMany<{ id: number }>();
+    return rows.map((r) => Number(r.id));
+  }
+
   async forSession(sessionId: number): Promise<RosterStudent[]> {
     const session = await this.sessions.findOne({
       where: { id: sessionId },

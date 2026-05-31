@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
+import { AcademicHoliday } from '../entities/academic-holiday.entity';
 import { ClassSession, ClassSessionStatus } from '../entities/class-session.entity';
 import { ClassSessionAuditLog } from '../entities/class-session-audit-log.entity';
 import { Employee } from '../entities/employee.entity';
@@ -59,6 +60,23 @@ export interface MoveInput {
   // some timetable for the same group; service validates.
   new_timetable_period_id?: number;
   new_session_date?: string; // 'YYYY-MM-DD'
+  // When true, skip the destination same-slot clash guard — the caller has
+  // already been warned and chose to schedule over the conflict anyway.
+  allow_conflict?: boolean;
+  // When true, allow moving onto a date that is a declared holiday.
+  allow_holiday?: boolean;
+  reason?: string;
+}
+
+export interface EditInput {
+  // In-place edit of a session's content (NOT its date/period — use move for
+  // that). Any subset of fields may be sent; omitted fields are unchanged.
+  // Changing the subject re-derives subject_id and re-points the teacher.
+  programme_semester_subject_id?: number;
+  programme_semester_subject_option_id?: number | null;
+  scheduled_employee_id?: number;
+  room?: string | null;
+  note?: string | null;
   reason?: string;
 }
 
@@ -72,6 +90,8 @@ export interface AdHocInput {
   scheduled_employee_id: number;
   room?: string | null;
   note?: string | null;
+  // When true, allow inserting on a date that is a declared holiday.
+  allow_holiday?: boolean;
   reason?: string;
 }
 
@@ -290,6 +310,83 @@ export class ClassSessionsService {
     });
   }
 
+  // In-place edit of a session's content — subject, teacher, room, note.
+  // Does NOT change date/period (use `move` for that). Any subset of fields
+  // may be sent. A subject change re-derives the rollup subject_id and
+  // re-points the teacher, so changing what a class teaches stays atomic
+  // (no cancel-and-re-add dance, no stray cancelled row).
+  async editSession(
+    id: number,
+    input: EditInput,
+    actor: ActorContext,
+  ): Promise<ClassSession> {
+    return this.mutate(id, actor, async (tx, row) => {
+      if (row.status === 'cancelled') {
+        throw new ConflictException(
+          'Re-open the cancelled session before editing it.',
+        );
+      }
+      if (row.status === 'completed') {
+        throw new ConflictException(
+          "Completed sessions can't be edited — use the amend flow.",
+        );
+      }
+      const before = snapshot(row);
+
+      if (input.programme_semester_subject_id !== undefined) {
+        const pssOwner = await tx
+          .createQueryBuilder()
+          .from('programme_semester_subjects', 'pss')
+          .select('pss.programme_semester_id', 'ps_id')
+          .where('pss.id = :id', { id: input.programme_semester_subject_id })
+          .getRawOne<{ ps_id: number }>();
+        if (!pssOwner) throw new BadRequestException('Subject row not found');
+        if (Number(pssOwner.ps_id) !== row.programme_semester_id) {
+          throw new BadRequestException(
+            'Subject does not belong to this programme semester',
+          );
+        }
+        const optionId = input.programme_semester_subject_option_id ?? null;
+        const subjectId = await this.resolveSubjectId(
+          input.programme_semester_subject_id,
+          optionId,
+        );
+        row.programme_semester_subject_id = input.programme_semester_subject_id;
+        row.programme_semester_subject_option_id = optionId;
+        row.subject_id = subjectId;
+      }
+
+      // Teacher change (also implied by a subject swap). An in-place edit isn't
+      // a substitution, so scheduled + effective move together.
+      if (input.scheduled_employee_id !== undefined) {
+        const emp = await this.employees.findOne({
+          where: { id: input.scheduled_employee_id },
+        });
+        if (!emp || !emp.is_active) {
+          throw new BadRequestException(
+            'Teacher does not exist or is inactive',
+          );
+        }
+        row.scheduled_employee_id = input.scheduled_employee_id;
+        row.effective_employee_id = input.scheduled_employee_id;
+      }
+
+      if (input.room !== undefined) row.room = input.room;
+      if (input.note !== undefined) row.note = input.note;
+
+      await tx.getRepository(ClassSession).save(row);
+      await this.writeAudit(tx, {
+        class_session_id: row.id,
+        action: 'edit',
+        before,
+        after: snapshot(row),
+        reason: input.reason ?? null,
+        actor,
+      });
+      return row;
+    });
+  }
+
   // Cancel every session in one shot. Used by the admin "Cancel whole slot"
   // affordance — cancelling "Open Elective 1 this Friday" hits N cohort
   // sessions; doing them in a single transaction means either all-or-nothing
@@ -474,47 +571,115 @@ export class ClassSessionsService {
       );
     }
     return this.mutate(id, actor, async (tx, row) => {
-      if (row.status === 'completed') {
-        throw new ConflictException(
-          "Completed sessions can't be moved — use the amend flow.",
-        );
-      }
-      if (row.status === 'cancelled') {
-        throw new ConflictException(
-          "Re-open the cancelled session before moving it.",
-        );
-      }
-      const before = snapshot(row);
-      const movingPeriod = input.new_timetable_period_id !== undefined;
-      const movingDate = input.new_session_date !== undefined;
-      const action: 'move' | 'reschedule' = movingDate && !movingPeriod
-        ? 'reschedule'
-        : 'move';
+      await this.applyMove(tx, row, input, actor);
+      return row;
+    });
+  }
 
-      let nextPeriodId = row.timetable_period_id;
-      let nextDate = row.session_date;
-      let nextDayOfWeek = row.day_of_week;
-
-      if (movingPeriod) {
-        const p = await this.periods.findOne({
-          where: { id: input.new_timetable_period_id },
-        });
-        if (!p) throw new BadRequestException('Target period not found');
-        if (p.is_break) {
-          throw new BadRequestException("A break period can't hold a class");
+  // Move several sessions to the SAME destination in ONE transaction — used
+  // for an elective slot's option children, which must all land together (a
+  // partial move would split the cohort across two times). Either all move or
+  // none do. Siblings share the destination slot, so callers pass
+  // `allow_conflict` to suppress the intra-cohort cell-collision check.
+  async moveMany(
+    ids: number[],
+    input: MoveInput,
+    actor: ActorContext,
+  ): Promise<ClassSession[]> {
+    if (
+      input.new_timetable_period_id === undefined &&
+      input.new_session_date === undefined
+    ) {
+      throw new BadRequestException(
+        'Pass new_timetable_period_id and/or new_session_date',
+      );
+    }
+    this.assertActor(actor);
+    const uniqueIds = Array.from(new Set(ids));
+    if (uniqueIds.length === 0) return [];
+    await this.dataSource.transaction(async (tx) => {
+      for (const id of uniqueIds) {
+        const row = await tx
+          .getRepository(ClassSession)
+          .createQueryBuilder('cs')
+          .leftJoinAndSelect('cs.programme_semester', 'programme_semester')
+          .where('cs.id = :id', { id })
+          .getOne();
+        if (!row) throw new NotFoundException('Session not found');
+        if (row.programme_semester.status !== 'ongoing') {
+          throw new ForbiddenException(
+            `Semester is ${row.programme_semester.status} — sessions are read-only`,
+          );
         }
-        nextPeriodId = p.id;
+        await this.applyMove(tx, row, input, actor);
       }
-      if (movingDate) {
-        nextDate = input.new_session_date!;
-        nextDayOfWeek = isoWeekday(nextDate);
-      }
+    });
+    // Hydrate AFTER commit (getOne uses the default connection).
+    return Promise.all(uniqueIds.map((id) => this.getOne(id)));
+  }
 
-      // Cell-collision check at the destination: no other non-cancelled
-      // session for the same group + date + period (and same option, if
-      // any) may exist. We can't re-use the unique index alone because we
-      // also want to refuse collisions with sessions teaching a different
-      // subject.
+  // The actual move of one already-loaded row inside an open transaction:
+  // validate status + destination, check holiday/clash, persist, audit.
+  // Shared by `move` (single, via `mutate`) and `moveMany` (atomic batch).
+  private async applyMove(
+    tx: EntityManager,
+    row: ClassSession,
+    input: MoveInput,
+    actor: ActorContext,
+  ): Promise<void> {
+    if (row.status === 'completed') {
+      throw new ConflictException(
+        "Completed sessions can't be moved — use the amend flow.",
+      );
+    }
+    if (row.status === 'cancelled') {
+      throw new ConflictException(
+        "Re-open the cancelled session before moving it.",
+      );
+    }
+    const before = snapshot(row);
+    const movingPeriod = input.new_timetable_period_id !== undefined;
+    const movingDate = input.new_session_date !== undefined;
+    const action: 'move' | 'reschedule' = movingDate && !movingPeriod
+      ? 'reschedule'
+      : 'move';
+
+    let nextPeriodId = row.timetable_period_id;
+    let nextDate = row.session_date;
+    let nextDayOfWeek = row.day_of_week;
+
+    if (movingPeriod) {
+      const p = await this.periods.findOne({
+        where: { id: input.new_timetable_period_id },
+      });
+      if (!p) throw new BadRequestException('Target period not found');
+      if (p.is_break) {
+        throw new BadRequestException("A break period can't hold a class");
+      }
+      nextPeriodId = p.id;
+    }
+    if (movingDate) {
+      nextDate = input.new_session_date!;
+      nextDayOfWeek = isoWeekday(nextDate);
+    }
+
+    // Moving onto a holiday is blocked unless the caller opted in.
+    if (movingDate && !input.allow_holiday) {
+      const holiday = await this.findHolidayOn(nextDate);
+      if (holiday) {
+        throw new ConflictException(
+          `${nextDate} is a holiday (${holiday.name}) — enable scheduling on holidays to move it here.`,
+        );
+      }
+    }
+
+    // Cell-collision check at the destination: no other non-cancelled
+    // session for the same group + date + period (and same option, if
+    // any) may exist. We can't re-use the unique index alone because we
+    // also want to refuse collisions with sessions teaching a different
+    // subject. Skipped when the caller passed allow_conflict — they were
+    // warned and chose to schedule over it anyway.
+    if (!input.allow_conflict) {
       const clash = await tx
         .getRepository(ClassSession)
         .createQueryBuilder('cs')
@@ -527,10 +692,9 @@ export class ClassSessionsService {
         .andWhere(
           new Brackets((b) =>
             b
-              .where(
-                'cs.attendance_group_id IS NOT DISTINCT FROM :gid',
-                { gid: row.attendance_group_id },
-              )
+              .where('cs.attendance_group_id IS NOT DISTINCT FROM :gid', {
+                gid: row.attendance_group_id,
+              })
               .orWhere(
                 'cs.programme_semester_id = :psid AND cs.attendance_group_id IS NULL AND :gid IS NULL',
                 {
@@ -546,20 +710,19 @@ export class ClassSessionsService {
           'Another class is already scheduled at the target date/period.',
         );
       }
+    }
 
-      row.timetable_period_id = nextPeriodId;
-      row.session_date = nextDate;
-      row.day_of_week = nextDayOfWeek;
-      await tx.getRepository(ClassSession).save(row);
-      await this.writeAudit(tx, {
-        class_session_id: row.id,
-        action,
-        before,
-        after: snapshot(row),
-        reason: input.reason ?? null,
-        actor,
-      });
-      return row;
+    row.timetable_period_id = nextPeriodId;
+    row.session_date = nextDate;
+    row.day_of_week = nextDayOfWeek;
+    await tx.getRepository(ClassSession).save(row);
+    await this.writeAudit(tx, {
+      class_session_id: row.id,
+      action,
+      before,
+      after: snapshot(row),
+      reason: input.reason ?? null,
+      actor,
     });
   }
 
@@ -590,6 +753,32 @@ export class ClassSessionsService {
     if (!emp || !emp.is_active) {
       throw new BadRequestException('Teacher does not exist or is inactive');
     }
+    // The subject row must belong to the same programme semester as the
+    // session — blocks attaching a PSS from another semester.
+    const pssOwner = await this.dataSource
+      .createQueryBuilder()
+      .from('programme_semester_subjects', 'pss')
+      .select('pss.programme_semester_id', 'ps_id')
+      .where('pss.id = :id', { id: input.programme_semester_subject_id })
+      .getRawOne<{ ps_id: number }>();
+    if (!pssOwner) {
+      throw new BadRequestException('Subject row not found');
+    }
+    if (Number(pssOwner.ps_id) !== input.programme_semester_id) {
+      throw new BadRequestException(
+        'Subject does not belong to this programme semester',
+      );
+    }
+    // Holidays block scheduling by default — the caller must opt in to place a
+    // class on a declared no-class day.
+    if (!input.allow_holiday) {
+      const holiday = await this.findHolidayOn(input.session_date);
+      if (holiday) {
+        throw new ConflictException(
+          `${input.session_date} is a holiday (${holiday.name}) — enable scheduling on holidays to add a class.`,
+        );
+      }
+    }
     // Resolve the master subject for this cell. For regular PSS rows the
     // subject_id is on the PSS itself; for slot rows (with an option) we
     // follow the option.
@@ -598,7 +787,7 @@ export class ClassSessionsService {
       input.programme_semester_subject_option_id ?? null,
     );
 
-    return this.dataSource.transaction(async (tx) => {
+    const createdId = await this.dataSource.transaction(async (tx) => {
       const created = await tx.getRepository(ClassSession).save(
         tx.getRepository(ClassSession).create({
           session_date: input.session_date,
@@ -627,8 +816,13 @@ export class ClassSessionsService {
         reason: input.reason ?? null,
         actor,
       });
-      return this.getOne(created.id);
+      return created.id;
     });
+    // Hydrate AFTER the transaction commits — getOne uses the default
+    // connection and can't see the row while the transaction is still open
+    // (it would throw "Session not found"). Same gotcha the `mutate` helper
+    // documents for its post-commit re-hydrate.
+    return this.getOne(createdId);
   }
 
   // --- helpers --------------------------------------------------------------
@@ -674,6 +868,7 @@ export class ClassSessionsService {
       class_session_id: number;
       action:
         | 'create'
+        | 'edit'
         | 'cancel'
         | 'uncancel'
         | 'substitute'
@@ -720,6 +915,34 @@ export class ClassSessionsService {
     }
   }
 
+  // Declared holidays overlapping [from, to] — holidays are institution-wide,
+  // so all of them apply to the group. Used by the incharge UI to warn before
+  // scheduling on a no-class day.
+  async holidaysForGroup(
+    _groupId: number,
+    from: string,
+    to: string,
+  ): Promise<AcademicHoliday[]> {
+    return this.dataSource
+      .getRepository(AcademicHoliday)
+      .createQueryBuilder('h')
+      .where('h.date <= :to AND COALESCE(h.end_date, h.date) >= :from', {
+        from,
+        to,
+      })
+      .orderBy('h.date', 'ASC')
+      .getMany();
+  }
+
+  // A declared (institution-wide) holiday covering `date`, or null.
+  private async findHolidayOn(date: string): Promise<AcademicHoliday | null> {
+    return this.dataSource
+      .getRepository(AcademicHoliday)
+      .createQueryBuilder('h')
+      .where(':date BETWEEN h.date AND COALESCE(h.end_date, h.date)', { date })
+      .getOne();
+  }
+
   private async resolveSubjectId(
     pssId: number,
     optionId: number | null,
@@ -759,6 +982,8 @@ function snapshot(row: ClassSession): Record<string, unknown> {
   return {
     status: row.status,
     cancel_reason: row.cancel_reason,
+    subject_id: row.subject_id,
+    programme_semester_subject_id: row.programme_semester_subject_id,
     effective_employee_id: row.effective_employee_id,
     scheduled_employee_id: row.scheduled_employee_id,
     timetable_period_id: row.timetable_period_id,
