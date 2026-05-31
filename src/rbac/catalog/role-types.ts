@@ -22,11 +22,11 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
   //   label: 'HOD',
   //   description: 'Head of department — manages a single department.',
   // },
-  // {
-  //   key: 'examcell',
-  //   label: 'Exam Cell',
-  //   description: 'Examination cell member — manages mark structures and marks entry across programmes.',
-  // },
+  {
+    key: 'examcell',
+    label: 'Exam Cell',
+    description: 'Examination cell member — manages mark structures and marks entry across programmes.',
+  },
   // {
   //   key: 'management',
   //   label: 'Management',

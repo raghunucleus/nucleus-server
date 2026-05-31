@@ -24,6 +24,12 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     icon: 'CalendarDays',
     order: 30,
   },
+  {
+    key: 'examinations',
+    label: 'Examinations',
+    icon: 'GraduationCap',
+    order: 40,
+  },
 
   // {
   //   key: 'academics',

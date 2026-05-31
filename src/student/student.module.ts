@@ -7,6 +7,9 @@ import { InstitutionSetting } from '../admin/entities/institution-setting.entity
 import { ProgrammeSemester } from '../admin/entities/programme-semester.entity';
 import { Student } from '../admin/entities/student.entity';
 import { StudentGroup } from '../admin/entities/student-group.entity';
+import { StudentCgpa } from '../employee/exam-marks/entities/student-cgpa.entity';
+import { StudentExamResult } from '../employee/exam-marks/entities/student-exam-result.entity';
+import { StudentSemesterGpa } from '../employee/exam-marks/entities/student-semester-gpa.entity';
 import { HolidaysReadModule } from '../holidays/holidays-read.module';
 import { ChatModule } from './chat/chat.module';
 import { RequirePasswordChangedGuard } from './auth/require-password-changed.guard';
@@ -18,6 +21,8 @@ import { StudentBirthdaysService } from './birthdays/student-birthdays.service';
 import { StudentHolidaysController } from './holidays/student-holidays.controller';
 import { StudentIdCardController } from './id-card/student-id-card.controller';
 import { StudentIdCardService } from './id-card/student-id-card.service';
+import { StudentExamResultsController } from './exam-results/student-exam-results.controller';
+import { StudentExamResultsService } from './exam-results/student-exam-results.service';
 import { StudentAcademicsController } from './portal/student-academics.controller';
 import { StudentPortalService } from './portal/student-portal.service';
 import { StudentAuthController } from './student-auth.controller';
@@ -31,6 +36,9 @@ import { StudentAuthService } from './student-auth.service';
       ProgrammeSemester,
       StudentGroup,
       InstitutionSetting,
+      StudentCgpa,
+      StudentSemesterGpa,
+      StudentExamResult,
     ]),
     ConfigModule,
     PassportModule.register({ defaultStrategy: 'student-jwt' }),
@@ -44,6 +52,7 @@ import { StudentAuthService } from './student-auth.service';
     StudentIdCardController,
     StudentBirthdaysController,
     StudentHolidaysController,
+    StudentExamResultsController,
   ],
   providers: [
     StudentAuthService,
@@ -53,6 +62,7 @@ import { StudentAuthService } from './student-auth.service';
     StudentPortalService,
     StudentIdCardService,
     StudentBirthdaysService,
+    StudentExamResultsService,
   ],
   exports: [StudentAuthService],
 })

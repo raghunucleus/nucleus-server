@@ -503,6 +503,17 @@ export class PermissionsService {
     );
   }
 
+  getAccessibleProgrammeAdmissionYearIds(
+    employeeId: number,
+    screenKey: string,
+  ): Promise<AccessibleIds> {
+    return this.getAttributeNumericIds(
+      employeeId,
+      screenKey,
+      'programme_admission_year_ids',
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------

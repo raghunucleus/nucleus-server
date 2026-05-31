@@ -3,6 +3,7 @@ import { AdmissionYear } from '../../admin/entities/admission-year.entity';
 import { AttendanceGroup } from '../../admin/entities/attendance-group.entity';
 import { Department } from '../../admin/entities/department.entity';
 import { Programme } from '../../admin/entities/programme.entity';
+import { ProgrammeAdmissionYear } from '../../admin/entities/programme-admission-year.entity';
 import { Regulation } from '../../admin/entities/regulation.entity';
 import { Semester } from '../../admin/entities/semester.entity';
 
@@ -94,6 +95,27 @@ export const ATTRIBUTE_FETCHERS: Record<string, AttributeFetcher> = {
     return rows.map((r) => ({
       id: r.id,
       label: `${r.code} (${r.year_of_regulation})`,
+    }));
+  },
+
+  'ref:programme_admission_year': async (ds) => {
+    // Joins programme + admission_year so the picker shows a fully
+    // disambiguating "{programme} / {year}" label across all batches in one
+    // flat list. The stored value is the programme_admission_years row id —
+    // the single id for that (programme, admission year) combination.
+    const rows = await ds
+      .getRepository(ProgrammeAdmissionYear)
+      .createQueryBuilder('pay')
+      .leftJoin('pay.programme', 'p')
+      .leftJoin('pay.admission_year', 'ay')
+      .select(['pay.id', 'p.name', 'ay.display_year'])
+      .where('pay.is_active = TRUE')
+      .orderBy('p.name', 'ASC')
+      .addOrderBy('ay.display_year', 'DESC')
+      .getMany();
+    return rows.map((pay) => ({
+      id: pay.id,
+      label: `${pay.programme?.name ?? '—'} / ${pay.admission_year?.display_year ?? '—'}`,
     }));
   },
 

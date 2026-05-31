@@ -30,6 +30,11 @@ export const ATTRIBUTE_TYPES: ReadonlyArray<AttributeTypeDef> = [
     source: 'admission_years',
   },
   {
+    key: 'ref:programme_admission_year',
+    label: 'Programme / Admission year',
+    source: 'programme_admission_years',
+  },
+  {
     key: 'ref:semester',
     label: 'Semester',
     source: 'semesters',

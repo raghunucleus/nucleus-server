@@ -103,19 +103,40 @@ export class ProgrammeAdmissionYearsService {
     Array<{
       id: number;
       programme_id: number;
+      programme_name: string;
+      programme_code: string;
       admission_year_id: number;
+      admission_year_display: string;
+      admission_year_value: number;
       is_active: boolean;
     }>
   > {
-    return this.links
+    // Join programme + admission_year so a single unpaginated request carries
+    // the labels the grid needs (rows × columns) — no follow-up lookups.
+    const rows = await this.links
       .createQueryBuilder('pay')
+      .leftJoin('pay.programme', 'p')
+      .leftJoin('pay.admission_year', 'ay')
       .select([
         'pay.id',
         'pay.programme_id',
         'pay.admission_year_id',
         'pay.is_active',
       ])
+      .addSelect(['p.name', 'p.code', 'ay.display_year', 'ay.year'])
+      .orderBy('p.name', 'ASC')
+      .addOrderBy('ay.year', 'DESC')
       .getMany();
+    return rows.map((r) => ({
+      id: r.id,
+      programme_id: r.programme_id,
+      programme_name: r.programme?.name ?? '—',
+      programme_code: r.programme?.code ?? '',
+      admission_year_id: r.admission_year_id,
+      admission_year_display: r.admission_year?.display_year ?? '—',
+      admission_year_value: r.admission_year?.year ?? 0,
+      is_active: r.is_active,
+    }));
   }
 
   async getOne(id: number): Promise<ProgrammeAdmissionYear> {

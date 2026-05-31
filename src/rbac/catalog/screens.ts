@@ -159,4 +159,32 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     actions: ['view', 'edit', 'publish'],
     attributes: [],
   },
+
+  // --- Examinations ------------------------------------------------------
+  {
+    // Exam-cell marks upload, scoped to the (programme × admission-year)
+    // batches the admin grants on the assignment. The single attribute holds
+    // the set of programme_admission_years ids the employee may upload for —
+    // wildcard-capable so a college-wide exam cell can be granted everything
+    // (including future batches).
+    key: 'examinations.marks.upload',
+    module_key: 'examinations',
+    role_type_keys: ['examcell'],
+    platforms: ['web'],
+    label: 'Upload marks',
+    description:
+      'Upload student marks for your assigned programme / admission-year batches.',
+    web_route: '/marks/upload',
+    actions: ['upload'],
+    attributes: [
+      {
+        key: 'programme_admission_year_ids',
+        type: 'ref:programme_admission_year',
+        label: 'Programme / Admission year',
+        required: true,
+        multi: true,
+        allow_all: true,
+      },
+    ],
+  },
 ];
