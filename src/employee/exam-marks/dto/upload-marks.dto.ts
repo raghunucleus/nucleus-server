@@ -48,7 +48,11 @@ export const SessionQuerySchema = z.object({
 
 export class SessionQueryDto extends createZodDto(SessionQuerySchema) {}
 
-export const CommitUploadSchema = SessionQuerySchema;
+/** Commit a staged session. `notify` (default true) pushes a "results
+ *  published" notification to every student whose results were stored. */
+export const CommitUploadSchema = SessionQuerySchema.extend({
+  notify: z.coerce.boolean().default(true),
+});
 export class CommitUploadDto extends createZodDto(CommitUploadSchema) {}
 
 /** Query for the batch results list (`GET /results`). */

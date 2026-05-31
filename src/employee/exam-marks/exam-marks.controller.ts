@@ -161,6 +161,7 @@ export class ExamMarksController {
       employee.id,
       body.programme_admission_year_id,
       body.upload_session,
+      body.notify,
     );
   }
 

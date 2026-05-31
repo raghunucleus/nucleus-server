@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -17,6 +18,7 @@ import {
   type Grade,
   parseExamination,
 } from './exam-marks.constants';
+import { StudentNotificationService } from '../../student/notification/student-notification.service';
 import { StudentCgpa } from './entities/student-cgpa.entity';
 import { StudentExamResult } from './entities/student-exam-result.entity';
 import { StudentExamResultStaging } from './entities/student-exam-result-staging.entity';
@@ -188,6 +190,8 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 @Injectable()
 export class ExamMarksService {
+  private readonly logger = new Logger('ExamMarksService');
+
   constructor(
     @InjectRepository(ProgrammeAdmissionYear)
     private readonly batches: Repository<ProgrammeAdmissionYear>,
@@ -203,6 +207,7 @@ export class ExamMarksService {
     private readonly staging: Repository<StudentExamResultStaging>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly permissions: PermissionsService,
+    private readonly notifications: StudentNotificationService,
   ) {}
 
   /**
@@ -456,6 +461,7 @@ export class ExamMarksService {
     employeeId: number,
     programmeAdmissionYearId: number,
     uploadSession: string,
+    notify = true,
   ): Promise<CommitResult> {
     await this.assertBatchExistsInScope(employeeId, programmeAdmissionYearId);
 
@@ -481,6 +487,7 @@ export class ExamMarksService {
     let resultsStored = 0;
     let semesters = 0;
     let studentsCount = 0;
+    let storedStudentIds: number[] = [];
 
     await this.dataSource.transaction(async (tx) => {
       // Serialise concurrent commits to the same batch — last full replace wins.
@@ -570,6 +577,16 @@ export class ExamMarksService {
       semesters = counts?.[0]?.semesters ?? 0;
       studentsCount = counts?.[0]?.students ?? 0;
 
+      // The exact set of students whose results were just stored — drives the
+      // optional "results published" notification after the transaction commits.
+      if (notify) {
+        const idRows: Array<{ student_id: number }> = await tx.query(
+          `SELECT "student_id" FROM "student_cgpa" WHERE "programme_admission_year_id" = $1`,
+          [programmeAdmissionYearId],
+        );
+        storedStudentIds = idRows.map((r) => Number(r.student_id));
+      }
+
       // Clear the session's scratch rows — same transaction, so a rollback keeps
       // them for a retry.
       await tx.query(
@@ -577,6 +594,24 @@ export class ExamMarksService {
         [uploadSession],
       );
     });
+
+    // Results are durably stored at this point. Notify is best-effort: never let
+    // a notification failure surface as a commit failure (the data is safe).
+    if (notify && storedStudentIds.length > 0) {
+      void this.notifications
+        .send(storedStudentIds, {
+          module: 'exam-marks',
+          type: 'results-published',
+          title: 'Exam results published',
+          body: 'Your latest exam results are now available. Tap to view your grades and SGPA.',
+          target: { type: 'results' },
+        })
+        .catch((err) =>
+          this.logger.error(
+            `Exam-results notification failed for batch ${programmeAdmissionYearId}: ${String(err)}`,
+          ),
+        );
+    }
 
     return {
       programme_admission_year_id: programmeAdmissionYearId,

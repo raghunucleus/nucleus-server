@@ -33,4 +33,6 @@ import { ExamMarksService } from '../exam-marks/exam-marks.service';
   controllers: [ExamMarksController],
   providers: [ExamMarksService],
 })
+// StudentNotificationService is provided by the @Global StudentNotificationModule,
+// so ExamMarksService can inject it without importing anything here.
 export class ExamCellModule {}
