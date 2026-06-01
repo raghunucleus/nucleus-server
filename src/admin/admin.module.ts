@@ -80,6 +80,10 @@ import { RegulationsService } from './regulations/regulations.service';
 import { SemestersController } from './semesters/semesters.controller';
 import { SemestersService } from './semesters/semesters.service';
 import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
+import { GuardianModule } from '../guardian/guardian.module';
+import { StudentGuardian } from '../guardian/entities/student-guardian.entity';
+import { GuardiansController } from './guardians/guardians.controller';
+import { GuardiansService } from './guardians/guardians.service';
 import { Student } from './entities/student.entity';
 import { StudentGroup } from './entities/student-group.entity';
 import { StudentGroupHistory } from './entities/student-group-history.entity';
@@ -128,6 +132,7 @@ import { AdminUsersService } from './users/admin-users.service';
       Regulation,
       Semester,
       Student,
+      StudentGuardian,
       StudentGroup,
       StudentGroupHistory,
       StudentSubjectAttendance,
@@ -144,6 +149,7 @@ import { AdminUsersService } from './users/admin-users.service';
     PassportModule.register({ defaultStrategy: 'admin-jwt' }),
     JwtModule.register({}),
     StudentModule,
+    GuardianModule,
     EmployeeAuthModule,
   ],
   controllers: [
@@ -168,6 +174,7 @@ import { AdminUsersService } from './users/admin-users.service';
     SlotEnrollmentsController,
     RegulationsController,
     StudentsController,
+    GuardiansController,
     SubjectsController,
     SubjectTypesController,
     SubjectTypeMarkStructuresController,
@@ -197,6 +204,7 @@ import { AdminUsersService } from './users/admin-users.service';
     SlotEnrollmentsService,
     RegulationsService,
     StudentsService,
+    GuardiansService,
     SubjectsService,
     SubjectTypesService,
     SubjectTypeMarkStructuresService,

@@ -13,10 +13,6 @@ export const CreateAcademicHolidaySchema = z
     name: z.string().trim().min(1).max(120),
     type: z.enum(['public', 'institutional', 'unplanned']),
     reason: z.string().trim().max(256).nullish(),
-    // When true, cancel any already-seeded scheduled sessions on matching
-    // dates. Defaults true since the endpoint is the canonical way to declare
-    // a holiday mid-semester. Set false for pre-semester adds.
-    cancel_existing_sessions: z.boolean().default(true),
   })
   .strict()
   .refine(

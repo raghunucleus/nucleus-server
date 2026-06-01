@@ -48,10 +48,10 @@ export class HolidaysService {
     return qb.getMany();
   }
 
-  // Declare an institution-wide holiday and (optionally) mass-cancel any
-  // scheduled sessions that fall in its date range. The cancellation step
-  // writes class_session_audit_logs rows for every affected session so the
-  // cascade is auditable.
+  // Declare an institution-wide holiday and mass-cancel any scheduled sessions
+  // that fall in its date range. The cancellation step writes
+  // class_session_audit_logs rows for every affected session so the cascade is
+  // auditable.
   async declare(
     input: CreateAcademicHolidayDto,
     declarer: DeclarerContext,
@@ -73,9 +73,7 @@ export class HolidaysService {
         }),
       );
 
-      const cancelled = input.cancel_existing_sessions
-        ? await this.cancelMatchingSessions(tx, saved, declarer)
-        : 0;
+      const cancelled = await this.cancelMatchingSessions(tx, saved, declarer);
 
       this.logger.log(
         `declare: holiday=${saved.id} range=${saved.date}..${saved.end_date ?? saved.date} sessions_cancelled=${cancelled}`,
@@ -86,9 +84,9 @@ export class HolidaysService {
 
   // Edit an existing holiday. All editable fields are replaced from `input`
   // (the admin form pre-fills them). The original declarer is preserved.
-  // If `input.cancel_existing_sessions` is true, scheduled sessions caught by
-  // the *new* range are cancelled in the same transaction — sessions cancelled
-  // by the previous version are never un-cancelled.
+  // Scheduled sessions caught by the *new* range are cancelled in the same
+  // transaction — sessions cancelled by the previous version are never
+  // un-cancelled.
   async update(
     id: number,
     input: UpdateAcademicHolidayDto,
@@ -109,9 +107,7 @@ export class HolidaysService {
 
       const saved = await holidayRepo.save(existing);
 
-      const cancelled = input.cancel_existing_sessions
-        ? await this.cancelMatchingSessions(tx, saved, declarer)
-        : 0;
+      const cancelled = await this.cancelMatchingSessions(tx, saved, declarer);
 
       this.logger.log(
         `update: holiday=${saved.id} range=${saved.date}..${saved.end_date ?? saved.date} sessions_cancelled=${cancelled}`,

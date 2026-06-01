@@ -13,19 +13,28 @@ import { ProgrammeSemester } from './programme-semester.entity';
 import { Student } from './student.entity';
 import { Subject } from './subject.entity';
 
-// Per (student × semester × subject) rollup that powers the dashboard. One
-// row is upserted inside the attendance-marking transaction so per-subject %
-// reads are a single PK lookup.
+// Per (student × semester × subject) rollup that powers the dashboard. It is a
+// pure projection of class_session_attendance: the attendance-marking
+// transaction recomputes the affected rows from those marked rows (not via
+// incremental deltas), so the cache can never drift out of sync. Per-subject %
+// reads stay a single PK lookup.
 //
 //   attended_count — completed sessions where the student was 'present' or
-//                    'late' PLUS attended_delta from attendance_adjustments
-//                    (computed at read time; not stored on this row).
-//   held_count    — completed sessions the student was on the roster for,
-//                    minus held_delta where adjustments voided some.
+//                    'late'. Read-time, attended_delta from
+//                    attendance_adjustments is added on top (NOT stored here).
+//   held_count    — completed sessions the student was on the roster for
+//                    (= the count of their class_session_attendance rows on
+//                    completed sessions). Read-time held_delta is added on top.
+//
+// Because attended/held are both projected from the same rows, attended_count
+// <= held_count always holds — enforced by CHECK constraint
+// CHK_ssa_attended_le_held (migration 1781800000000). Adjustments, which can
+// legitimately push the *displayed* % past 100, live in attendance_adjustments
+// and are never written to this table.
 //
 // 'subject_id' here is the master subjects.id — the same dimension whether
 // the session was delivered as a regular subject or via an elective option.
-// Cancelled sessions never increment `held_count`, so they self-correct any
+// Cancelled sessions never count toward `held_count`, so they self-correct any
 // % automatically.
 @Entity({ name: 'student_subject_attendance' })
 @Unique('UQ_ssa_student_ps_subject', [

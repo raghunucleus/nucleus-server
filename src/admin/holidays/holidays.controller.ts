@@ -41,7 +41,7 @@ export class HolidaysController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary:
-      'Declare a holiday. If cancel_existing_sessions=true (default), already-scheduled sessions on matching dates are cancelled in the same transaction.',
+      'Declare a holiday. Already-scheduled sessions on matching dates are cancelled in the same transaction.',
   })
   declare(
     @Body() dto: CreateAcademicHolidayDto,
@@ -55,7 +55,7 @@ export class HolidaysController {
   @Patch(':id')
   @ApiOperation({
     summary:
-      'Edit a holiday. Pass cancel_existing_sessions=true to also cancel scheduled sessions newly caught by the edited range; previously-cancelled sessions are never restored.',
+      'Edit a holiday. Scheduled sessions newly caught by the edited range are cancelled; previously-cancelled sessions are never restored.',
   })
   update(
     @Param('id', ParseIntPipe) id: number,

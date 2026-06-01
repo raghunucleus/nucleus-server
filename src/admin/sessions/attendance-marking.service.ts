@@ -44,8 +44,6 @@ export interface MarkResult {
   roster_size: number;
 }
 
-const COUNTED_AS_PRESENT: AttendanceStatus[] = ['present', 'late'];
-
 @Injectable()
 export class AttendanceMarkingService {
   private readonly logger = new Logger(AttendanceMarkingService.name);
@@ -66,9 +64,9 @@ export class AttendanceMarkingService {
   // Mark / re-mark attendance for one session. Inside one transaction:
   //   1. Validate session is markable.
   //   2. Re-derive the roster; reject student_ids outside it.
-  //   3. Upsert class_session_attendance rows.
+  //   3. Upsert class_session_attendance rows (full roster on first mark).
   //   4. Flip session status to 'completed' (first time only).
-  //   5. Upsert student_subject_attendance rollup deltas.
+  //   5. Recompute the student_subject_attendance rollup from those rows.
   //   6. Write one mark_attendance audit row.
   async mark(
     sessionId: number,
@@ -145,15 +143,27 @@ export class AttendanceMarkingService {
         existing.map((r) => [r.student_id, r.status] as const),
       );
 
-      // Upsert one row per student in input.
+      // Persist one class_session_attendance row per student. On first mark we
+      // write the FULL roster (any student the teacher didn't submit defaults
+      // to 'absent') so class_session_attendance is the complete, authoritative
+      // record of who was held — the rollup is recomputed from it below. On
+      // amend we touch only the submitted students; their rows are updated in
+      // place.
       const now = new Date();
+      const targets: Array<{ id: number; status: AttendanceStatus }> =
+        isAmending
+          ? Array.from(byStudent, ([id, status]) => ({ id, status }))
+          : roster.map((r) => ({
+              id: r.id,
+              status: byStudent.get(r.id) ?? 'absent',
+            }));
       const upserts: ClassSessionAttendance[] = [];
-      for (const [studentId, status] of byStudent) {
+      for (const { id: studentId, status } of targets) {
         const prior = existingByStudent.get(studentId);
         if (prior) {
           prior.status = status;
           prior.marked_at = now;
-          prior.marked_by_employee_id = actor.employee_id!;
+          prior.marked_by_employee_id = markerEmployeeId;
           upserts.push(prior);
         } else {
           upserts.push(
@@ -171,60 +181,26 @@ export class AttendanceMarkingService {
         await csaRepo.save(upserts);
       }
 
-      // Compute attended deltas per student for the rollup. On first mark
-      // `held` increments by 1 for every student on roster; on amend we
-      // leave `held` alone (the session was already counted) and only
-      // adjust `attended` by the diff.
-      const rosterArr = roster;
-      const attendedDeltas = new Map<number, number>();
-      const heldDeltas = new Map<number, number>();
-
-      const wasCountedAs = (prior: AttendanceStatus | undefined): boolean =>
-        prior !== undefined &&
-        (COUNTED_AS_PRESENT as AttendanceStatus[]).includes(prior);
-      const isCountedAs = (status: AttendanceStatus): boolean =>
-        (COUNTED_AS_PRESENT as AttendanceStatus[]).includes(status);
-
-      if (!isAmending) {
-        // First-time mark — every roster student gets +1 held; +1 attended
-        // if they were marked present/late.
-        for (const r of rosterArr) {
-          heldDeltas.set(r.id, 1);
-          const status = byStudent.get(r.id);
-          attendedDeltas.set(
-            r.id,
-            status !== undefined && isCountedAs(status) ? 1 : 0,
-          );
-        }
-      } else {
-        // Amend — recompute the diff per submitted student. Use the
-        // pre-mutation snapshot above so was/now actually differ.
-        for (const [studentId, status] of byStudent) {
-          const priorStatus = originalStatusByStudent.get(studentId);
-          const wasPresent = wasCountedAs(priorStatus);
-          const nowPresent = isCountedAs(status);
-          if (wasPresent === nowPresent) continue;
-          attendedDeltas.set(
-            studentId,
-            (attendedDeltas.get(studentId) ?? 0) +
-              (nowPresent ? 1 : -1),
-          );
-        }
-      }
-
-      await this.applyRollupDeltas(tx, {
-        programme_semester_id: session.programme_semester_id,
-        subject_id: session.subject_id,
-        attendedDeltas,
-        heldDeltas,
-        lastSessionAt: now,
-      });
-
+      // Flip to 'completed' BEFORE the recompute so this session is counted as
+      // held in the projection below.
       if (!isAmending) {
         session.status = 'completed';
         session.attendance_marked_at = now;
         await tx.getRepository(ClassSession).save(session);
       }
+
+      // Recompute the rollup for the affected students straight from
+      // class_session_attendance. held = COUNT(rows on completed sessions),
+      // attended = COUNT(present/late rows) — so attended can never exceed
+      // held, and a roster change between first-mark and amend can no longer
+      // drift the counts. (The old incremental-delta approach bumped `attended`
+      // without `held` when a student joined the roster after first mark, which
+      // produced impossible >100% values.)
+      await this.recomputeRollup(tx, {
+        programme_semester_id: session.programme_semester_id,
+        subject_id: session.subject_id,
+        studentIds: upserts.map((u) => u.student_id),
+      });
 
       // Audit row — one per mark/amend regardless of student count. The
       // `before` payload reads the pre-mutation snapshot so it captures
@@ -263,48 +239,48 @@ export class AttendanceMarkingService {
     });
   }
 
-  private async applyRollupDeltas(
+  // Rebuild the (student × programme_semester × subject) rollup straight from
+  // class_session_attendance for the given students — a pure projection, not an
+  // increment. held = COUNT(rows on completed sessions), attended = COUNT of the
+  // present/late ones, so attended <= held holds by construction and the cache
+  // self-heals on every mark. Bounded by the session roster (~60 students) and
+  // runs as a single statement.
+  private async recomputeRollup(
     tx: EntityManager,
     rec: {
       programme_semester_id: number;
       subject_id: number;
-      attendedDeltas: Map<number, number>;
-      heldDeltas: Map<number, number>;
-      lastSessionAt: Date;
+      studentIds: number[];
     },
   ): Promise<void> {
-    if (rec.attendedDeltas.size === 0 && rec.heldDeltas.size === 0) return;
-    const studentIds = new Set<number>([
-      ...rec.attendedDeltas.keys(),
-      ...rec.heldDeltas.keys(),
-    ]);
-    // One round-trip per student keeps the SQL simple; volumes are bounded
-    // by the session roster (~60). Postgres handles this in single-digit ms.
-    for (const studentId of studentIds) {
-      const attendedDelta = rec.attendedDeltas.get(studentId) ?? 0;
-      const heldDelta = rec.heldDeltas.get(studentId) ?? 0;
-      if (attendedDelta === 0 && heldDelta === 0) continue;
-      await tx.query(
-        `INSERT INTO "student_subject_attendance" (
-           "student_id", "programme_semester_id", "subject_id",
-           "attended_count", "held_count", "last_session_at"
-         ) VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT ("student_id", "programme_semester_id", "subject_id")
-         DO UPDATE SET
-           attended_count = student_subject_attendance.attended_count + EXCLUDED.attended_count,
-           held_count     = student_subject_attendance.held_count     + EXCLUDED.held_count,
-           last_session_at = EXCLUDED.last_session_at,
-           updated_at = NOW()`,
-        [
-          studentId,
-          rec.programme_semester_id,
-          rec.subject_id,
-          attendedDelta,
-          heldDelta,
-          rec.lastSessionAt,
-        ],
-      );
-    }
+    if (rec.studentIds.length === 0) return;
+    await tx.query(
+      `INSERT INTO "student_subject_attendance" (
+         "student_id", "programme_semester_id", "subject_id",
+         "attended_count", "held_count", "last_session_at"
+       )
+       SELECT
+         csa."student_id",
+         cs."programme_semester_id",
+         cs."subject_id",
+         COUNT(*) FILTER (WHERE csa."status" IN ('present','late'))::int,
+         COUNT(*)::int,
+         MAX(csa."marked_at")
+       FROM "class_session_attendance" csa
+       JOIN "class_sessions" cs ON cs."id" = csa."class_session_id"
+       WHERE cs."programme_semester_id" = $1
+         AND cs."subject_id" = $2
+         AND cs."status" = 'completed'
+         AND csa."student_id" = ANY($3::int[])
+       GROUP BY csa."student_id", cs."programme_semester_id", cs."subject_id"
+       ON CONFLICT ("student_id", "programme_semester_id", "subject_id")
+       DO UPDATE SET
+         attended_count  = EXCLUDED.attended_count,
+         held_count      = EXCLUDED.held_count,
+         last_session_at = EXCLUDED.last_session_at,
+         updated_at      = NOW()`,
+      [rec.programme_semester_id, rec.subject_id, rec.studentIds],
+    );
   }
 
   private assertActor(a: ActorContext): void {

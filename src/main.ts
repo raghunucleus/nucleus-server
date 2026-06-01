@@ -91,6 +91,10 @@ async function bootstrap() {
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       'student-access-token',
     )
+    .addBearerAuth(
+      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      'guardian-access-token',
+    )
     .build();
   const document = cleanupOpenApiDoc(
     SwaggerModule.createDocument(app, swaggerConfig),

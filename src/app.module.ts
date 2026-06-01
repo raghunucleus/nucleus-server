@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -7,7 +7,9 @@ import { join } from 'path';
 import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { FakeDelayMiddleware } from './common/middleware/fake-delay.middleware';
 import { EmployeeModule } from './employee/employee.module';
+import { GuardianModule } from './guardian/guardian.module';
 import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
 import { RbacModule } from './rbac/rbac.module';
@@ -90,10 +92,19 @@ import { StudentNotificationModule } from './student/notification/student-notifi
     AdminModule,
     StudentModule,
     StudentNotificationModule,
+    GuardianModule,
     EmployeeModule,
     RbacModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Inject artificial latency on every route, but only in dev so the
+    // front-ends can exercise their loading states. No-op everywhere else.
+    if (process.env.NODE_ENV === 'dev') {
+      consumer.apply(FakeDelayMiddleware).forRoutes('*');
+    }
+  }
+}

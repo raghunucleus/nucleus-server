@@ -64,6 +64,12 @@ import { StudentAuthService } from './student-auth.service';
     StudentBirthdaysService,
     StudentExamResultsService,
   ],
-  exports: [StudentAuthService],
+  exports: [
+    StudentAuthService,
+    // Surfaced so the guardian (parent) portal can reuse the exact same
+    // student-scoped read logic, gated by its own guardian↔student link check.
+    StudentPortalService,
+    StudentExamResultsService,
+  ],
 })
 export class StudentModule {}

@@ -258,6 +258,45 @@ export class MailService {
     });
   }
 
+  /**
+   * Delivers a one-time code a guardian uses to set or reset their login
+   * password (the self-service "forgot password" flow). The code is short-lived
+   * and single-use; nothing actionable is exposed once it has expired or been
+   * used. In dev this lands in `dev_mail_outbox` so the code is testable.
+   */
+  async sendGuardianOtp(params: {
+    to: string;
+    displayName: string;
+    otp: string;
+    expiresInMinutes: number;
+  }): Promise<void> {
+    const subject = 'Your Nucleus parent login code';
+    const text = [
+      `Hello ${params.displayName},`,
+      '',
+      'Use this one-time code to set your Nucleus parent account password:',
+      '',
+      `Code: ${params.otp}`,
+      '',
+      `This code expires in ${params.expiresInMinutes} minutes and can be used once.`,
+      '',
+      'If you did not request this, you can safely ignore this email.',
+    ].join('\n');
+
+    await this.send({
+      to: params.to,
+      subject,
+      text,
+      html: wrapHtml(
+        `<p>Hello ${escapeHtml(params.displayName)},</p>
+         <p>Use this one-time code to set your Nucleus parent account password:</p>
+         <p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:16px 0">${escapeHtml(params.otp)}</p>
+         <p style="color:#555">This code expires in ${params.expiresInMinutes} minutes and can be used once.</p>
+         <p style="color:#999;font-size:12px">If you did not request this, you can safely ignore this email.</p>`,
+      ),
+    });
+  }
+
   async sendStudentPasswordReset(params: {
     to: string;
     displayName: string;
