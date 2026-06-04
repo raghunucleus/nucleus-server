@@ -187,4 +187,33 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
       },
     ],
   },
+  {
+    // Read-only "Student marks" view of the committed results for a batch —
+    // the whole-roster (branch-wise) list and one student's full semester /
+    // subject breakdown. This screen is NEVER assigned on its own: it is
+    // derived from the marks-upload grant (see PermissionsService.hydrate),
+    // so anyone who can upload a batch's marks can also view them, with the
+    // exact same `programme_admission_year_ids` scope. It carries the same
+    // attribute so the scope helpers resolve identically against this key.
+    key: 'examinations.marks.view',
+    module_key: 'examinations',
+    role_type_keys: ['examcell'],
+    platforms: ['web'],
+    label: 'Student marks',
+    description:
+      'View committed student marks (CGPA, SGPA and grades) for your assigned ' +
+      'programme / admission-year batches — branch-wise and per student.',
+    web_route: '/marks/view',
+    actions: ['view'],
+    attributes: [
+      {
+        key: 'programme_admission_year_ids',
+        type: 'ref:programme_admission_year',
+        label: 'Programme / Admission year',
+        required: true,
+        multi: true,
+        allow_all: true,
+      },
+    ],
+  },
 ];

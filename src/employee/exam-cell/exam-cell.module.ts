@@ -9,6 +9,7 @@ import { StudentExamResult } from '../exam-marks/entities/student-exam-result.en
 import { StudentExamResultStaging } from '../exam-marks/entities/student-exam-result-staging.entity';
 import { StudentSemesterGpa } from '../exam-marks/entities/student-semester-gpa.entity';
 import { ExamMarksController } from '../exam-marks/exam-marks.controller';
+import { StudentMarksController } from '../exam-marks/student-marks.controller';
 import { ExamMarksService } from '../exam-marks/exam-marks.service';
 
 /**
@@ -30,7 +31,7 @@ import { ExamMarksService } from '../exam-marks/exam-marks.service';
     RbacModule,
     EmployeeAuthModule,
   ],
-  controllers: [ExamMarksController],
+  controllers: [ExamMarksController, StudentMarksController],
   providers: [ExamMarksService],
 })
 // StudentNotificationService is provided by the @Global StudentNotificationModule,

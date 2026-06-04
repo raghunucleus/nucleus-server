@@ -212,7 +212,65 @@ export class PermissionsService {
       modules[moduleDef.key] = modSlot;
     }
 
+    this.deriveStudentMarksView(screens, modules);
+
     return { employee_id: cached.employee_id, modules, screens };
+  }
+
+  /**
+   * Derive the read-only `examinations.marks.view` ("Student marks") screen
+   * from the `examinations.marks.upload` grant. Product decision: anyone who
+   * can upload a batch's marks may also view them, with no separate RBAC
+   * assignment — so we synthesise the view screen here, copying the upload
+   * screen's `programme_admission_year_ids` scope verbatim. This makes the
+   * screen show in nav, pass the ScreenAccessGuard, and resolve the same
+   * batch scope via getAccessibleProgrammeAdmissionYearIds(..., VIEW_KEY).
+   *
+   * If the view screen was assigned independently (e.g. a read-only reviewer
+   * who cannot upload), that real grant is already in `screens` and we leave
+   * it untouched — the explicit assignment wins.
+   */
+  private deriveStudentMarksView(
+    screens: EffectiveAccess['screens'],
+    modules: EffectiveAccess['modules'],
+  ): void {
+    const UPLOAD_KEY = 'examinations.marks.upload';
+    const VIEW_KEY = 'examinations.marks.view';
+
+    const uploadSlot = screens[UPLOAD_KEY];
+    if (!uploadSlot || screens[VIEW_KEY]) return;
+    // The view screen is web-only; only derive it where upload is reachable on web.
+    if (!uploadSlot.platforms.includes('web')) return;
+
+    const viewDef = this.catalog.getScreen(VIEW_KEY);
+    if (!viewDef) return;
+
+    screens[VIEW_KEY] = {
+      key: viewDef.key,
+      module_key: viewDef.module_key,
+      label: viewDef.label,
+      platforms: ['web'],
+      web_route: viewDef.web_route,
+      mobile_route: undefined,
+      actions: ['view'],
+      attributes: uploadSlot.attributes,
+    };
+
+    const moduleDef = this.catalog.getModule(viewDef.module_key);
+    if (!moduleDef) return;
+    const modSlot =
+      modules[moduleDef.key] ??
+      ({
+        key: moduleDef.key,
+        label: moduleDef.label,
+        icon: moduleDef.icon,
+        order: moduleDef.order,
+        screen_keys: [],
+      } as EffectiveAccess['modules'][string]);
+    if (!modSlot.screen_keys.includes(VIEW_KEY)) {
+      modSlot.screen_keys.push(VIEW_KEY);
+    }
+    modules[moduleDef.key] = modSlot;
   }
 
   /**

@@ -18,6 +18,7 @@ import {
   type Grade,
   parseExamination,
 } from './exam-marks.constants';
+import { groupSubjectsBySemester } from './exam-results-grouping';
 import { StudentNotificationService } from '../../student/notification/student-notification.service';
 import { StudentCgpa } from './entities/student-cgpa.entity';
 import { StudentExamResult } from './entities/student-exam-result.entity';
@@ -25,6 +26,13 @@ import { StudentExamResultStaging } from './entities/student-exam-result-staging
 import { StudentSemesterGpa } from './entities/student-semester-gpa.entity';
 
 const SCREEN_KEY = 'examinations.marks.upload';
+
+/**
+ * The read-only "Student marks" screen. Its endpoints reuse the cached-read
+ * service methods below; passing this key makes the scope helpers resolve
+ * against the view grant (derived from upload — see PermissionsService).
+ */
+export const VIEW_SCREEN_KEY = 'examinations.marks.view';
 
 /** Generous safety backstop — far above any real batch; never hit in normal use. */
 const MAX_SESSION_ROWS = 1_000_000;
@@ -215,11 +223,14 @@ export class ExamMarksService {
    * for. Honours the three-state scope contract:
    *   'all' → every active batch, [] → none, [ids] → exactly those.
    */
-  async scope(employeeId: number): Promise<ExamMarksScopeItem[]> {
+  async scope(
+    employeeId: number,
+    screenKey: string = SCREEN_KEY,
+  ): Promise<ExamMarksScopeItem[]> {
     const accessible =
       await this.permissions.getAccessibleProgrammeAdmissionYearIds(
         employeeId,
-        SCREEN_KEY,
+        screenKey,
       );
 
     if (accessible !== ACCESS_ALL && accessible.length === 0) return [];
@@ -629,8 +640,16 @@ export class ExamMarksService {
   // ---- cached reads (unchanged) ----------------------------------------
 
   /** Scope-checked roster of the batch with cached CGPA — pure SELECT. */
-  async results(employeeId: number, programmeAdmissionYearId: number) {
-    await this.assertBatchInScope(employeeId, programmeAdmissionYearId);
+  async results(
+    employeeId: number,
+    programmeAdmissionYearId: number,
+    screenKey: string = SCREEN_KEY,
+  ) {
+    await this.assertBatchInScope(
+      employeeId,
+      programmeAdmissionYearId,
+      screenKey,
+    );
     const rows = await this.cgpas
       .createQueryBuilder('c')
       .innerJoin(Student, 's', 's.id = c.student_id')
@@ -670,8 +689,13 @@ export class ExamMarksService {
     programmeAdmissionYearId: number,
     studentId: number,
     include: 'best' | 'all',
+    screenKey: string = SCREEN_KEY,
   ) {
-    await this.assertBatchInScope(employeeId, programmeAdmissionYearId);
+    await this.assertBatchInScope(
+      employeeId,
+      programmeAdmissionYearId,
+      screenKey,
+    );
 
     const cgpa = await this.cgpas.findOne({
       where: {
@@ -750,6 +774,117 @@ export class ExamMarksService {
         subjects: subjectsBySemester.get(sem.semester) ?? [],
       })),
     };
+  }
+
+  /**
+   * One student's stored results in the SAME shape the student sees on their
+   * own results page: per-semester SGPA + subjects, each subject carrying its
+   * full sitting history (best attempt as the headline). Scope-checked, pure
+   * SELECTs. Drives the exam-cell "Student marks" drill-down.
+   */
+  async studentResultsView(
+    employeeId: number,
+    programmeAdmissionYearId: number,
+    studentId: number,
+    screenKey: string = SCREEN_KEY,
+  ) {
+    await this.assertBatchInScope(
+      employeeId,
+      programmeAdmissionYearId,
+      screenKey,
+    );
+
+    const cgpa = await this.cgpas.findOne({
+      where: {
+        programme_admission_year_id: programmeAdmissionYearId,
+        student_id: studentId,
+      },
+    });
+    if (!cgpa) {
+      throw new NotFoundException('No stored results for this student');
+    }
+
+    const student = await this.students.findOne({
+      where: { id: studentId },
+      select: { id: true, student_id: true, display_name: true },
+    });
+
+    const semesterRows = await this.semesterGpas.find({
+      where: {
+        programme_admission_year_id: programmeAdmissionYearId,
+        student_id: studentId,
+      },
+      order: { semester: 'ASC' },
+    });
+
+    // All sittings so the drill-down can expand a subject's attempt history.
+    const subjectRows = await this.examResults.find({
+      where: {
+        programme_admission_year_id: programmeAdmissionYearId,
+        student_id: studentId,
+      },
+      order: { semester: 'ASC', subject_code: 'ASC', exam_date: 'ASC' },
+    });
+    const subjectsBySemester = groupSubjectsBySemester(subjectRows);
+
+    return {
+      student: {
+        student_id: studentId,
+        roll_number: student?.student_id ?? '',
+        name: student?.display_name ?? '',
+      },
+      cgpa: Number(cgpa.cgpa),
+      total_credits: Number(cgpa.total_credits),
+      semesters_count: cgpa.semesters_count,
+      subjects_count: cgpa.subjects_count,
+      passed_count: cgpa.passed_count,
+      backlog_count: cgpa.backlog_count,
+      semesters: semesterRows.map((sem) => ({
+        semester: sem.semester,
+        sgpa: Number(sem.sgpa),
+        total_credits: Number(sem.total_credits),
+        subjects_count: sem.subjects_count,
+        passed_count: sem.passed_count,
+        backlog_count: sem.backlog_count,
+        passed: sem.backlog_count === 0,
+        subjects: subjectsBySemester.get(sem.semester) ?? [],
+      })),
+    };
+  }
+
+  /**
+   * Look up one student's results by HT number (student roll), across the
+   * employee's assigned batches. Resolves the roll → student → their batch,
+   * then delegates to {@link studentResultsView} which scope-checks that batch
+   * (so a roll outside the caller's grants is rejected). Drives the "by HT
+   * number" lookup on the Student marks screen.
+   */
+  async studentResultsByRoll(
+    employeeId: number,
+    rollNumber: string,
+    screenKey: string = SCREEN_KEY,
+  ) {
+    const roll = rollNumber.trim();
+    const student = await this.students.findOne({
+      where: { student_id: roll },
+      select: { id: true },
+    });
+    if (!student) {
+      throw new NotFoundException('No student with this HT number');
+    }
+
+    // The cached CGPA row carries the student's batch; one row per student.
+    const cgpa = await this.cgpas.findOne({ where: { student_id: student.id } });
+    if (!cgpa) {
+      throw new NotFoundException('No stored results for this student');
+    }
+
+    return this.studentResultsView(
+      employeeId,
+      cgpa.programme_admission_year_id,
+      student.id,
+      screenKey,
+    );
   }
 
   // ---- internals --------------------------------------------------------
@@ -861,11 +996,12 @@ export class ExamMarksService {
   private async assertBatchInScope(
     employeeId: number,
     programmeAdmissionYearId: number,
+    screenKey: string = SCREEN_KEY,
   ): Promise<void> {
     const accessible =
       await this.permissions.getAccessibleProgrammeAdmissionYearIds(
         employeeId,
-        SCREEN_KEY,
+        screenKey,
       );
     const inScope =
       accessible === ACCESS_ALL ||

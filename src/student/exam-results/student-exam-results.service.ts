@@ -2,37 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Student } from '../../admin/entities/student.entity';
-import {
-  GRADE_MEANING_MAP,
-  type Grade,
-} from '../../employee/exam-marks/exam-marks.constants';
 import { StudentCgpa } from '../../employee/exam-marks/entities/student-cgpa.entity';
 import { StudentExamResult } from '../../employee/exam-marks/entities/student-exam-result.entity';
 import { StudentSemesterGpa } from '../../employee/exam-marks/entities/student-semester-gpa.entity';
+import {
+  groupSubjectsBySemester,
+  type ResultSubject as StudentResultSubject,
+} from '../../employee/exam-marks/exam-results-grouping';
 
-export interface StudentResultAttempt {
-  exam_type: string;
-  exam_date: string;
-  grade: string;
-  grade_points: number;
-  grade_meaning: string;
-  /** True for the sitting that counts toward SGPA/CGPA (the best attempt). */
-  is_best: boolean;
-}
-
-export interface StudentResultSubject {
-  subject_code: string;
-  subject_name: string;
-  credits: number;
-  grade: string;
-  grade_points: number;
-  grade_meaning: string;
-  exam_type: string;
-  /** How many times the student sat this subject (incl. the counted one). */
-  attempts_count: number;
-  /** Every sitting, oldest → newest, with the counted one flagged. */
-  attempts: StudentResultAttempt[];
-}
+export type { StudentResultSubject };
 
 export interface StudentResultSemester {
   semester: number;
@@ -112,43 +90,7 @@ export class StudentExamResultsService {
       order: { semester: 'ASC', subject_code: 'ASC', exam_date: 'ASC' },
     });
 
-    // semester → subject_code → sittings
-    const grouped = new Map<number, Map<string, StudentExamResult[]>>();
-    for (const r of subjectRows) {
-      const bySubject = grouped.get(r.semester) ?? new Map<string, StudentExamResult[]>();
-      const sittings = bySubject.get(r.subject_code) ?? [];
-      sittings.push(r);
-      bySubject.set(r.subject_code, sittings);
-      grouped.set(r.semester, bySubject);
-    }
-
-    const subjectsBySemester = new Map<number, StudentResultSubject[]>();
-    for (const [sem, bySubject] of grouped) {
-      const list: StudentResultSubject[] = [];
-      for (const sittings of bySubject.values()) {
-        const best =
-          sittings.find((s) => s.is_best) ?? sittings[sittings.length - 1];
-        list.push({
-          subject_code: best.subject_code,
-          subject_name: best.subject_name,
-          credits: Number(best.credits),
-          grade: best.grade,
-          grade_points: Number(best.grade_points),
-          grade_meaning: GRADE_MEANING_MAP[best.grade as Grade] ?? '',
-          exam_type: best.exam_type,
-          attempts_count: sittings.length,
-          attempts: sittings.map((a) => ({
-            exam_type: a.exam_type,
-            exam_date: a.exam_date,
-            grade: a.grade,
-            grade_points: Number(a.grade_points),
-            grade_meaning: GRADE_MEANING_MAP[a.grade as Grade] ?? '',
-            is_best: a.is_best,
-          })),
-        });
-      }
-      subjectsBySemester.set(sem, list);
-    }
+    const subjectsBySemester = groupSubjectsBySemester(subjectRows);
 
     return {
       has_results: true,

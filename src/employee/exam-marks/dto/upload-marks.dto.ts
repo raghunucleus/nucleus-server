@@ -71,3 +71,12 @@ export const StudentResultsQuerySchema = z.object({
 export class StudentResultsQueryDto extends createZodDto(
   StudentResultsQuerySchema,
 ) {}
+
+/** Look up one student's results by HT number (`GET /view/student`). */
+export const StudentByRollQuerySchema = z.object({
+  roll_number: z.string().trim().min(1).max(32),
+});
+
+export class StudentByRollQueryDto extends createZodDto(
+  StudentByRollQuerySchema,
+) {}
