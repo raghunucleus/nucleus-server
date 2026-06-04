@@ -4,8 +4,8 @@ import { NextFunction, Request, Response } from 'express';
 // Artificial latency injected ONLY in dev (NODE_ENV === 'dev') so the
 // front-ends exercise their loading/skeleton states against a slow backend.
 // Tune the bounds here — values are inclusive milliseconds.
-const MIN_DELAY_MS = 1000;
-const MAX_DELAY_MS = 2000;
+const MIN_DELAY_MS = 0;
+const MAX_DELAY_MS = 0;
 
 @Injectable()
 export class FakeDelayMiddleware implements NestMiddleware {

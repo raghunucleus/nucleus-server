@@ -865,12 +865,14 @@ export class ExamMarksService {
     screenKey: string = SCREEN_KEY,
   ) {
     const roll = rollNumber.trim();
-    const student = await this.students.findOne({
-      where: { student_id: roll },
-      select: { id: true },
-    });
+    // Case-insensitive match — roll numbers mix digits and letters, so the
+    // employee may type any case (e.g. "22b81a0501" for "22B81A0501").
+    const student = await this.students
+      .createQueryBuilder('s')
+      .where('UPPER(s.student_id) = UPPER(:roll)', { roll })
+      .getOne();
     if (!student) {
-      throw new NotFoundException('No student with this HT number');
+      throw new NotFoundException('No student with this ID');
     }
 
     // The cached CGPA row carries the student's batch; one row per student.
