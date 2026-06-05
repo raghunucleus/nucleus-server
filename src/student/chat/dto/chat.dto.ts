@@ -16,6 +16,16 @@ export const StartConversationSchema = z.object({
 
 export class StartConversationDto extends createZodDto(StartConversationSchema) {}
 
+/**
+ * Body of POST /student/chat/conversations/:id/accept — accept an incoming
+ * request, optionally muting it in the same step ("Accept + Mute").
+ */
+export const AcceptRequestSchema = z.object({
+  mute: z.boolean().optional(),
+});
+
+export class AcceptRequestDto extends createZodDto(AcceptRequestSchema) {}
+
 // ---------------------------------------------------------------------------
 // Socket event payloads (validated in the gateway with safeParse)
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { BLOOD_GROUPS, GENDERS } from '../entities/student.entity';
+import { BLOOD_GROUPS, ENTRY_TYPES, GENDERS } from '../entities/student.entity';
 
 export const STUDENTS_SORT_FIELDS = [
   'student_id',
@@ -36,6 +36,11 @@ export const ListStudentsSchema = z.object({
   abcIdSearch: optionalSearchString,
   status: z.enum(['active', 'inactive']).optional(),
   gender: z.enum(GENDERS).optional(),
+  entryType: z.coerce
+    .number()
+    .int()
+    .refine((v) => (ENTRY_TYPES as readonly number[]).includes(v))
+    .optional(),
   bloodGroup: z.enum(BLOOD_GROUPS).optional(),
   programmeId: z.coerce.number().int().positive().optional(),
   admissionYearId: z.coerce.number().int().positive().optional(),

@@ -19,13 +19,16 @@ import { GetStudent } from '../auth/get-student.decorator';
 import { RequirePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { StudentJwtAuthGuard } from '../auth/student-jwt-auth.guard';
 import type { AuthenticatedStudent } from '../auth/student-jwt.strategy';
+import { ChatGateway } from './chat.gateway';
 import {
   ChatContactsPage,
+  ChatConversationMeta,
   ChatConversationSummary,
   ChatMessagesPage,
+  ChatRequestSummary,
   ChatService,
 } from './chat.service';
-import { StartConversationDto } from './dto/chat.dto';
+import { AcceptRequestDto, StartConversationDto } from './dto/chat.dto';
 
 const MAX_PAGE = 100;
 
@@ -41,7 +44,10 @@ const MAX_PAGE = 100;
 @UseGuards(StudentJwtAuthGuard, RequirePasswordChangedGuard)
 @Controller('student/chat')
 export class ChatController {
-  constructor(private readonly chat: ChatService) {}
+  constructor(
+    private readonly chat: ChatService,
+    private readonly gateway: ChatGateway,
+  ) {}
 
   @Get('config')
   @ApiOperation({
@@ -102,6 +108,111 @@ export class ChatController {
     return { id: conv.id, other_id: this.chat.otherParticipant(conv, s.id) };
   }
 
+  @Get('requests')
+  @ApiOperation({
+    summary:
+      'Incoming message requests — people who messaged the caller and whose ' +
+      'conversation the caller has not yet accepted. The Requests inbox.',
+  })
+  requests(
+    @GetStudent() s: AuthenticatedStudent,
+  ): Promise<ChatRequestSummary[]> {
+    return this.chat.listRequests(s.id);
+  }
+
+  @Get('restricted')
+  @ApiOperation({
+    summary:
+      'Conversations the caller has muted and/or blocked (any status) — the ' +
+      '"Blocked & muted" management list. Also the only place a request the ' +
+      'caller declined by blocking can be found and unblocked.',
+  })
+  restricted(
+    @GetStudent() s: AuthenticatedStudent,
+  ): Promise<ChatConversationSummary[]> {
+    return this.chat.listRestricted(s.id);
+  }
+
+  @Post('conversations/:id/accept')
+  @ApiOperation({
+    summary:
+      'Accept an incoming request, unlocking the conversation for both sides. ' +
+      'Pass `{ "mute": true }` to accept and mute in one step.',
+  })
+  async accept(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AcceptRequestDto,
+  ): Promise<{ ok: true }> {
+    const { otherId } = await this.chat.acceptRequest(s.id, id, dto.mute ?? false);
+    // Unlock the inviter's thread in realtime (no-op if they're offline).
+    this.gateway.notifyAccepted(otherId, id, s.id);
+    return { ok: true };
+  }
+
+  @Post('conversations/:id/block')
+  @ApiOperation({
+    summary:
+      'Block the other participant. Their future messages are silently dropped ' +
+      '(they are never told). Works on a pending request (declines it) or an ' +
+      'accepted conversation.',
+  })
+  async block(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ ok: true }> {
+    await this.chat.blockConversation(s.id, id);
+    return { ok: true };
+  }
+
+  @Post('conversations/:id/unblock')
+  @ApiOperation({ summary: 'Unblock the other participant.' })
+  async unblock(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ ok: true }> {
+    await this.chat.unblockConversation(s.id, id);
+    return { ok: true };
+  }
+
+  @Post('conversations/:id/mute')
+  @ApiOperation({
+    summary:
+      'Mute the conversation — suppresses the caller\'s push notifications. ' +
+      'Messages still arrive and accrue unread.',
+  })
+  async mute(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ ok: true }> {
+    await this.chat.muteConversation(s.id, id);
+    return { ok: true };
+  }
+
+  @Post('conversations/:id/unmute')
+  @ApiOperation({ summary: 'Unmute the conversation.' })
+  async unmute(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ ok: true }> {
+    await this.chat.unmuteConversation(s.id, id);
+    return { ok: true };
+  }
+
+  @Get('conversations/:id')
+  @ApiOperation({
+    summary:
+      "The caller's consent/block/mute state for one conversation (status, " +
+      'whether they initiated it, muted, blocked-by-me) — drives the thread ' +
+      'composer state. 404 if the caller is not a participant.',
+  })
+  conversationMeta(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<ChatConversationMeta> {
+    return this.chat.conversationMeta(s.id, id);
+  }
+
   @Get('conversations/:id/messages')
   @ApiOperation({
     summary:
@@ -140,11 +251,19 @@ export class ChatController {
   }
 
   @Get('unread-count')
-  @ApiOperation({ summary: 'Total unread messages across all conversations — for the Connect badge.' })
+  @ApiOperation({
+    summary:
+      'Total unread messages across accepted conversations (for the Connect ' +
+      'badge) plus the number of pending incoming requests (for the Requests badge).',
+  })
   async unread(
     @GetStudent() s: AuthenticatedStudent,
-  ): Promise<{ total: number }> {
-    return { total: await this.chat.totalUnread(s.id) };
+  ): Promise<{ total: number; pending_requests: number }> {
+    const [total, pending_requests] = await Promise.all([
+      this.chat.totalUnread(s.id),
+      this.chat.pendingRequestCount(s.id),
+    ]);
+    return { total, pending_requests };
   }
 }
 

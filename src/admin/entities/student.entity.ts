@@ -27,6 +27,15 @@ export const BLOOD_GROUPS = [
 ] as const;
 export type BloodGroup = (typeof BLOOD_GROUPS)[number];
 
+// How the student entered the programme. Stored as a small integer in the DB
+// (1 = Regular, 2 = Lateral) — enforced at the DTO layer.
+export const ENTRY_TYPES = [1, 2] as const;
+export type EntryType = (typeof ENTRY_TYPES)[number];
+export const ENTRY_TYPE_LABELS: Record<EntryType, string> = {
+  1: 'Regular',
+  2: 'Lateral',
+};
+
 @Entity({ name: 'students' })
 @Unique('UQ_students_student_id', ['student_id'])
 @Unique('UQ_students_email', ['email'])
@@ -61,6 +70,10 @@ export class Student {
   // 'male' | 'female' | 'other' — enforced at the DTO layer.
   @Column({ type: 'varchar', length: 16 })
   gender: string;
+
+  // Entry type: 1 = Regular, 2 = Lateral — enforced at the DTO layer.
+  @Column({ type: 'smallint', default: 1 })
+  entry_type: number;
 
   @Column({ type: 'date' })
   dob: string;

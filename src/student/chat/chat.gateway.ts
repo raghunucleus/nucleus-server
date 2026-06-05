@@ -18,6 +18,12 @@ import { ConversationRefSchema, SendMessageSchema } from './dto/chat.dto';
 // Notification body is a short preview, not the full message.
 const NOTIFICATION_PREVIEW_LENGTH = 200;
 
+// Synthetic id for a silently-blocked message's ack echo. Far above any real
+// SERIAL id, so the sender's read-receipt check (other_last_read >= id) can
+// never be true — the bubble stays a permanent single-tick "sent" and never
+// flips to delivered/read. The message is never persisted, so it can't collide.
+const SILENT_MESSAGE_ID = Number.MAX_SAFE_INTEGER;
+
 /**
  * Realtime transport for student chat. Auth happens once, at the handshake:
  * the student access token (same secret as the HTTP `student-jwt` strategy)
@@ -69,6 +75,38 @@ export class ChatGateway implements OnGatewayConnection {
 
     try {
       const conv = await this.chat.getOrCreateConversation(me, toStudentId);
+
+      // Consent/block gate. `last_message_at === null` marks the inviter's very
+      // first (invite) send.
+      const auth = this.chat.assertSend(
+        conv,
+        me,
+        conv.last_message_at === null,
+      );
+      if (auth.kind === 'REJECT') {
+        return { ok: false, error: auth.reason };
+      }
+      if (auth.kind === 'ALLOW_SILENT') {
+        // The recipient has blocked the sender. Fake a successful "sent" so the
+        // sender can't tell, but persist nothing and notify no one. The huge
+        // synthetic id keeps the bubble single-tick forever (see constant). The
+        // echo vanishes on the sender's next history reload — intended: a
+        // blocked message is never stored.
+        const senderName = await this.chat.displayName(me);
+        return {
+          ok: true,
+          message: {
+            id: SILENT_MESSAGE_ID,
+            conversation_id: conv.id,
+            sender_id: me,
+            body: body.trim(),
+            created_at: new Date().toISOString(),
+            sender_name: senderName,
+            client_temp_id: clientTempId ?? null,
+          },
+        };
+      }
+
       const msg = await this.chat.saveMessage(conv, me, body);
       // `sender_name` lets the recipient render an in-app notification naming
       // the sender from any screen, without a follow-up lookup.
@@ -103,25 +141,29 @@ export class ChatGateway implements OnGatewayConnection {
       // event (that would bloat the table and duplicate the Connect list). We
       // only fire an OS push, and the service sends it solely to recipients with
       // no live in-app socket. Fire-and-forget — never let it affect the ack.
-      void this.notifications
-        .send(
-          toStudentId,
-          {
-            module: 'chat',
-            type: 'message',
-            title: senderName,
-            body: msg.body.slice(0, NOTIFICATION_PREVIEW_LENGTH),
-            target: {
-              type: 'conversation',
-              id: conv.id,
-              params: { otherStudentId: String(me), otherName: senderName },
+      // Skip entirely if the recipient has muted this conversation: the message
+      // still arrives and accrues unread, just without an OS push.
+      if (!this.chat.recipientMuted(conv, toStudentId)) {
+        void this.notifications
+          .send(
+            toStudentId,
+            {
+              module: 'chat',
+              type: 'message',
+              title: senderName,
+              body: msg.body.slice(0, NOTIFICATION_PREVIEW_LENGTH),
+              target: {
+                type: 'conversation',
+                id: conv.id,
+                params: { otherStudentId: String(me), otherName: senderName },
+              },
             },
-          },
-          { persist: false },
-        )
-        .catch((err) =>
-          this.logger.error(`Notification send failed: ${String(err)}`),
-        );
+            { persist: false },
+          )
+          .catch((err) =>
+            this.logger.error(`Notification send failed: ${String(err)}`),
+          );
+      }
 
       return { ok: true, message: dto };
     } catch (err) {
@@ -154,6 +196,18 @@ export class ChatGateway implements OnGatewayConnection {
     } catch {
       return { ok: false };
     }
+  }
+
+  /**
+   * Tell the inviter, in realtime, that their request was accepted so their
+   * thread unlocks (compose enables) without a manual refresh. Called by the
+   * controller's accept endpoint. No-op if the inviter has no live socket.
+   */
+  notifyAccepted(inviterId: number, convId: number, byStudentId: number): void {
+    this.server.to(this.room(inviterId)).emit('conversation:accepted', {
+      conversation_id: convId,
+      by_student_id: byStudentId,
+    });
   }
 
   @SubscribeMessage('typing:start')

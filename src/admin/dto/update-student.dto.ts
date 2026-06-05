@@ -1,6 +1,17 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { BLOOD_GROUPS, GENDERS } from '../entities/student.entity';
+import { BLOOD_GROUPS, ENTRY_TYPES, GENDERS } from '../entities/student.entity';
+
+// Entry type — 1 (Regular) or 2 (Lateral). Omit to leave untouched.
+const entryTypeSchema = z.coerce
+  .number()
+  .int()
+  .refine(
+    (v): v is (typeof ENTRY_TYPES)[number] =>
+      (ENTRY_TYPES as readonly number[]).includes(v),
+    'Entry type must be 1 (Regular) or 2 (Lateral)',
+  )
+  .optional();
 
 const studentIdSchema = z
   .string()
@@ -50,6 +61,7 @@ export const UpdateStudentSchema = z
     admission_year_id: z.coerce.number().int().positive().optional(),
     display_name: z.string().trim().min(1).max(128).optional(),
     gender: z.enum(GENDERS).optional(),
+    entry_type: entryTypeSchema,
     dob: dobSchema,
     blood_group: bloodGroupSchema,
     abc_id: abcIdSchema,

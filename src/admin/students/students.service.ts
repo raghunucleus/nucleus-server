@@ -25,6 +25,7 @@ export interface BulkCreateStudentRow {
   student_id: string;
   display_name: string;
   gender: string;
+  entry_type: number;
   dob: string;
   blood_group: string | null;
   abc_id: string | null;
@@ -66,6 +67,7 @@ interface CreateStudentInput {
   admission_year_id: number;
   display_name: string;
   gender: string;
+  entry_type: number;
   dob: string;
   blood_group: string | null;
   abc_id: string | null;
@@ -79,6 +81,7 @@ interface UpdateStudentInput {
   admission_year_id?: number;
   display_name?: string;
   gender?: string;
+  entry_type?: number;
   dob?: string;
   blood_group?: string | null;
   abc_id?: string | null;
@@ -113,6 +116,7 @@ export class StudentsService {
     abcIdSearch?: string;
     status?: 'active' | 'inactive';
     gender?: string;
+    entryType?: number;
     bloodGroup?: string;
     programmeId?: number;
     admissionYearId?: number;
@@ -157,6 +161,8 @@ export class StudentsService {
     }
 
     if (opts.gender) qb.andWhere('s.gender = :g', { g: opts.gender });
+    if (opts.entryType)
+      qb.andWhere('s.entry_type = :et', { et: opts.entryType });
     if (opts.bloodGroup) qb.andWhere('s.blood_group = :bg', { bg: opts.bloodGroup });
     if (opts.programmeId)
       qb.andWhere('s.programme_id = :pi', { pi: opts.programmeId });
@@ -203,6 +209,7 @@ export class StudentsService {
       admission_year_id: input.admission_year_id,
       display_name: input.display_name,
       gender: input.gender,
+      entry_type: input.entry_type,
       dob: input.dob,
       blood_group: input.blood_group,
       abc_id: input.abc_id,
@@ -254,6 +261,7 @@ export class StudentsService {
     if (patch.display_name !== undefined)
       student.display_name = patch.display_name;
     if (patch.gender !== undefined) student.gender = patch.gender;
+    if (patch.entry_type !== undefined) student.entry_type = patch.entry_type;
     if (patch.dob !== undefined) student.dob = patch.dob;
     if (patch.blood_group !== undefined) student.blood_group = patch.blood_group;
     if (patch.abc_id !== undefined) student.abc_id = patch.abc_id;
@@ -425,6 +433,7 @@ export class StudentsService {
           admission_year_id: admissionYearId,
           display_name: r.display_name,
           gender: r.gender,
+          entry_type: r.entry_type,
           dob: r.dob,
           blood_group: r.blood_group,
           abc_id: r.abc_id,
