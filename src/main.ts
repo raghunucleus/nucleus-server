@@ -55,7 +55,7 @@ async function bootstrap() {
   const isDev = process.env.NODE_ENV === 'dev';
   const corsOrigins = (
     process.env.CORS_ORIGINS ??
-    'http://localhost:5000,http://app.localhost:5000,http://employee.localhost:5000'
+    'http://localhost:5000,http://app.localhost:5000,http://parent.localhost:5000,http://employee.localhost:5000'
   )
     .split(',')
     .map((origin) => origin.trim())
