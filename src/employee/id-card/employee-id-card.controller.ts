@@ -6,6 +6,7 @@ import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
 import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { GetEmployee } from '../auth/get-employee.decorator';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
+import { SecurityPassResponse } from '../../common/security-pass';
 import {
   EmployeeIdCardResult,
   EmployeeIdCardService,
@@ -41,5 +42,19 @@ export class EmployeeIdCardController {
     @GetEmployee() employee: AuthenticatedEmployee,
   ): Promise<EmployeeIdCardResult> {
     return this.idCard.getCard(employee.id);
+  }
+
+  @Get('pass')
+  @RequireScreen(SCREEN_KEY, 'view')
+  @ApiOperation({
+    summary:
+      'Issue a fresh single-use security pass (QR token) for the signed-in ' +
+      'employee. Lightweight endpoint the client polls to rotate the QR on ' +
+      'expiry without re-fetching the whole card. Always scoped to the caller.',
+  })
+  getPass(
+    @GetEmployee() employee: AuthenticatedEmployee,
+  ): Promise<SecurityPassResponse> {
+    return this.idCard.issuePass(employee.id);
   }
 }

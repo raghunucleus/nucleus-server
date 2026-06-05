@@ -11,6 +11,7 @@ import { StudentCgpa } from '../employee/exam-marks/entities/student-cgpa.entity
 import { StudentExamResult } from '../employee/exam-marks/entities/student-exam-result.entity';
 import { StudentSemesterGpa } from '../employee/exam-marks/entities/student-semester-gpa.entity';
 import { HolidaysReadModule } from '../holidays/holidays-read.module';
+import { SecurityPassModule } from '../security-pass/security-pass.module';
 import { ChatModule } from './chat/chat.module';
 import { RequirePasswordChangedGuard } from './auth/require-password-changed.guard';
 import { StudentGoogleOidcService } from './auth/student-google-oidc.service';
@@ -45,6 +46,7 @@ import { StudentAuthService } from './student-auth.service';
     JwtModule.register({}),
     ChatModule,
     HolidaysReadModule,
+    SecurityPassModule,
   ],
   controllers: [
     StudentAuthController,

@@ -11,6 +11,7 @@ import { HodModule } from './hod/hod.module';
 import { EmployeeIdCardModule } from './id-card/employee-id-card.module';
 import { ManagementModule } from './management/management.module';
 import { PrincipalModule } from './principal/principal.module';
+import { SecurityVerifyModule } from './security/security-verify.module';
 import { TeacherModule } from './teacher/teacher.module';
 
 /**
@@ -38,6 +39,7 @@ import { TeacherModule } from './teacher/teacher.module';
     AccountantModule,
     CashierModule,
     AttendanceInchargeModule,
+    SecurityVerifyModule,
   ],
   exports: [EmployeeAuthModule],
 })

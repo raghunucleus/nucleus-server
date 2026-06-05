@@ -27,6 +27,11 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
     label: 'Exam Cell',
     description: 'Examination cell member — manages mark structures and marks entry across programmes.',
   },
+  {
+    key: 'security',
+    label: 'Security',
+    description: 'Security guard — scans and verifies student/employee identity QR codes.',
+  },
   // {
   //   key: 'management',
   //   label: 'Management',

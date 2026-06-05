@@ -1,21 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InstitutionSetting } from '../../admin/entities/institution-setting.entity';
 import { ProgrammeSemester } from '../../admin/entities/programme-semester.entity';
 import { StudentGroup } from '../../admin/entities/student-group.entity';
 import { Student } from '../../admin/entities/student.entity';
+import { SecurityPassResponse } from '../../common/security-pass';
+import { SecurityPassService } from '../../security-pass/security-pass.service';
 import { StorageService } from '../../storage/storage.service';
-
-/** Claims embedded in the QR token. Verified later by the employee app. */
-export interface IdCardQrPayload {
-  sub: number; // students.id
-  sid: string; // roll number
-  name: string;
-  typ: 'id-card';
-}
 
 export interface IdCardResult {
   student: {
@@ -49,9 +41,15 @@ export interface IdCardResult {
     naac_grade: string | null;
     card_footer_note: string | null;
   };
-  // Signed JWT rendered as the QR payload. Verifiable by the employee app.
+  // Single-use, short-lived security pass rendered as the QR. Verified by the
+  // security app; rotated by the client on expiry (see ttl_seconds).
   qr_token: string;
-  // ISO date the card is valid until (expected graduation), or null.
+  // Seconds the qr_token is valid for — drives the client countdown.
+  ttl_seconds: number;
+  // ISO timestamp the qr_token expires at.
+  expires_at: string;
+  // ISO date the card itself is valid until (expected graduation), or null.
+  // Distinct from the short-lived qr_token.
   valid_until: string | null;
 }
 
@@ -71,8 +69,7 @@ export class StudentIdCardService {
     @InjectRepository(InstitutionSetting)
     private readonly institutionSettings: Repository<InstitutionSetting>,
     private readonly storage: StorageService,
-    private readonly jwt: JwtService,
-    private readonly config: ConfigService,
+    private readonly pass: SecurityPassService,
   ) {}
 
   /**
@@ -85,13 +82,13 @@ export class StudentIdCardService {
     const student = await this.students.findOne({ where: { id: studentId } });
     if (!student) throw new NotFoundException('Student not found');
 
-    const [semester, section, institution, photoUrl, qrToken] =
+    const [semester, section, institution, photoUrl, pass] =
       await Promise.all([
         this.findCurrentSemester(student),
         this.findSection(studentId),
         this.getInstitution(),
         this.resolvePhotoUrl(student.photo_key),
-        this.signQr(student),
+        this.pass.issue('student', student.id, student.student_id),
       ]);
 
     return {
@@ -130,9 +127,25 @@ export class StudentIdCardService {
         naac_grade: institution.naac_grade,
         card_footer_note: institution.card_footer_note,
       },
-      qr_token: qrToken,
+      qr_token: pass.qr_token,
+      ttl_seconds: pass.ttl_seconds,
+      expires_at: pass.expires_at,
       valid_until: this.computeValidUntil(student),
     };
+  }
+
+  /**
+   * Issue just a fresh security pass for the signed-in student. Backs the
+   * lightweight `/student/id-card/pass` endpoint the client polls to rotate the
+   * QR without re-fetching the whole card (photo presign, semester, etc.).
+   */
+  async issuePass(studentId: number): Promise<SecurityPassResponse> {
+    const student = await this.students.findOne({
+      where: { id: studentId },
+      select: { id: true, student_id: true },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    return this.pass.issue('student', student.id, student.student_id);
   }
 
   /**
@@ -201,21 +214,6 @@ export class StudentIdCardService {
     return this.storage.getSignedReadUrl(key, PHOTO_URL_TTL_SECONDS);
   }
 
-  private signQr(student: Student): Promise<string> {
-    const payload: IdCardQrPayload = {
-      sub: student.id,
-      sid: student.student_id,
-      name: student.display_name,
-      typ: 'id-card',
-    };
-    return this.jwt.signAsync(payload, {
-      secret: this.config.getOrThrow<string>('JWT_ID_CARD_SECRET'),
-      expiresIn: parseDurationToSeconds(
-        this.config.get<string>('JWT_ID_CARD_TTL', '365d'),
-      ),
-    });
-  }
-
   /**
    * Expected graduation: admission year + the degree's duration. Used as the
    * card's validity. Null when we can't determine the duration.
@@ -226,14 +224,4 @@ export class StudentIdCardService {
     if (!startYear || !durationYears) return null;
     return `${startYear + durationYears}-07-31`;
   }
-}
-
-/** Parse a "15m" / "7d" / "365d" duration string into seconds. */
-function parseDurationToSeconds(input: string): number {
-  const match = /^(\d+)\s*([smhd])?$/.exec(input.trim());
-  if (!match) return 365 * 24 * 60 * 60;
-  const n = Number(match[1]);
-  const unit = match[2] ?? 's';
-  const mult: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
-  return n * mult[unit];
 }

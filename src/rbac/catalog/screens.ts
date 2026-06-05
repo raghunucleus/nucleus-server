@@ -181,7 +181,7 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
         key: 'programme_admission_year_ids',
         type: 'ref:programme_admission_year',
         label: 'Programme / Admission year',
-        required: true,
+        required: false,
         multi: true,
         allow_all: true,
       },
@@ -210,10 +210,29 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
         key: 'programme_admission_year_ids',
         type: 'ref:programme_admission_year',
         label: 'Programme / Admission year',
-        required: true,
+        required: false,
         multi: true,
         allow_all: true,
       },
     ],
+  },
+
+  // --- Security ----------------------------------------------------------
+  //
+  // Gate-verification screen for security guards: scan a student/employee
+  // security-pass QR and confirm the holder is a real, currently-active
+  // person. There is no per-attribute scope — a guard verifies anyone who
+  // presents a pass, so granting the screen IS the grant. Mobile-only (the
+  // scan happens on a phone camera).
+  {
+    key: 'security.verify.scan',
+    module_key: 'security',
+    role_type_keys: ['security'],
+    platforms: ['mobile'],
+    label: 'Verify QR',
+    description: 'Scan a student/employee QR to verify their identity.',
+    mobile_route: '/security/verify',
+    actions: ['scan'],
+    attributes: [],
   },
 ];

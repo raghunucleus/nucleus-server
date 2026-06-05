@@ -1,22 +1,10 @@
-import { createHmac } from 'node:crypto';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Employee } from '../../admin/entities/employee.entity';
 import { InstitutionSetting } from '../../admin/entities/institution-setting.entity';
-
-/**
- * Decoded shape of the QR string. NOT a JWT — deliberately a tiny HMAC-signed
- * code so a future security app can verify it offline with one shared secret
- * and no JWT library. Format: `<VERSION>.<emp_code>.<sig>` where `sig` is the
- * base64url HMAC-SHA256 of `<VERSION>.<emp_code>` keyed by JWT_ID_CARD_SECRET.
- *
- * The signature is what lets a scanner trust "this is a real employee" — a
- * plain emp_code would be trivially forgeable. There is intentionally NO
- * expiry: an employee card stays valid until the employee record is removed.
- */
-export const EMPLOYEE_QR_VERSION = 'NCLS-EMP1';
+import { SecurityPassResponse } from '../../common/security-pass';
+import { SecurityPassService } from '../../security-pass/security-pass.service';
 
 export interface EmployeeIdCardResult {
   employee: {
@@ -49,10 +37,16 @@ export interface EmployeeIdCardResult {
     naac_grade: string | null;
     card_footer_note: string | null;
   };
-  // Compact HMAC-signed code rendered as the QR. Verifiable by the security app.
+  // Single-use, short-lived security pass rendered as the QR. Verified by the
+  // security app; rotated by the client on expiry (see ttl_seconds).
   qr_token: string;
+  // Seconds the qr_token is valid for — drives the client countdown.
+  ttl_seconds: number;
+  // ISO timestamp the qr_token expires at.
+  expires_at: string;
   // Employee cards never expire — always null. Present for parity with the
-  // student card so the clients can share the same rendering logic.
+  // student card so the clients can share the same rendering logic. (Distinct
+  // from the short-lived qr_token, which always expires.)
   valid_until: null;
 }
 
@@ -63,7 +57,7 @@ export class EmployeeIdCardService {
     private readonly employees: Repository<Employee>,
     @InjectRepository(InstitutionSetting)
     private readonly institutionSettings: Repository<InstitutionSetting>,
-    private readonly config: ConfigService,
+    private readonly pass: SecurityPassService,
   ) {}
 
   /**
@@ -78,7 +72,10 @@ export class EmployeeIdCardService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
-    const institution = await this.getInstitution();
+    const [institution, pass] = await Promise.all([
+      this.getInstitution(),
+      this.pass.issue('employee', employee.id, employee.emp_code),
+    ]);
 
     return {
       employee: {
@@ -111,9 +108,25 @@ export class EmployeeIdCardService {
         naac_grade: institution.naac_grade,
         card_footer_note: institution.card_footer_note,
       },
-      qr_token: this.signQr(employee.emp_code),
+      qr_token: pass.qr_token,
+      ttl_seconds: pass.ttl_seconds,
+      expires_at: pass.expires_at,
       valid_until: null,
     };
+  }
+
+  /**
+   * Issue just a fresh security pass for the signed-in employee. Backs the
+   * lightweight `/employee/id-card/pass` endpoint the client polls to rotate
+   * the QR without re-fetching the whole card.
+   */
+  async issuePass(employeeId: number): Promise<SecurityPassResponse> {
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+      select: { id: true, emp_code: true },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    return this.pass.issue('employee', employee.id, employee.emp_code);
   }
 
   private async getInstitution(): Promise<InstitutionSetting> {
@@ -124,18 +137,5 @@ export class EmployeeIdCardService {
     // Never seeded (fresh DB without the migration seed) — return a safe shell
     // so the card still renders.
     return this.institutionSettings.create({ id: 1, name: 'Institution' });
-  }
-
-  /**
-   * Produce the QR string: `<VERSION>.<emp_code>.<sig>`. No expiry — the code
-   * is stable for the life of the employee record. A scanner recomputes the
-   * HMAC over `<VERSION>.<emp_code>` with the same secret to confirm the code
-   * was issued by us; the emp_code then identifies the employee.
-   */
-  private signQr(empCode: string): string {
-    const secret = this.config.getOrThrow<string>('JWT_ID_CARD_SECRET');
-    const body = `${EMPLOYEE_QR_VERSION}.${empCode}`;
-    const sig = createHmac('sha256', secret).update(body).digest('base64url');
-    return `${body}.${sig}`;
   }
 }
