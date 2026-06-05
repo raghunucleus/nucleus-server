@@ -23,7 +23,7 @@ import { InchargeScheduleService } from './incharge-schedule.service';
  * only list / cancel / substitute / move sessions that belong to one of
  * their owned attendance groups.
  *
- * Ownership pivots on `attendance_groups.group_incharge_employee_id`
+ * Ownership pivots on `attendance_group_incharges`
  * (resolved through [[InchargeScheduleService.ownedGroupIds]]). Cross-group
  * elective sessions (`attendance_group_id IS NULL`) are intentionally NOT
  * actionable here — they're admin-only territory because their cohort spans

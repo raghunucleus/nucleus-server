@@ -16,8 +16,8 @@ import { InchargeSessionsService } from './incharge-sessions.service';
 
 /**
  * Schedule + template endpoints for an attendance group incharge. Authority
- * pivots on `attendance_groups.group_incharge_employee_id` — every read /
- * write is filtered by the groups the caller owns.
+ * pivots on `attendance_group_incharges` (a group may have several
+ * in-charges) — every read / write is filtered by the groups the caller owns.
  *
  * Surface is split across two RBAC screens (one side-menu each):
  *   - `timetable.incharge.templates.manage` — template CUD, periods,

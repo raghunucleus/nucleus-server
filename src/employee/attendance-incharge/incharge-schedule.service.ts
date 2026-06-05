@@ -56,7 +56,8 @@ export interface InchargeGroupSummary {
  * delegated to the admin service so we keep a single canonical
  * implementation of timetable + session-seeding logic.
  *
- * Ownership pivots on `attendance_groups.group_incharge_employee_id`. The
+ * Ownership pivots on `attendance_group_incharges` (one row per group ×
+ * in-charge employee). The
  * `listGroups` method is also exposed here so the schedule page can pick
  * groups without having to depend on a separate attendance module.
  */
@@ -97,8 +98,10 @@ export class InchargeScheduleService {
       .leftJoinAndSelect('g.programme', 'programme')
       .leftJoinAndSelect('programme.department', 'department')
       .leftJoinAndSelect('g.admission_year', 'admission_year')
-      .where('g.group_incharge_employee_id = :eid', { eid: employeeId })
-      .andWhere('g.is_active = TRUE')
+      .innerJoin('g.incharges', 'gi', 'gi.employee_id = :eid', {
+        eid: employeeId,
+      })
+      .where('g.is_active = TRUE')
       .orderBy('programme.code', 'ASC')
       .addOrderBy('admission_year.year', 'DESC')
       .addOrderBy('g.code', 'ASC')
@@ -533,8 +536,10 @@ export class InchargeScheduleService {
     const rows = await this.groups
       .createQueryBuilder('g')
       .select('g.id', 'id')
-      .where('g.group_incharge_employee_id = :eid', { eid: employeeId })
-      .andWhere('g.is_active = TRUE')
+      .innerJoin('g.incharges', 'gi', 'gi.employee_id = :eid', {
+        eid: employeeId,
+      })
+      .where('g.is_active = TRUE')
       .getRawMany<{ id: string }>();
     return rows.map((r) => Number(r.id));
   }

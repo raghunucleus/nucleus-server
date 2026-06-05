@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { AttendanceGroup } from '../entities/attendance-group.entity';
+import { AttendanceGroupIncharge } from '../entities/attendance-group-incharge.entity';
 import { Employee } from '../entities/employee.entity';
 import { Programme } from '../entities/programme.entity';
 import { Student } from '../entities/student.entity';
@@ -44,12 +45,21 @@ export class AttendanceGroupsService {
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.members', 'members')
       .leftJoinAndSelect('members.student', 'member_student')
-      .leftJoin('g.group_incharge', 'gi')
-      .addSelect(['gi.id', 'gi.emp_code', 'gi.emp_display_name'])
+      .leftJoin('g.incharges', 'gi')
+      .leftJoin('gi.employee', 'gie')
+      .addSelect([
+        'gi.id',
+        'gi.attendance_group_id',
+        'gi.employee_id',
+        'gie.id',
+        'gie.emp_code',
+        'gie.emp_display_name',
+      ])
       .where('g.programme_id = :pid', { pid: programmeId })
       .andWhere('g.admission_year_id = :ayid', { ayid: admissionYearId })
       .orderBy('g.name', 'ASC')
       .addOrderBy('member_student.student_id', 'ASC')
+      .addOrderBy('gie.emp_display_name', 'ASC')
       .getMany();
   }
 
@@ -58,10 +68,19 @@ export class AttendanceGroupsService {
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.members', 'members')
       .leftJoinAndSelect('members.student', 'member_student')
-      .leftJoin('g.group_incharge', 'gi')
-      .addSelect(['gi.id', 'gi.emp_code', 'gi.emp_display_name'])
+      .leftJoin('g.incharges', 'gi')
+      .leftJoin('gi.employee', 'gie')
+      .addSelect([
+        'gi.id',
+        'gi.attendance_group_id',
+        'gi.employee_id',
+        'gie.id',
+        'gie.emp_code',
+        'gie.emp_display_name',
+      ])
       .where('g.id = :id', { id })
       .orderBy('member_student.student_id', 'ASC')
+      .addOrderBy('gie.emp_display_name', 'ASC')
       .getOne();
     if (!row) throw new NotFoundException('Attendance group not found');
     return row;
@@ -91,7 +110,7 @@ export class AttendanceGroupsService {
     admission_year_id: number;
     name: string;
     code: string;
-    group_incharge_employee_id: number;
+    group_incharge_employee_ids: number[];
     description: string | null;
   }): Promise<AttendanceGroup> {
     const programme = await this.programmes.findOne({
@@ -106,7 +125,7 @@ export class AttendanceGroupsService {
     if (!year) {
       throw new BadRequestException('Selected admission year does not exist');
     }
-    await this.assertEmployeeExists(input.group_incharge_employee_id);
+    await this.assertEmployeesExist(input.group_incharge_employee_ids);
     await this.assertNameUnique(
       input.programme_id,
       input.admission_year_id,
@@ -117,16 +136,28 @@ export class AttendanceGroupsService {
       input.admission_year_id,
       input.code,
     );
-    const saved = await this.groups.save(
-      this.groups.create({
-        programme_id: input.programme_id,
-        admission_year_id: input.admission_year_id,
-        name: input.name,
-        code: input.code,
-        group_incharge_employee_id: input.group_incharge_employee_id,
-        description: input.description,
-      }),
-    );
+    const saved = await this.dataSource.transaction(async (tx) => {
+      const groupsRepo = tx.getRepository(AttendanceGroup);
+      const inchargeRepo = tx.getRepository(AttendanceGroupIncharge);
+      const group = await groupsRepo.save(
+        groupsRepo.create({
+          programme_id: input.programme_id,
+          admission_year_id: input.admission_year_id,
+          name: input.name,
+          code: input.code,
+          description: input.description,
+        }),
+      );
+      await inchargeRepo.save(
+        input.group_incharge_employee_ids.map((eid) =>
+          inchargeRepo.create({
+            attendance_group_id: group.id,
+            employee_id: eid,
+          }),
+        ),
+      );
+      return group;
+    });
     return this.getOne(saved.id);
   }
 
@@ -135,7 +166,7 @@ export class AttendanceGroupsService {
     patch: {
       name: string;
       code: string;
-      group_incharge_employee_id: number;
+      group_incharge_employee_ids: number[];
       description: string | null;
     },
   ): Promise<AttendanceGroup> {
@@ -157,14 +188,27 @@ export class AttendanceGroupsService {
         id,
       );
     }
-    if (patch.group_incharge_employee_id !== row.group_incharge_employee_id) {
-      await this.assertEmployeeExists(patch.group_incharge_employee_id);
-    }
-    row.name = patch.name;
-    row.code = patch.code;
-    row.group_incharge_employee_id = patch.group_incharge_employee_id;
-    row.description = patch.description;
-    await this.groups.save(row);
+    await this.assertEmployeesExist(patch.group_incharge_employee_ids);
+    await this.dataSource.transaction(async (tx) => {
+      const groupsRepo = tx.getRepository(AttendanceGroup);
+      const inchargeRepo = tx.getRepository(AttendanceGroupIncharge);
+      row.name = patch.name;
+      row.code = patch.code;
+      row.description = patch.description;
+      await groupsRepo.save(row);
+      // Replace the in-charge set: clear the existing links, re-insert the
+      // requested ones. Nothing references join-row ids, so a wholesale
+      // swap is safe and keeps the logic trivial.
+      await inchargeRepo.delete({ attendance_group_id: id });
+      await inchargeRepo.save(
+        patch.group_incharge_employee_ids.map((eid) =>
+          inchargeRepo.create({
+            attendance_group_id: id,
+            employee_id: eid,
+          }),
+        ),
+      );
+    });
     return this.getOne(id);
   }
 
@@ -292,13 +336,17 @@ export class AttendanceGroupsService {
     return this.getOne(groupId);
   }
 
-  private async assertEmployeeExists(employeeId: number): Promise<void> {
-    const employee = await this.employees.findOne({
-      where: { id: employeeId },
+  private async assertEmployeesExist(employeeIds: number[]): Promise<void> {
+    const found = await this.employees.find({
+      where: { id: In(employeeIds) },
       select: { id: true },
     });
-    if (!employee) {
-      throw new BadRequestException('Selected group in-charge employee does not exist');
+    const foundIds = new Set(found.map((e) => e.id));
+    const missing = employeeIds.filter((id) => !foundIds.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `Selected group in-charge employee(s) do not exist: ${missing.join(', ')}`,
+      );
     }
   }
 

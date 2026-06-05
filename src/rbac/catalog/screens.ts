@@ -121,9 +121,9 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     attributes: [],
   },
   // The incharge surface is split into two screens, both self-scoped via
-  // `group_incharge_employee_id` on attendance_groups. The server filters
-  // every read/write to groups the caller is incharge of, so the screens
-  // carry no per-attribute scope. Granting the screen IS the scope.
+  // `attendance_group_incharges` (a group may have several in-charges). The
+  // server filters every read/write to groups the caller is incharge of, so
+  // the screens carry no per-attribute scope. Granting the screen IS the scope.
   {
     // Template management — bell schedule, periods, courses, grid cells,
     // working days, default + clone + delete. Day/week-of operations live

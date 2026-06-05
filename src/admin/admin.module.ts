@@ -39,6 +39,7 @@ import { Admin } from './entities/admin.entity';
 import { AdmissionYear } from './entities/admission-year.entity';
 import { AttendanceAdjustment } from './entities/attendance-adjustment.entity';
 import { AttendanceGroup } from './entities/attendance-group.entity';
+import { AttendanceGroupIncharge } from './entities/attendance-group-incharge.entity';
 import { ClassSession } from './entities/class-session.entity';
 import { ClassSessionAttendance } from './entities/class-session-attendance.entity';
 import { ClassSessionAuditLog } from './entities/class-session-audit-log.entity';
@@ -113,6 +114,7 @@ import { AdminUsersService } from './users/admin-users.service';
       AdmissionYear,
       AttendanceAdjustment,
       AttendanceGroup,
+      AttendanceGroupIncharge,
       ClassSession,
       ClassSessionAttendance,
       ClassSessionAuditLog,
