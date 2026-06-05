@@ -29,6 +29,7 @@ import {
   ChatService,
 } from './chat.service';
 import { AcceptRequestDto, StartConversationDto } from './dto/chat.dto';
+import { PeerProfile, PeerProfileService } from './peer-profile.service';
 
 const MAX_PAGE = 100;
 
@@ -47,6 +48,7 @@ export class ChatController {
   constructor(
     private readonly chat: ChatService,
     private readonly gateway: ChatGateway,
+    private readonly peerProfile: PeerProfileService,
   ) {}
 
   @Get('config')
@@ -80,6 +82,21 @@ export class ChatController {
       offset: Number.isFinite(offset) && offset > 0 ? Math.trunc(offset) : 0,
       q,
     });
+  }
+
+  @Get('participants/:studentId')
+  @ApiOperation({
+    summary:
+      "A classmate's limited profile, shown when the caller taps them in chat. " +
+      "Allowed only for a student in the caller's own attendance group; the " +
+      'birthday is day/month only (no year). 403 if not a groupmate (or self), ' +
+      '404 if the student is missing or deactivated.',
+  })
+  participantProfile(
+    @GetStudent() s: AuthenticatedStudent,
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ): Promise<PeerProfile> {
+    return this.peerProfile.getProfile(s.id, studentId);
   }
 
   @Get('conversations')

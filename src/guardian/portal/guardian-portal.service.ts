@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { displayedAdmissionYear } from '../../common/admission-year';
 import { StudentGuardian } from '../entities/student-guardian.entity';
 
 /** A student a parent (mobile number) is linked to, for the child selector. */
@@ -61,7 +62,11 @@ export class GuardianPortalService {
           ? {
               id: sg.student.admission_year.id,
               year: sg.student.admission_year.year,
-              display_year: sg.student.admission_year.display_year,
+              // Lateral entrants display their joining year (+1, tagged); view-only.
+              display_year: displayedAdmissionYear(
+                sg.student.admission_year.display_year,
+                sg.student.entry_type,
+              ),
             }
           : null,
       });

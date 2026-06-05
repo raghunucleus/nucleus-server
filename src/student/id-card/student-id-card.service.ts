@@ -6,6 +6,7 @@ import { ProgrammeSemester } from '../../admin/entities/programme-semester.entit
 import { StudentGroup } from '../../admin/entities/student-group.entity';
 import { Student } from '../../admin/entities/student.entity';
 import { SecurityPassResponse } from '../../common/security-pass';
+import { displayedAdmissionYear } from '../../common/admission-year';
 import { SecurityPassService } from '../../security-pass/security-pass.service';
 import { StorageService } from '../../storage/storage.service';
 
@@ -109,7 +110,13 @@ export class StudentIdCardService {
         ? { short_name: student.programme.department.short_name }
         : null,
       admission_year: student.admission_year
-        ? { display_year: student.admission_year.display_year }
+        ? {
+            // Lateral entrants display their joining year (+1, tagged); view-only.
+            display_year: displayedAdmissionYear(
+              student.admission_year.display_year,
+              student.entry_type,
+            ),
+          }
         : null,
       semester,
       section,

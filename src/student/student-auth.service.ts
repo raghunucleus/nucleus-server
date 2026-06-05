@@ -16,6 +16,7 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { Student } from '../admin/entities/student.entity';
+import { displayedAdmissionYear } from '../common/admission-year';
 import { MailService } from '../mail/mail.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { StudentGoogleOidcService } from './auth/student-google-oidc.service';
@@ -521,7 +522,12 @@ export class StudentAuthService {
         ? {
             id: student.admission_year.id,
             year: student.admission_year.year,
-            display_year: student.admission_year.display_year,
+            // Lateral entrants see their joining year (+1); view-only, the
+            // stored batch (`id`/`year`) is unchanged.
+            display_year: displayedAdmissionYear(
+              student.admission_year.display_year,
+              student.entry_type,
+            ),
           }
         : null,
     };
