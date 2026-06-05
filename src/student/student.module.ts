@@ -24,6 +24,8 @@ import { StudentIdCardController } from './id-card/student-id-card.controller';
 import { StudentIdCardService } from './id-card/student-id-card.service';
 import { StudentExamResultsController } from './exam-results/student-exam-results.controller';
 import { StudentExamResultsService } from './exam-results/student-exam-results.service';
+import { StudentProfileController } from './profile/student-profile.controller';
+import { StudentProfileService } from './profile/student-profile.service';
 import { StudentAcademicsController } from './portal/student-academics.controller';
 import { StudentPortalService } from './portal/student-portal.service';
 import { StudentAuthController } from './student-auth.controller';
@@ -55,6 +57,7 @@ import { StudentAuthService } from './student-auth.service';
     StudentBirthdaysController,
     StudentHolidaysController,
     StudentExamResultsController,
+    StudentProfileController,
   ],
   providers: [
     StudentAuthService,
@@ -65,6 +68,7 @@ import { StudentAuthService } from './student-auth.service';
     StudentIdCardService,
     StudentBirthdaysService,
     StudentExamResultsService,
+    StudentProfileService,
   ],
   exports: [
     StudentAuthService,

@@ -5,8 +5,14 @@ import { ProgrammeSemester } from '../../admin/entities/programme-semester.entit
 import { Student } from '../../admin/entities/student.entity';
 import { StudentGroup } from '../../admin/entities/student-group.entity';
 import { displayedAdmissionYear } from '../../common/admission-year';
+import {
+  HideableProfileField,
+  JSONB_HIDEABLE_FIELDS,
+} from '../../common/profile-privacy';
 import { StorageService } from '../../storage/storage.service';
 import { ChatService } from './chat.service';
+
+const JSONB_HIDEABLE = new Set<string>(JSONB_HIDEABLE_FIELDS);
 
 /**
  * A classmate's profile as shown to a peer who taps them in chat. Deliberately
@@ -19,19 +25,28 @@ export interface PeerProfile {
   id: number;
   student_id: string;
   display_name: string;
-  gender: string;
+  // Personal fields below are nulled when the owner has hidden them — see
+  // `hidden_fields`. A null can therefore mean "hidden" OR "not set"; the client
+  // uses `hidden_fields` to tell them apart (hidden → render a locked row).
+  gender: string | null;
   /** Day + month of birth only — the year is never exposed to a peer. */
   birthday: { day: number; month: number } | null;
   blood_group: string | null;
-  mobile_number: string;
-  email: string;
-  /** Short-lived presigned URL, or null when there's no photo / it's missing. */
+  mobile_number: string | null;
+  email: string | null;
+  /** Short-lived presigned URL, or null when there's no photo / it's missing / hidden. */
   photo_url: string | null;
   programme: { name: string; code: string } | null;
   department: { short_name: string } | null;
   admission_year: { display_year: string } | null;
   semester: { roman_format: string; sem_number: number } | null;
   section: { code: string } | null;
+  /**
+   * Personal field keys the owner has hidden from peers (subset of
+   * HIDEABLE_PROFILE_FIELDS). The matching values above are nulled; the client
+   * renders these as locked "Hidden" rows.
+   */
+  hidden_fields: string[];
 }
 
 // Presigned photo URLs live just long enough to render the profile. Mirrors the
@@ -68,22 +83,39 @@ export class PeerProfileService {
       throw new NotFoundException('Student not found');
     }
 
+    // What this student has hidden from peers. `birthday` and `mobile` live in
+    // their own columns (mobile is hidden by default); the rest in the jsonb
+    // array. A hidden field's value is nulled below so it never leaves the
+    // server; `hidden_fields` tells the client to render a locked "Hidden" row
+    // instead of treating null as "not set".
+    const hidden = new Set<string>(
+      (student.hidden_profile_fields ?? []).filter((k) =>
+        JSONB_HIDEABLE.has(k),
+      ),
+    );
+    if (student.birthday_hidden) hidden.add('birthday');
+    if (student.mobile_hidden) hidden.add('mobile');
+    const show = (key: HideableProfileField): boolean => !hidden.has(key);
+
     const [semester, section, photoUrl] = await Promise.all([
       this.findCurrentSemester(student),
       this.findSection(studentId),
-      this.resolvePhotoUrl(student.photo_key),
+      show('photo')
+        ? this.resolvePhotoUrl(student.photo_key)
+        : Promise.resolve(null),
     ]);
 
     return {
       id: student.id,
       student_id: student.student_id,
       display_name: student.display_name,
-      gender: student.gender,
-      birthday: this.dayMonth(student.dob),
-      blood_group: student.blood_group,
-      mobile_number: student.mobile_number,
-      email: student.email,
+      gender: show('gender') ? student.gender : null,
+      birthday: show('birthday') ? this.dayMonth(student.dob) : null,
+      blood_group: show('blood_group') ? student.blood_group : null,
+      mobile_number: show('mobile') ? student.mobile_number : null,
+      email: show('email') ? student.email : null,
       photo_url: photoUrl,
+      hidden_fields: [...hidden],
       programme: student.programme
         ? { name: student.programme.name, code: student.programme.code }
         : null,

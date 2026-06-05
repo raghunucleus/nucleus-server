@@ -106,6 +106,24 @@ export class Student {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  // Birthday hidden from peers. A dedicated boolean (not in
+  // hidden_profile_fields) because it's filtered in the set-based classmate
+  // birthdays query — keep the predicate sargable. Default false = visible.
+  @Column({ type: 'boolean', default: false })
+  birthday_hidden: boolean;
+
+  // Mobile number hidden from peers. Its own column (not hidden_profile_fields)
+  // because it's the one field hidden BY DEFAULT (sensitive PII) — default true
+  // = hidden; a student opts in to show it.
+  @Column({ type: 'boolean', default: true })
+  mobile_hidden: boolean;
+
+  // Other personal field keys this student has hidden from peer viewers
+  // (photo/email/mobile/blood_group/gender). Read only on the single-student
+  // peer profile. Empty (default) = everything visible; only hidden keys stored.
+  @Column({ type: 'jsonb', default: () => `'[]'` })
+  hidden_profile_fields: string[];
+
   @CreateDateColumn()
   created_at: Date;
 

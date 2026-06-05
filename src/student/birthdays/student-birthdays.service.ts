@@ -92,6 +92,8 @@ export class StudentBirthdaysService {
         WHERE sg.attendance_group_id = $1
           AND s.id <> $2
           AND s.is_active = TRUE
+          -- Students who hid their birthday opt out of peers' birthday lists.
+          AND s.birthday_hidden = FALSE
           AND ($3::text IS NULL OR s.display_name ILIKE $3 OR s.student_id ILIKE $3)
       ),
       shifted AS (
