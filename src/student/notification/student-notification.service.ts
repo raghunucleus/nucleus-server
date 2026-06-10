@@ -47,14 +47,19 @@ export class StudentNotificationService {
 
   /**
    * Deliver a notification to one or many students. By default persists one row
-   * per recipient, emits `notification:new` to each, and pushes to the OS only
-   * for recipients with no live in-app socket; returns once persist + emit are
-   * done (push runs detached).
+   * per recipient, emits `notification:new` to each, and fires an OS push to
+   * every recipient's devices — regardless of whether they have a live in-app
+   * socket; returns once persist + emit are done (push runs detached).
+   *
+   * Push is deliberately NOT gated on socket presence: a backgrounded app keeps
+   * its socket alive for minutes, so "online" doesn't mean "looking at the
+   * screen". Both channels fire for now; once push is trusted, the in-app
+   * realtime banner can be dropped instead.
    *
    * Pass `{ persist: false }` for **push-only** delivery: no row is stored and
-   * no in-app event is emitted — just an OS push to offline recipients. Use this
-   * for high-volume sources that have their own history/badge (e.g. chat), so
-   * they don't bloat the notifications table or duplicate the in-app list.
+   * no in-app event is emitted — just the OS push. Use this for high-volume
+   * sources that have their own history/badge (e.g. chat), so they don't bloat
+   * the notifications table or duplicate the in-app list.
    */
   async send(
     studentId: number | number[],
@@ -76,7 +81,7 @@ export class StudentNotificationService {
         data: { module: input.module, type: input.type, target },
       }));
       // Fire-and-forget: push must never block or reject the caller.
-      void this.pushToOffline(deliveries).catch((err) =>
+      void this.pushToStudents(deliveries).catch((err) =>
         this.logger.error(`Push delivery failed: ${String(err)}`),
       );
       return;
@@ -115,7 +120,7 @@ export class StudentNotificationService {
       },
     }));
     // Fire-and-forget: push must never block or reject the caller.
-    void this.pushToOffline(deliveries).catch((err) =>
+    void this.pushToStudents(deliveries).catch((err) =>
       this.logger.error(`Push delivery failed: ${String(err)}`),
     );
   }
@@ -211,21 +216,16 @@ export class StudentNotificationService {
   // --------------------------------------------------------------------------
 
   /**
-   * Push the given deliveries to the OS for recipients with no live in-app
-   * socket. Online recipients already saw the `notification:new` event (or, for
-   * push-only sources, are using the app), so pushing them would double-notify.
-   * Best-effort throughout: per-chunk errors are logged and skipped, and tokens
-   * reported `DeviceNotRegistered` are pruned. `data` mirrors the in-app payload
-   * so a tapped OS notification runs the same client route resolver.
+   * Push the given deliveries to every registered device of each recipient,
+   * regardless of socket state (see `send` for why). Best-effort throughout:
+   * per-chunk errors are logged and skipped, and tokens reported
+   * `DeviceNotRegistered` are pruned. `data` mirrors the in-app payload so a
+   * tapped OS notification runs the same client route resolver.
    */
-  private async pushToOffline(deliveries: PushDelivery[]): Promise<void> {
-    const offline: PushDelivery[] = [];
-    for (const d of deliveries) {
-      if (!(await this.gateway.isOnline(d.studentId))) offline.push(d);
-    }
-    if (offline.length === 0) return;
+  private async pushToStudents(deliveries: PushDelivery[]): Promise<void> {
+    if (deliveries.length === 0) return;
 
-    const studentIds = [...new Set(offline.map((d) => d.studentId))];
+    const studentIds = [...new Set(deliveries.map((d) => d.studentId))];
     const tokenRows = await this.tokens.find({
       where: { student_id: In(studentIds) },
     });
@@ -239,7 +239,7 @@ export class StudentNotificationService {
     }
 
     const messages: ExpoPushMessage[] = [];
-    for (const d of offline) {
+    for (const d of deliveries) {
       for (const token of tokensByStudent.get(d.studentId) ?? []) {
         if (!Expo.isExpoPushToken(token)) continue;
         messages.push({

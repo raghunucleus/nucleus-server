@@ -139,8 +139,8 @@ export class ChatGateway implements OnGatewayConnection {
       // Push-only notification: chat has its own history (the conversation) and
       // unread badge, so we DON'T persist a notifications row or emit the in-app
       // event (that would bloat the table and duplicate the Connect list). We
-      // only fire an OS push, and the service sends it solely to recipients with
-      // no live in-app socket. Fire-and-forget — never let it affect the ack.
+      // only fire an OS push, sent to all of the recipient's devices whether or
+      // not the app is open. Fire-and-forget — never let it affect the ack.
       // Skip entirely if the recipient has muted this conversation: the message
       // still arrives and accrues unread, just without an OS push.
       if (!this.chat.recipientMuted(conv, toStudentId)) {

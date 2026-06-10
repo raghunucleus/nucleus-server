@@ -52,17 +52,6 @@ export class StudentNotificationsGateway implements OnGatewayConnection {
     this.server.to(this.room(studentId)).emit(event, payload);
   }
 
-  /**
-   * Whether the student currently has at least one live notification socket —
-   * i.e. the app/site is open and will surface the notification in-app. The
-   * service uses this to skip the OS push (and avoid a double-notify) when the
-   * student is already reachable in-app.
-   */
-  async isOnline(studentId: number): Promise<boolean> {
-    const sockets = await this.server.in(this.room(studentId)).fetchSockets();
-    return sockets.length > 0;
-  }
-
   private room(studentId: number): string {
     return `student:${studentId}`;
   }
