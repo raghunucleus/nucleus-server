@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import { StudentGroup } from '../../admin/entities/student-group.entity';
 import { ChatConversation } from './entities/chat-conversation.entity';
 import { ChatMessage } from './entities/chat-message.entity';
@@ -262,6 +262,24 @@ export class ChatService {
   /** True if the recipient has muted this conversation (suppresses their push). */
   recipientMuted(conv: ChatConversation, recipientId: number): boolean {
     return this.amLow(conv, recipientId) ? conv.low_muted : conv.high_muted;
+  }
+
+  /**
+   * How many of the other participant's messages `recipientId` hasn't read yet
+   * (their read cursor as loaded on `conv` — a refresh-free snapshot is fine
+   * for a push title). Includes a message saved after `conv` was fetched.
+   */
+  unreadCount(conv: ChatConversation, recipientId: number): Promise<number> {
+    const cursor = this.amLow(conv, recipientId)
+      ? conv.low_last_read_message_id
+      : conv.high_last_read_message_id;
+    return this.messages.count({
+      where: {
+        conversation_id: conv.id,
+        sender_id: this.otherParticipant(conv, recipientId),
+        id: MoreThan(cursor ?? 0),
+      },
+    });
   }
 
   /**

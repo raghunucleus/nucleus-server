@@ -17,6 +17,7 @@ interface PushDelivery {
   title: string;
   body: string;
   data: Record<string, unknown>;
+  collapseKey?: string;
 }
 
 /**
@@ -60,11 +61,17 @@ export class StudentNotificationService {
    * no in-app event is emitted — just the OS push. Use this for high-volume
    * sources that have their own history/badge (e.g. chat), so they don't bloat
    * the notifications table or duplicate the in-app list.
+   *
+   * Pass `collapseKey` to make successive pushes REPLACE each other instead of
+   * stacking: a new push with the same key overwrites the one still showing in
+   * the recipient's tray (Android `tag` / iOS `apns-collapse-id`). Use a key
+   * that identifies the thread, e.g. `chat-<conversationId>`, and bake any
+   * running count into the title/body — only the latest push is visible.
    */
   async send(
     studentId: number | number[],
     input: SendStudentNotificationInput,
-    opts: { persist?: boolean } = {},
+    opts: { persist?: boolean; collapseKey?: string } = {},
   ): Promise<void> {
     const ids = [
       ...new Set(Array.isArray(studentId) ? studentId : [studentId]),
@@ -79,6 +86,7 @@ export class StudentNotificationService {
         title: input.title,
         body: input.body,
         data: { module: input.module, type: input.type, target },
+        collapseKey: opts.collapseKey,
       }));
       // Fire-and-forget: push must never block or reject the caller.
       void this.pushToStudents(deliveries).catch((err) =>
@@ -118,6 +126,7 @@ export class StudentNotificationService {
         type: row.type,
         target: row.target,
       },
+      collapseKey: opts.collapseKey,
     }));
     // Fire-and-forget: push must never block or reject the caller.
     void this.pushToStudents(deliveries).catch((err) =>
@@ -248,6 +257,11 @@ export class StudentNotificationService {
           body: d.body,
           sound: 'default',
           data: d.data,
+          // Same key → the OS replaces the displayed notification instead of
+          // stacking a new one (`tag` is Android, `collapseId` is iOS).
+          ...(d.collapseKey
+            ? { tag: d.collapseKey, collapseId: d.collapseKey }
+            : {}),
         });
       }
     }

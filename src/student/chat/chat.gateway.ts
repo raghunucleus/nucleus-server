@@ -143,14 +143,22 @@ export class ChatGateway implements OnGatewayConnection {
       // not the app is open. Fire-and-forget — never let it affect the ack.
       // Skip entirely if the recipient has muted this conversation: the message
       // still arrives and accrues unread, just without an OS push.
+      //
+      // `collapseKey` makes each conversation occupy a single tray slot: every
+      // new message REPLACES the previous push instead of stacking (WhatsApp
+      // style). Since only the latest push is visible, the title carries the
+      // running unread count once it grows past one.
       if (!this.chat.recipientMuted(conv, toStudentId)) {
-        void this.notifications
-          .send(
+        void (async () => {
+          const unread = await this.chat.unreadCount(conv, toStudentId);
+          const title =
+            unread > 1 ? `${senderName} (${unread} new messages)` : senderName;
+          await this.notifications.send(
             toStudentId,
             {
               module: 'chat',
               type: 'message',
-              title: senderName,
+              title,
               body: msg.body.slice(0, NOTIFICATION_PREVIEW_LENGTH),
               target: {
                 type: 'conversation',
@@ -158,11 +166,11 @@ export class ChatGateway implements OnGatewayConnection {
                 params: { otherStudentId: String(me), otherName: senderName },
               },
             },
-            { persist: false },
-          )
-          .catch((err) =>
-            this.logger.error(`Notification send failed: ${String(err)}`),
+            { persist: false, collapseKey: `chat-${conv.id}` },
           );
+        })().catch((err) =>
+          this.logger.error(`Notification send failed: ${String(err)}`),
+        );
       }
 
       return { ok: true, message: dto };
