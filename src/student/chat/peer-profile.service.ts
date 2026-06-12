@@ -49,10 +49,6 @@ export interface PeerProfile {
   hidden_fields: string[];
 }
 
-// Presigned photo URLs live just long enough to render the profile. Mirrors the
-// ID-card TTL — a leaked URL self-expires well before it's useful to anyone.
-const PHOTO_URL_TTL_SECONDS = 15 * 60;
-
 @Injectable()
 export class PeerProfileService {
   constructor(
@@ -204,6 +200,8 @@ export class PeerProfileService {
     if (!key) return null;
     const exists = await this.storage.objectExists(key);
     if (!exists) return null;
-    return this.storage.getSignedReadUrl(key, PHOTO_URL_TTL_SECONDS);
+    // Cached ~12h URL — identical to the one the chat lists hand out for this
+    // key, so the avatar already in the device image cache is reused here.
+    return this.storage.getCachedReadUrl(key);
   }
 }

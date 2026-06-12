@@ -54,10 +54,6 @@ export interface IdCardResult {
   valid_until: string | null;
 }
 
-// Presigned photo URLs live just long enough to render the card. A leaked URL
-// self-expires well before it's useful to anyone.
-const PHOTO_URL_TTL_SECONDS = 15 * 60;
-
 @Injectable()
 export class StudentIdCardService {
   constructor(
@@ -83,14 +79,13 @@ export class StudentIdCardService {
     const student = await this.students.findOne({ where: { id: studentId } });
     if (!student) throw new NotFoundException('Student not found');
 
-    const [semester, section, institution, photoUrl, pass] =
-      await Promise.all([
-        this.findCurrentSemester(student),
-        this.findSection(studentId),
-        this.getInstitution(),
-        this.resolvePhotoUrl(student.photo_key),
-        this.pass.issue('student', student.id, student.student_id),
-      ]);
+    const [semester, section, institution, photoUrl, pass] = await Promise.all([
+      this.findCurrentSemester(student),
+      this.findSection(studentId),
+      this.getInstitution(),
+      this.resolvePhotoUrl(student.photo_key),
+      this.pass.issue('student', student.id, student.student_id),
+    ]);
 
     return {
       student: {
@@ -218,7 +213,9 @@ export class StudentIdCardService {
     if (!key) return null;
     const exists = await this.storage.objectExists(key);
     if (!exists) return null;
-    return this.storage.getSignedReadUrl(key, PHOTO_URL_TTL_SECONDS);
+    // Cached ~12h URL — the same URL /me and the chat lists return for this
+    // key, so the card photo is usually already in the device image cache.
+    return this.storage.getCachedReadUrl(key);
   }
 
   /**

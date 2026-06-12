@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { StudentGroup } from '../../admin/entities/student-group.entity';
+import { StorageService } from '../../storage/storage.service';
 
 /**
  * One classmate with an upcoming birthday. The birth *year* is deliberately
@@ -19,6 +20,8 @@ export interface BirthdayPerson {
   days_until: number;
   /** ISO date of the next occurrence of the birthday (no birth year). */
   date: string;
+  /** Presigned, short-lived photo URL; null when unset or hidden by privacy. */
+  photo_url: string | null;
 }
 
 export interface BirthdayPage {
@@ -39,6 +42,7 @@ export class StudentBirthdaysService {
   constructor(
     @InjectRepository(StudentGroup)
     private readonly studentGroups: Repository<StudentGroup>,
+    private readonly storage: StorageService,
   ) {}
 
   /**
@@ -79,6 +83,7 @@ export class StudentBirthdaysService {
         id: number;
         display_name: string;
         student_id: string;
+        photo_key: string | null;
         date: string;
         days_until: number;
         total: number;
@@ -86,7 +91,10 @@ export class StudentBirthdaysService {
     >(
       `
       WITH classmates AS (
-        SELECT s.id, s.display_name, s.student_id, s.dob
+        SELECT s.id, s.display_name, s.student_id, s.dob,
+          -- Photo only when the student hasn't hidden it from peers.
+          CASE WHEN s.hidden_profile_fields @> '["photo"]'::jsonb
+               THEN NULL ELSE s.photo_key END AS photo_key
         FROM "student_groups" sg
         JOIN "students" s ON s.id = sg.student_id
         WHERE sg.attendance_group_id = $1
@@ -97,13 +105,13 @@ export class StudentBirthdaysService {
           AND ($3::text IS NULL OR s.display_name ILIKE $3 OR s.student_id ILIKE $3)
       ),
       shifted AS (
-        SELECT id, display_name, student_id,
+        SELECT id, display_name, student_id, photo_key,
           (dob + ((EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM dob))::int)
                  * INTERVAL '1 year')::date AS this_year
         FROM classmates
       ),
       dated AS (
-        SELECT id, display_name, student_id,
+        SELECT id, display_name, student_id, photo_key,
           CASE WHEN this_year >= CURRENT_DATE THEN this_year
                ELSE (this_year + INTERVAL '1 year')::date END AS next_bday
         FROM shifted
@@ -112,6 +120,7 @@ export class StudentBirthdaysService {
         id,
         display_name,
         student_id,
+        photo_key,
         next_bday::text          AS date,
         (next_bday - CURRENT_DATE) AS days_until,
         COUNT(*) OVER()::int     AS total
@@ -124,14 +133,21 @@ export class StudentBirthdaysService {
 
     return {
       total: rows[0]?.total ?? 0,
-      items: rows.map((r) => ({
-        id: Number(r.id),
-        display_name: r.display_name,
-        student_id: r.student_id,
-        section: myGroup.code,
-        days_until: Number(r.days_until),
-        date: r.date,
-      })),
+      items: await Promise.all(
+        rows.map(async (r) => ({
+          id: Number(r.id),
+          display_name: r.display_name,
+          student_id: r.student_id,
+          section: myGroup.code,
+          days_until: Number(r.days_until),
+          date: r.date,
+          // Stable ~12h cached URL so device image caches hit across pages
+          // and refreshes; clients fall back to initials on a 404/expiry.
+          photo_url: r.photo_key
+            ? await this.storage.getCachedReadUrl(r.photo_key)
+            : null,
+        })),
+      ),
     };
   }
 }

@@ -19,6 +19,7 @@ import { Student } from '../admin/entities/student.entity';
 import { displayedAdmissionYear } from '../common/admission-year';
 import { MailService } from '../mail/mail.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { StorageService } from '../storage/storage.service';
 import { StudentGoogleOidcService } from './auth/student-google-oidc.service';
 import { StudentCredential } from './entities/student-credential.entity';
 
@@ -62,6 +63,8 @@ export interface StudentProfile extends StudentSummary {
   is_active: boolean;
   programme: { id: number; name: string; code: string } | null;
   admission_year: { id: number; year: number; display_year: string } | null;
+  /** Presigned, short-lived URL of the profile photo; null when unset. */
+  photo_url: string | null;
 }
 
 const BCRYPT_ROUNDS = 12;
@@ -95,6 +98,7 @@ export class StudentAuthService {
     private readonly config: ConfigService,
     private readonly mail: MailService,
     private readonly googleOidc: StudentGoogleOidcService,
+    private readonly storage: StorageService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -502,6 +506,12 @@ export class StudentAuthService {
     const student = await this.students.findOne({ where: { id: studentId } });
     if (!student) throw new UnauthorizedException();
     return {
+      // Stable ~12h cached URL (same URL across refetches → client image
+      // caches hit). No HEAD probe: clients fall back to an initials avatar
+      // if the object is gone or the URL expired.
+      photo_url: student.photo_key
+        ? await this.storage.getCachedReadUrl(student.photo_key)
+        : null,
       id: student.id,
       student_id: student.student_id,
       display_name: student.display_name,

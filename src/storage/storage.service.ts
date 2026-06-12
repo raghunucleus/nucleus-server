@@ -6,8 +6,15 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../redis/redis.module';
+
+// Cached-URL window: sign for 13h but serve the cached URL for only 12h, so a
+// client never receives a link with less than an hour of life left.
+const CACHED_URL_SIGN_TTL_SECONDS = 13 * 60 * 60;
+const CACHED_URL_CACHE_TTL_SECONDS = 12 * 60 * 60;
 
 /**
  * Thin wrapper over the AWS S3 SDK. The same code drives MinIO in dev and AWS
@@ -26,7 +33,10 @@ export class StorageService {
   private readonly client: S3Client;
   private readonly bucket: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {
     const endpoint = this.config.get<string>('S3_ENDPOINT');
     this.bucket = this.config.get<string>('S3_BUCKET', 'nucleus');
     this.client = new S3Client({
@@ -70,6 +80,35 @@ export class StorageService {
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),
       { expiresIn: ttlSeconds },
     );
+  }
+
+  /**
+   * A presigned GET URL that is STABLE for ~12 hours: the signed URL is
+   * memoized in Redis per object key, so every caller (and every list refresh)
+   * hands clients the exact same URL all day. Same URL means browser and
+   * native image caches actually hit — each device downloads a photo once per
+   * window instead of once per presign. Safe because object keys are
+   * immutable: an upload always writes a fresh random key, so a cached URL can
+   * never serve stale bytes. Use this for anything rendered repeatedly (list
+   * avatars); keep `getSignedReadUrl` for one-shot, tightly-scoped reads.
+   * Redis being down just means we fall back to signing per call.
+   */
+  async getCachedReadUrl(key: string): Promise<string> {
+    const cacheKey = `storage:url:${key}`;
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) return cached;
+    } catch {
+      // Cache read failed — sign fresh below; caching is an optimisation.
+    }
+
+    const url = await this.getSignedReadUrl(key, CACHED_URL_SIGN_TTL_SECONDS);
+    try {
+      await this.redis.set(cacheKey, url, 'EX', CACHED_URL_CACHE_TTL_SECONDS);
+    } catch {
+      // Losing the cache write only costs future cache hits.
+    }
+    return url;
   }
 
   /** Delete an object. Missing objects are treated as already-deleted. */

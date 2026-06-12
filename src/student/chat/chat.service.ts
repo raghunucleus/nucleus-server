@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThan, Repository } from 'typeorm';
 import { StudentGroup } from '../../admin/entities/student-group.entity';
+import { StorageService } from '../../storage/storage.service';
 import { ChatConversation } from './entities/chat-conversation.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { MAX_MESSAGE_LENGTH } from './dto/chat.dto';
@@ -14,12 +15,22 @@ import { MAX_MESSAGE_LENGTH } from './dto/chat.dto';
 const DEFAULT_RETENTION_DAYS = 90;
 const PREVIEW_LENGTH = 200;
 
+/**
+ * SQL fragment: the student's photo key, or NULL when they hid their photo
+ * from peers. Every list below selects this instead of the raw column so the
+ * privacy setting is enforced at the source.
+ */
+const VISIBLE_PHOTO_KEY = (alias: string) =>
+  `CASE WHEN ${alias}.hidden_profile_fields @> '["photo"]'::jsonb THEN NULL ELSE ${alias}.photo_key END`;
+
 /** A groupmate the caller may start a chat with. */
 export interface ChatContact {
   id: number;
   display_name: string;
   /** Roll number. */
   student_id: string;
+  /** Presigned, short-lived photo URL; null when unset or hidden by privacy. */
+  photo_url: string | null;
 }
 
 /** One message as returned to the client (REST history + socket events). */
@@ -106,7 +117,17 @@ export class ChatService {
     @InjectRepository(StudentGroup)
     private readonly studentGroups: Repository<StudentGroup>,
     private readonly config: ConfigService,
+    private readonly storage: StorageService,
   ) {}
+
+  /**
+   * Stable ~12h URL for a (privacy-filtered) photo key. Cached per key, so
+   * list refreshes return the same URL and device image caches actually hit.
+   * No HEAD probe — clients fall back to initials on a 404.
+   */
+  private photoUrl(key: string | null): Promise<string | null> {
+    return key ? this.storage.getCachedReadUrl(key) : Promise.resolve(null);
+  }
 
   /** Configured message lifetime in days (env `CHAT_MESSAGE_RETENTION_DAYS`). */
   retentionDays(): number {
@@ -115,7 +136,9 @@ export class ChatService {
       DEFAULT_RETENTION_DAYS,
     );
     const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : DEFAULT_RETENTION_DAYS;
+    return Number.isFinite(n) && n >= 0
+      ? Math.trunc(n)
+      : DEFAULT_RETENTION_DAYS;
   }
 
   /**
@@ -336,11 +359,7 @@ export class ChatService {
     value: boolean,
   ): Promise<void> {
     const conv = await this.getParticipantConversation(meId, convId);
-    const column = `${this.amLow(conv, meId) ? 'low' : 'high'}_${flag}` as
-      | 'low_blocked'
-      | 'high_blocked'
-      | 'low_muted'
-      | 'high_muted';
+    const column = `${this.amLow(conv, meId) ? 'low' : 'high'}_${flag}`;
     await this.conversations.update(convId, { [column]: value });
   }
 
@@ -371,8 +390,16 @@ export class ChatService {
     const conv = await this.getParticipantConversation(meId, convId);
     const otherId = this.otherParticipant(conv, meId);
     const rows = await this.conversations.manager.query<
-      Array<{ display_name: string; student_id: string }>
-    >(`SELECT display_name, student_id FROM "students" WHERE id = $1`, [otherId]);
+      Array<{
+        display_name: string;
+        student_id: string;
+        photo_key: string | null;
+      }>
+    >(
+      `SELECT display_name, student_id, ${VISIBLE_PHOTO_KEY('s')} AS photo_key
+       FROM "students" s WHERE id = $1`,
+      [otherId],
+    );
     const low = this.amLow(conv, meId);
     return {
       id: conv.id,
@@ -380,6 +407,7 @@ export class ChatService {
         id: otherId,
         display_name: rows[0]?.display_name ?? 'Someone',
         student_id: rows[0]?.student_id ?? '',
+        photo_url: await this.photoUrl(rows[0]?.photo_key ?? null),
       },
       status: conv.status,
       is_initiator: conv.initiated_by_id === meId,
@@ -500,6 +528,7 @@ export class ChatService {
         other_id: number;
         other_name: string;
         other_roll: string;
+        other_photo_key: string | null;
         last_message_preview: string | null;
         last_message_at: Date | null;
         last_message_sender_id: number | null;
@@ -517,6 +546,7 @@ export class ChatService {
         CASE WHEN c.student_low_id = $1 THEN c.student_high_id ELSE c.student_low_id END AS other_id,
         s.display_name AS other_name,
         s.student_id   AS other_roll,
+        ${VISIBLE_PHOTO_KEY('s')} AS other_photo_key,
         c.last_message_preview,
         c.last_message_at,
         c.last_message_sender_id,
@@ -542,27 +572,32 @@ export class ChatService {
       [meId],
     );
 
-    return rows.map((r) => ({
-      id: Number(r.id),
-      other: {
-        id: Number(r.other_id),
-        display_name: r.other_name,
-        student_id: r.other_roll,
-      },
-      last_message_preview: r.last_message_preview,
-      last_message_at: r.last_message_at
-        ? new Date(r.last_message_at).toISOString()
-        : null,
-      last_message_sender_id:
-        r.last_message_sender_id != null ? Number(r.last_message_sender_id) : null,
-      other_last_read_message_id:
-        r.other_last_read != null ? Number(r.other_last_read) : null,
-      unread: Number(r.unread),
-      status: r.status,
-      is_initiator: Boolean(r.is_initiator),
-      muted: Boolean(r.muted),
-      blocked_by_me: Boolean(r.blocked_by_me),
-    }));
+    return Promise.all(
+      rows.map(async (r) => ({
+        id: Number(r.id),
+        other: {
+          id: Number(r.other_id),
+          display_name: r.other_name,
+          student_id: r.other_roll,
+          photo_url: await this.photoUrl(r.other_photo_key),
+        },
+        last_message_preview: r.last_message_preview,
+        last_message_at: r.last_message_at
+          ? new Date(r.last_message_at).toISOString()
+          : null,
+        last_message_sender_id:
+          r.last_message_sender_id != null
+            ? Number(r.last_message_sender_id)
+            : null,
+        other_last_read_message_id:
+          r.other_last_read != null ? Number(r.other_last_read) : null,
+        unread: Number(r.unread),
+        status: r.status,
+        is_initiator: Boolean(r.is_initiator),
+        muted: Boolean(r.muted),
+        blocked_by_me: Boolean(r.blocked_by_me),
+      })),
+    );
   }
 
   /**
@@ -577,6 +612,7 @@ export class ChatService {
         other_id: number;
         other_name: string;
         other_roll: string;
+        other_photo_key: string | null;
         invite_preview: string | null;
         invite_at: Date | null;
         initiated_by_id: number;
@@ -588,6 +624,7 @@ export class ChatService {
         CASE WHEN c.student_low_id = $1 THEN c.student_high_id ELSE c.student_low_id END AS other_id,
         s.display_name AS other_name,
         s.student_id   AS other_roll,
+        ${VISIBLE_PHOTO_KEY('s')} AS other_photo_key,
         c.last_message_preview AS invite_preview,
         c.last_message_at      AS invite_at,
         c.initiated_by_id
@@ -605,17 +642,20 @@ export class ChatService {
       [meId],
     );
 
-    return rows.map((r) => ({
-      id: Number(r.id),
-      other: {
-        id: Number(r.other_id),
-        display_name: r.other_name,
-        student_id: r.other_roll,
-      },
-      invite_preview: r.invite_preview,
-      invite_at: r.invite_at ? new Date(r.invite_at).toISOString() : null,
-      initiated_by_id: Number(r.initiated_by_id),
-    }));
+    return Promise.all(
+      rows.map(async (r) => ({
+        id: Number(r.id),
+        other: {
+          id: Number(r.other_id),
+          display_name: r.other_name,
+          student_id: r.other_roll,
+          photo_url: await this.photoUrl(r.other_photo_key),
+        },
+        invite_preview: r.invite_preview,
+        invite_at: r.invite_at ? new Date(r.invite_at).toISOString() : null,
+        initiated_by_id: Number(r.initiated_by_id),
+      })),
+    );
   }
 
   /** Count of incoming pending requests — for the Requests badge. */
@@ -652,6 +692,7 @@ export class ChatService {
         other_id: number;
         other_name: string;
         other_roll: string;
+        other_photo_key: string | null;
         last_message_preview: string | null;
         last_message_at: Date | null;
         last_message_sender_id: number | null;
@@ -669,6 +710,7 @@ export class ChatService {
         CASE WHEN c.student_low_id = $1 THEN c.student_high_id ELSE c.student_low_id END AS other_id,
         s.display_name AS other_name,
         s.student_id   AS other_roll,
+        ${VISIBLE_PHOTO_KEY('s')} AS other_photo_key,
         c.last_message_preview,
         c.last_message_at,
         c.last_message_sender_id,
@@ -697,27 +739,32 @@ export class ChatService {
       [meId],
     );
 
-    return rows.map((r) => ({
-      id: Number(r.id),
-      other: {
-        id: Number(r.other_id),
-        display_name: r.other_name,
-        student_id: r.other_roll,
-      },
-      last_message_preview: r.last_message_preview,
-      last_message_at: r.last_message_at
-        ? new Date(r.last_message_at).toISOString()
-        : null,
-      last_message_sender_id:
-        r.last_message_sender_id != null ? Number(r.last_message_sender_id) : null,
-      other_last_read_message_id:
-        r.other_last_read != null ? Number(r.other_last_read) : null,
-      unread: Number(r.unread),
-      status: r.status,
-      is_initiator: Boolean(r.is_initiator),
-      muted: Boolean(r.muted),
-      blocked_by_me: Boolean(r.blocked_by_me),
-    }));
+    return Promise.all(
+      rows.map(async (r) => ({
+        id: Number(r.id),
+        other: {
+          id: Number(r.other_id),
+          display_name: r.other_name,
+          student_id: r.other_roll,
+          photo_url: await this.photoUrl(r.other_photo_key),
+        },
+        last_message_preview: r.last_message_preview,
+        last_message_at: r.last_message_at
+          ? new Date(r.last_message_at).toISOString()
+          : null,
+        last_message_sender_id:
+          r.last_message_sender_id != null
+            ? Number(r.last_message_sender_id)
+            : null,
+        other_last_read_message_id:
+          r.other_last_read != null ? Number(r.other_last_read) : null,
+        unread: Number(r.unread),
+        status: r.status,
+        is_initiator: Boolean(r.is_initiator),
+        muted: Boolean(r.muted),
+        blocked_by_me: Boolean(r.blocked_by_me),
+      })),
+    );
   }
 
   /** Total unread across all the caller's conversations — for the menu badge. */
@@ -774,11 +821,14 @@ export class ChatService {
         id: number;
         display_name: string;
         student_id: string;
+        photo_key: string | null;
         total: string;
       }>
     >(
       `
-      SELECT s.id, s.display_name, s.student_id, COUNT(*) OVER() AS total
+      SELECT s.id, s.display_name, s.student_id,
+             ${VISIBLE_PHOTO_KEY('s')} AS photo_key,
+             COUNT(*) OVER() AS total
       FROM "student_groups" sg
       JOIN "students" s ON s.id = sg.student_id
       WHERE sg.attendance_group_id = (
@@ -795,11 +845,14 @@ export class ChatService {
     );
     return {
       total: rows.length ? Number(rows[0].total) : 0,
-      items: rows.map((r) => ({
-        id: Number(r.id),
-        display_name: r.display_name,
-        student_id: r.student_id,
-      })),
+      items: await Promise.all(
+        rows.map(async (r) => ({
+          id: Number(r.id),
+          display_name: r.display_name,
+          student_id: r.student_id,
+          photo_url: await this.photoUrl(r.photo_key),
+        })),
+      ),
     };
   }
 
