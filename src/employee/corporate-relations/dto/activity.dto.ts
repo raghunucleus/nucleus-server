@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { ACTIVITY_ENTITY_TYPES } from '../entities/company-activity-log.entity';
 import { INTERACTION_TYPES } from '../entities/company-interaction.entity';
 import { MILESTONE_TYPES } from '../entities/company-relationship-milestone.entity';
 
@@ -52,3 +53,12 @@ export const MilestoneSchema = z.object({
   summary: z.string().trim().max(5000).optional().nullable(),
 });
 export class MilestoneDto extends createZodDto(MilestoneSchema) {}
+
+// --- Activity log (unified audit feed) ------------------------------------
+/** Paginated + optional entity-type filter for the Activity tab. */
+export const ActivityQuerySchema = z.object({
+  entity_type: enumOf(ACTIVITY_ENTITY_TYPES).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+export class ActivityQueryDto extends createZodDto(ActivityQuerySchema) {}

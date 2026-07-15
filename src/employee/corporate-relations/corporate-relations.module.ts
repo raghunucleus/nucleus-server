@@ -10,6 +10,7 @@ import { CompanyAttributesService } from './company-attributes.service';
 import { CompanyManagementController } from './company-management.controller';
 import { CorporateRelationsService } from './corporate-relations.service';
 import { Company } from './entities/company.entity';
+import { CompanyActivityLog } from './entities/company-activity-log.entity';
 import { CompanyAttachment } from './entities/company-attachment.entity';
 import { CompanyContact } from './entities/company-contact.entity';
 import { CompanyInteraction } from './entities/company-interaction.entity';
@@ -35,6 +36,7 @@ import { CompanyRelationshipMilestone } from './entities/company-relationship-mi
   imports: [
     TypeOrmModule.forFeature([
       Company,
+      CompanyActivityLog,
       CompanyContact,
       CompanyInteraction,
       CompanyRelationshipMilestone,

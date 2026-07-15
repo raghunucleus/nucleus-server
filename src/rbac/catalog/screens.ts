@@ -242,9 +242,11 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
   // per-attribute scope: a placement manager configures the classifier lookups
   // and manages the whole company catalog, while the "Companies" list is
   // filtered to the officer's own assignments server-side from the token's
-  // employee id (not via an RBAC attribute). The `record` action gates writing
-  // CRM activity (interactions, milestones, contacts) — the officer can record
-  // on their assigned companies but cannot edit the company master fields.
+  // employee id (not via an RBAC attribute). Recording CRM activity
+  // (interactions, milestones, contacts) requires no dedicated action — screen
+  // access implies it, so those writes are gated on `view`. The manager's more
+  // privileged company-master operations keep their own actions
+  // (create/edit/activate/assign).
   {
     key: 'corporate_relations.company_management.manage',
     module_key: 'corporate_relations',
@@ -253,7 +255,7 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     label: 'Company Management',
     description: 'Add, edit, activate/deactivate companies and assign employees.',
     web_route: '/corporate-relations/company-management',
-    actions: ['view', 'create', 'edit', 'activate', 'assign', 'record'],
+    actions: ['view', 'create', 'edit', 'activate', 'assign'],
     attributes: [],
   },
   {
@@ -264,7 +266,7 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     label: 'Companies',
     description: 'View your assigned companies and record interactions.',
     web_route: '/corporate-relations/companies',
-    actions: ['view', 'record'],
+    actions: ['view'],
     attributes: [],
   },
   {

@@ -32,6 +32,7 @@ import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { CorporateRelationsService } from './corporate-relations.service';
 import {
+  ActivityQueryDto,
   ContactDto,
   InteractionDto,
   InteractionQueryDto,
@@ -109,20 +110,22 @@ export class CompanyManagementController {
   @RequireScreen(KEY, 'edit')
   @ApiOperation({ summary: 'Edit company fields, classifiers and responsible officer.' })
   update(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCompanyDto,
   ) {
-    return this.svc.updateCompany(id, dto);
+    return this.svc.updateCompany(id, dto, emp.id);
   }
 
   @Patch('companies/:id/status')
   @RequireScreen(KEY, 'activate')
   @ApiOperation({ summary: 'Activate / deactivate a company.' })
   setStatus(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CompanyStatusDto,
   ) {
-    return this.svc.setCompanyStatus(id, dto.is_active);
+    return this.svc.setCompanyStatus(id, dto.is_active, emp.id);
   }
 
   @Post('companies/:id/logo')
@@ -138,6 +141,7 @@ export class CompanyManagementController {
   })
   @ApiOperation({ summary: 'Upload / replace the company logo.' })
   setLogo(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile(
       new ParseFilePipe({
@@ -146,7 +150,7 @@ export class CompanyManagementController {
     )
     file: Express.Multer.File,
   ) {
-    return this.svc.setLogo(id, file);
+    return this.svc.setLogo(id, file, emp.id);
   }
 
   // ---- Contacts (SPOCs) ----------------------------------------------------
@@ -158,28 +162,34 @@ export class CompanyManagementController {
   }
 
   @Post('companies/:id/contacts')
-  @RequireScreen(KEY, 'record')
-  addContact(@Param('id', ParseIntPipe) id: number, @Body() dto: ContactDto) {
-    return this.svc.createContact(id, dto);
+  @RequireScreen(KEY, 'view')
+  addContact(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ContactDto,
+  ) {
+    return this.svc.createContact(id, dto, emp.id);
   }
 
   @Patch('companies/:id/contacts/:contactId')
-  @RequireScreen(KEY, 'record')
+  @RequireScreen(KEY, 'view')
   editContact(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Param('contactId', ParseIntPipe) contactId: number,
     @Body() dto: UpdateContactDto,
   ) {
-    return this.svc.updateContact(id, contactId, dto);
+    return this.svc.updateContact(id, contactId, dto, emp.id);
   }
 
   @Delete('companies/:id/contacts/:contactId')
-  @RequireScreen(KEY, 'record')
+  @RequireScreen(KEY, 'view')
   removeContact(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Param('contactId', ParseIntPipe) contactId: number,
   ) {
-    return this.svc.deleteContact(id, contactId);
+    return this.svc.deleteContact(id, contactId, emp.id);
   }
 
   // ---- Interactions --------------------------------------------------------
@@ -194,7 +204,7 @@ export class CompanyManagementController {
   }
 
   @Post('companies/:id/interactions')
-  @RequireScreen(KEY, 'record')
+  @RequireScreen(KEY, 'view')
   addInteraction(
     @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
@@ -204,22 +214,24 @@ export class CompanyManagementController {
   }
 
   @Patch('companies/:id/interactions/:interactionId')
-  @RequireScreen(KEY, 'record')
+  @RequireScreen(KEY, 'view')
   editInteraction(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Param('interactionId', ParseIntPipe) interactionId: number,
     @Body() dto: UpdateInteractionDto,
   ) {
-    return this.svc.updateInteraction(id, interactionId, dto);
+    return this.svc.updateInteraction(id, interactionId, dto, emp.id);
   }
 
   @Delete('companies/:id/interactions/:interactionId')
-  @RequireScreen(KEY, 'record')
+  @RequireScreen(KEY, 'view')
   removeInteraction(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Param('interactionId', ParseIntPipe) interactionId: number,
   ) {
-    return this.svc.deleteInteraction(id, interactionId);
+    return this.svc.deleteInteraction(id, interactionId, emp.id);
   }
 
   // ---- Relationship milestones ---------------------------------------------
@@ -231,7 +243,7 @@ export class CompanyManagementController {
   }
 
   @Post('companies/:id/milestones')
-  @RequireScreen(KEY, 'record')
+  @RequireScreen(KEY, 'view')
   addMilestone(
     @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
@@ -241,11 +253,24 @@ export class CompanyManagementController {
   }
 
   @Delete('companies/:id/milestones/:milestoneId')
-  @RequireScreen(KEY, 'record')
+  @RequireScreen(KEY, 'view')
   removeMilestone(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Param('milestoneId', ParseIntPipe) milestoneId: number,
   ) {
-    return this.svc.deleteMilestone(id, milestoneId);
+    return this.svc.deleteMilestone(id, milestoneId, emp.id);
+  }
+
+  // ---- Activity log --------------------------------------------------------
+
+  @Get('companies/:id/activity')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({ summary: 'Unified audit feed for one company.' })
+  activity(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: ActivityQueryDto,
+  ) {
+    return this.svc.listActivity(id, query);
   }
 }

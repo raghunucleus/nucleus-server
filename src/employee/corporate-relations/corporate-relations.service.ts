@@ -26,6 +26,12 @@ import {
   CompanyTag,
   CompanyType,
 } from './entities/company-lookups.entity';
+import {
+  ActivityAction,
+  ActivityChange,
+  ActivityEntityType,
+  CompanyActivityLog,
+} from './entities/company-activity-log.entity';
 import { CompanyContact } from './entities/company-contact.entity';
 import {
   CompanyInteraction,
@@ -36,6 +42,7 @@ import {
   MILESTONE_TYPES,
 } from './entities/company-relationship-milestone.entity';
 import {
+  ActivityQueryDto,
   ContactDto,
   InteractionDto,
   InteractionQueryDto,
@@ -66,6 +73,57 @@ const COMPANY_DETAIL_RELATIONS = {
 const asRefs = (ids?: number[]) => (ids ? ids.map((id) => ({ id })) : undefined);
 const chip = (r: { id: number; name: string }) => ({ id: r.id, name: r.name });
 
+/** 'mou_signed' → 'Mou signed'; 'prospect' → 'Prospect'. */
+const humanize = (v: unknown): string =>
+  v == null || v === ''
+    ? '—'
+    : String(v)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Company scalar fields tracked for the activity diff (label per key). */
+const TRACKED_COMPANY_FIELDS: Record<string, string> = {
+  name: 'Name',
+  short_name: 'Short name',
+  website: 'Website',
+  linkedin_url: 'LinkedIn',
+  description: 'Description',
+  general_email: 'Email',
+  general_phone: 'Phone',
+  ownership_type: 'Ownership type',
+  tier: 'Tier',
+  gstin: 'GSTIN',
+  cin: 'CIN',
+  pan: 'PAN',
+  registration_number: 'Registration number',
+  partnership_since: 'Partnership since',
+  address_line1: 'Address line 1',
+  address_line2: 'Address line 2',
+  city: 'City',
+  state: 'State',
+  country: 'Country',
+  pincode: 'Pincode',
+  founded_year: 'Founded year',
+  glassdoor_rating: 'Glassdoor rating',
+  package_min: 'Package (min)',
+  package_max: 'Package (max)',
+  offers_internships: 'Offers internships',
+  offers_ppo: 'Offers PPO',
+};
+
+/** Company relation → its DTO id-array key, for classifier-change detection. */
+const CLASSIFIER_FIELDS: Record<string, keyof UpdateCompanyDto> = {
+  categories: 'category_ids',
+  industries: 'industry_ids',
+  types: 'type_ids',
+  sizes: 'size_ids',
+  sources: 'source_ids',
+  hiring_modes: 'hiring_mode_ids',
+  roles: 'role_ids',
+  tags: 'tag_ids',
+  eligible_branches: 'eligible_branch_ids',
+};
+
 @Injectable()
 export class CorporateRelationsService {
   constructor(
@@ -77,6 +135,8 @@ export class CorporateRelationsService {
     private readonly interactions: Repository<CompanyInteraction>,
     @InjectRepository(CompanyRelationshipMilestone)
     private readonly milestones: Repository<CompanyRelationshipMilestone>,
+    @InjectRepository(CompanyActivityLog)
+    private readonly activity: Repository<CompanyActivityLog>,
     @InjectRepository(Employee)
     private readonly employees: Repository<Employee>,
     @InjectRepository(Department)
@@ -103,12 +163,75 @@ export class CorporateRelationsService {
     }
   }
 
+  // ---- Activity log --------------------------------------------------------
+
+  /** Append one audit entry. Called at the end of every successful mutation. */
+  private async logActivity(
+    companyId: number,
+    actorId: number,
+    entityType: ActivityEntityType,
+    action: ActivityAction,
+    summary: string,
+    opts: { entityId?: number | null; changes?: ActivityChange[] | null } = {},
+  ): Promise<void> {
+    await this.activity.save(
+      this.activity.create({
+        company_id: companyId,
+        employee_id: actorId,
+        entity_type: entityType,
+        action,
+        summary,
+        entity_id: opts.entityId ?? null,
+        changes: opts.changes ?? null,
+      }),
+    );
+  }
+
+  async listActivity(
+    companyId: number,
+    query: ActivityQueryDto,
+    ownerId?: number,
+  ) {
+    await this.ensureAccess(companyId, ownerId);
+    const qb = this.activity
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.employee', 'e')
+      .where('a.company_id = :companyId', { companyId });
+    if (query.entity_type) {
+      qb.andWhere('a.entity_type = :et', { et: query.entity_type });
+    }
+    qb.orderBy('a.created_at', 'DESC')
+      .addOrderBy('a.id', 'DESC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit);
+    const [rows, total] = await qb.getManyAndCount();
+    return {
+      items: rows.map((a) => ({
+        id: a.id,
+        action: a.action,
+        entity_type: a.entity_type,
+        entity_id: a.entity_id,
+        summary: a.summary,
+        changes: a.changes,
+        actor: a.employee
+          ? { id: a.employee.id, name: a.employee.emp_display_name }
+          : null,
+        created_at: a.created_at,
+      })),
+      total,
+      page: query.page,
+      limit: query.limit,
+    };
+  }
+
   // ---- Companies -----------------------------------------------------------
 
   async listCompanies(query: CompanyListQueryDto, ownerId?: number) {
-    const qb = this.companies
-      .createQueryBuilder('c')
-      .leftJoinAndSelect('c.responsible_employee', 're');
+    // Build a filter query on `c` alone. Classifier filters are expressed as
+    // INNER JOINs, which can multiply rows on M:N relations — so we never
+    // getManyAndCount() off this builder directly. Instead we derive a distinct,
+    // ordered page of ids and a distinct total, then hydrate those ids.
+    const qb = this.companies.createQueryBuilder('c');
 
     if (ownerId !== undefined) {
       qb.andWhere('c.responsible_employee_id = :ownerId', { ownerId });
@@ -125,50 +248,116 @@ export class CorporateRelationsService {
         }),
       );
     }
-    if (query.category_id) {
-      qb.innerJoin('c.categories', 'fcat', 'fcat.id = :catId', {
-        catId: query.category_id,
+
+    // Multi-select classifier filters — "company has at least one of these".
+    const classifierFilters: Array<[string, number[] | undefined]> = [
+      ['categories', query.category_ids],
+      ['industries', query.industry_ids],
+      ['types', query.type_ids],
+      ['sizes', query.size_ids],
+      ['sources', query.source_ids],
+      ['hiring_modes', query.hiring_mode_ids],
+      ['roles', query.role_ids],
+      ['tags', query.tag_ids],
+      ['eligible_branches', query.eligible_branch_ids],
+    ];
+    classifierFilters.forEach(([relation, ids], i) => {
+      if (ids?.length) {
+        const alias = `f_${i}`;
+        const param = `fids_${i}`;
+        qb.innerJoin(`c.${relation}`, alias, `${alias}.id IN (:...${param})`, {
+          [param]: ids,
+        });
+      }
+    });
+
+    // Plain-column filters.
+    if (query.tiers?.length)
+      qb.andWhere('c.tier IN (:...tiers)', { tiers: query.tiers });
+    if (query.relationship_statuses?.length)
+      qb.andWhere('c.relationship_status IN (:...rstatuses)', {
+        rstatuses: query.relationship_statuses,
       });
-    }
-    if (query.industry_id) {
-      qb.innerJoin('c.industries', 'find', 'find.id = :indId', {
-        indId: query.industry_id,
+    if (query.ownership_types?.length)
+      qb.andWhere('c.ownership_type IN (:...otypes)', {
+        otypes: query.ownership_types,
       });
-    }
-    if (ownerId === undefined && query.responsible_employee_id) {
-      qb.andWhere('c.responsible_employee_id = :rid', {
-        rid: query.responsible_employee_id,
+    // Responsible-officer filter only applies on the manager (unscoped) surface.
+    if (ownerId === undefined && query.responsible_employee_ids?.length)
+      qb.andWhere('c.responsible_employee_id IN (:...reids)', {
+        reids: query.responsible_employee_ids,
       });
+    if (query.offers_internships) qb.andWhere('c.offers_internships = TRUE');
+    if (query.offers_ppo) qb.andWhere('c.offers_ppo = TRUE');
+
+    // Distinct total (the joins can duplicate rows; count unique companies).
+    const totalRaw = await qb
+      .clone()
+      .select('COUNT(DISTINCT c.id)', 'cnt')
+      .getRawOne<{ cnt: string }>();
+    const total = Number(totalRaw?.cnt ?? 0);
+
+    // Distinct, ordered page of ids. DISTINCT + ORDER BY requires the ordering
+    // column in the select list; updated_at is 1:1 per company so it's safe.
+    const idRows = await qb
+      .clone()
+      .select('c.id', 'id')
+      .addSelect('c.updated_at', 'updated_at')
+      .distinct(true)
+      .orderBy('c.updated_at', 'DESC')
+      .offset((query.page - 1) * query.limit)
+      .limit(query.limit)
+      .getRawMany<{ id: number }>();
+    const pageIds = idRows.map((r) => Number(r.id));
+
+    if (pageIds.length === 0) {
+      return { items: [], total, page: query.page, limit: query.limit };
     }
 
-    qb.orderBy('c.updated_at', 'DESC')
-      .skip((query.page - 1) * query.limit)
-      .take(query.limit);
-
-    const [rows, total] = await qb.getManyAndCount();
-
-    // Load category chips for the page in one extra query (safe with paging).
-    const ids = rows.map((r) => r.id);
-    const catsById = new Map<number, CompanyCategory[]>();
-    if (ids.length) {
-      const withCats = await this.companies.find({
-        where: { id: In(ids) },
-        relations: { categories: true },
+    // Hydrate the page: officer relation + category/industry chips.
+    const [rows, withChips] = await Promise.all([
+      this.companies.find({
+        where: { id: In(pageIds) },
+        relations: { responsible_employee: true },
+      }),
+      this.companies.find({
+        where: { id: In(pageIds) },
+        relations: { categories: true, industries: true },
         select: { id: true },
-      });
-      for (const c of withCats) catsById.set(c.id, c.categories ?? []);
+      }),
+    ]);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const catsById = new Map<number, CompanyCategory[]>();
+    const indsById = new Map<number, CompanyIndustry[]>();
+    for (const c of withChips) {
+      catsById.set(c.id, c.categories ?? []);
+      indsById.set(c.id, c.industries ?? []);
     }
 
-    return {
-      items: rows.map((c) => ({
+    // Preserve the ordered page and presign logos (cached → cheap per row).
+    const ordered = pageIds
+      .map((id) => byId.get(id))
+      .filter((c): c is Company => !!c);
+    const items = await Promise.all(
+      ordered.map(async (c) => ({
         id: c.id,
         name: c.name,
         short_name: c.short_name,
+        website: c.website,
         city: c.city,
         relationship_status: c.relationship_status,
         tier: c.tier,
+        ownership_type: c.ownership_type,
+        package_min: c.package_min,
+        package_max: c.package_max,
+        offers_internships: c.offers_internships,
+        offers_ppo: c.offers_ppo,
+        founded_year: c.founded_year,
         is_active: c.is_active,
         last_engaged_on: c.last_engaged_on,
+        logo_url: c.logo_key
+          ? await this.storage.getCachedReadUrl(c.logo_key)
+          : null,
         responsible_employee: c.responsible_employee
           ? {
               id: c.responsible_employee.id,
@@ -176,12 +365,12 @@ export class CorporateRelationsService {
             }
           : null,
         categories: (catsById.get(c.id) ?? []).map(chip),
+        industries: (indsById.get(c.id) ?? []).map(chip),
         updated_at: c.updated_at,
       })),
-      total,
-      page: query.page,
-      limit: query.limit,
-    };
+    );
+
+    return { items, total, page: query.page, limit: query.limit };
   }
 
   async getCompany(companyId: number, ownerId?: number) {
@@ -189,6 +378,9 @@ export class CorporateRelationsService {
     const company = await this.companies.findOne({
       where: { id: companyId },
       relations: COMPANY_DETAIL_RELATIONS,
+      // Load each M:M relation as its own query. With the default 'join'
+      // strategy the nine independent junction tables form a cartesian product.
+      relationLoadStrategy: 'query',
     });
     if (!company) throw new NotFoundException('Company not found.');
     const contacts = await this.listContacts(companyId);
@@ -202,33 +394,76 @@ export class CorporateRelationsService {
     this.applyScalars(company, dto);
     this.applyClassifiers(company, dto);
     const saved = await this.companies.save(company);
+    await this.logActivity(
+      saved.id,
+      employeeId,
+      'company',
+      'created',
+      `Created the company "${saved.name}"`,
+    );
     return this.getCompany(saved.id);
   }
 
-  async updateCompany(companyId: number, dto: UpdateCompanyDto) {
+  async updateCompany(companyId: number, dto: UpdateCompanyDto, actorId: number) {
     const company = await this.companies.findOne({
       where: { id: companyId },
       relations: COMPANY_DETAIL_RELATIONS,
+      // Per-relation queries — same cartesian-join avoidance as getCompany.
+      relationLoadStrategy: 'query',
     });
     if (!company) throw new NotFoundException('Company not found.');
+
+    // Snapshot tracked scalar + classifier state before applying the edit.
+    const before = this.snapshotCompany(company);
+    const beforeOfficer = company.responsible_employee
+      ? company.responsible_employee.emp_display_name
+      : null;
+
     if (dto.name !== undefined) company.name = dto.name;
     this.applyScalars(company, dto);
     this.applyClassifiers(company, dto);
     await this.companies.save(company);
+
+    await this.logCompanyEdit(companyId, actorId, dto, company, before, beforeOfficer);
     return this.getCompany(companyId);
   }
 
-  async setCompanyStatus(companyId: number, isActive: boolean) {
+  /**
+   * Officer-surface edit: scoped to the acting officer's own company, and with
+   * the identity/ownership fields stripped — an officer may edit descriptive
+   * company fields but NOT rename the company or reassign the responsible
+   * officer (which would remove their own access). Enforced server-side; the
+   * officer form never renders those controls.
+   */
+  async updateCompanyAsOfficer(
+    companyId: number,
+    dto: UpdateCompanyDto,
+    actorId: number,
+  ) {
+    await this.ensureAccess(companyId, actorId);
+    const { name: _name, responsible_employee_id: _resp, ...rest } = dto;
+    return this.updateCompany(companyId, rest, actorId);
+  }
+
+  async setCompanyStatus(companyId: number, isActive: boolean, actorId: number) {
     const company = await this.companies.findOne({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Company not found.');
     company.is_active = isActive;
     await this.companies.save(company);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'company',
+      'status_changed',
+      isActive ? 'Activated the company' : 'Deactivated the company',
+    );
     return this.getCompany(companyId);
   }
 
   async setLogo(
     companyId: number,
     file: { buffer: Buffer; mimetype: string },
+    actorId: number,
   ) {
     const company = await this.companies.findOne({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Company not found.');
@@ -236,6 +471,13 @@ export class CorporateRelationsService {
     await this.storage.putObject(key, file.buffer, file.mimetype);
     company.logo_key = key;
     await this.companies.save(company);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'company',
+      'logo_updated',
+      'Updated the company logo',
+    );
     return { logo_url: await this.storage.getCachedReadUrl(key) };
   }
 
@@ -294,7 +536,12 @@ export class CorporateRelationsService {
     return rows;
   }
 
-  async createContact(companyId: number, dto: ContactDto, ownerId?: number) {
+  async createContact(
+    companyId: number,
+    dto: ContactDto,
+    actorId: number,
+    ownerId?: number,
+  ) {
     await this.ensureAccess(companyId, ownerId);
     if (dto.is_primary) {
       await this.contacts.update(
@@ -303,13 +550,23 @@ export class CorporateRelationsService {
       );
     }
     const row = this.contacts.create({ ...dto, company_id: companyId });
-    return this.contacts.save(row);
+    const saved = await this.contacts.save(row);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'contact',
+      'created',
+      `Added contact "${saved.name}"`,
+      { entityId: saved.id },
+    );
+    return saved;
   }
 
   async updateContact(
     companyId: number,
     contactId: number,
     dto: UpdateContactDto,
+    actorId: number,
     ownerId?: number,
   ) {
     await this.ensureAccess(companyId, ownerId);
@@ -324,16 +581,37 @@ export class CorporateRelationsService {
       );
     }
     Object.assign(row, dto);
-    return this.contacts.save(row);
+    const saved = await this.contacts.save(row);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'contact',
+      'updated',
+      `Updated contact "${saved.name}"`,
+      { entityId: saved.id },
+    );
+    return saved;
   }
 
-  async deleteContact(companyId: number, contactId: number, ownerId?: number) {
+  async deleteContact(
+    companyId: number,
+    contactId: number,
+    actorId: number,
+    ownerId?: number,
+  ) {
     await this.ensureAccess(companyId, ownerId);
     const row = await this.contacts.findOne({
       where: { id: contactId, company_id: companyId },
     });
     if (!row) throw new NotFoundException('Contact not found.');
     await this.contacts.remove(row);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'contact',
+      'deleted',
+      `Removed contact "${row.name}"`,
+    );
     return { deleted: true };
   }
 
@@ -391,6 +669,14 @@ export class CorporateRelationsService {
     });
     const saved = await this.interactions.save(row);
     await this.touchLastEngaged(companyId, dto.interaction_date);
+    await this.logActivity(
+      companyId,
+      employeeId,
+      'interaction',
+      'created',
+      `Logged a ${humanize(dto.type)} interaction on ${dto.interaction_date}`,
+      { entityId: saved.id },
+    );
     return saved;
   }
 
@@ -398,6 +684,7 @@ export class CorporateRelationsService {
     companyId: number,
     interactionId: number,
     dto: UpdateInteractionDto,
+    actorId: number,
     ownerId?: number,
   ) {
     await this.ensureAccess(companyId, ownerId);
@@ -406,12 +693,22 @@ export class CorporateRelationsService {
     });
     if (!row) throw new NotFoundException('Interaction not found.');
     Object.assign(row, dto);
-    return this.interactions.save(row);
+    const saved = await this.interactions.save(row);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'interaction',
+      'updated',
+      `Updated a ${humanize(saved.type)} interaction`,
+      { entityId: saved.id },
+    );
+    return saved;
   }
 
   async deleteInteraction(
     companyId: number,
     interactionId: number,
+    actorId: number,
     ownerId?: number,
   ) {
     await this.ensureAccess(companyId, ownerId);
@@ -420,6 +717,13 @@ export class CorporateRelationsService {
     });
     if (!row) throw new NotFoundException('Interaction not found.');
     await this.interactions.remove(row);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'interaction',
+      'deleted',
+      `Deleted a ${humanize(row.type)} interaction`,
+    );
     return { deleted: true };
   }
 
@@ -457,12 +761,22 @@ export class CorporateRelationsService {
       company_id: companyId,
       employee_id: employeeId,
     });
-    return this.milestones.save(row);
+    const saved = await this.milestones.save(row);
+    await this.logActivity(
+      companyId,
+      employeeId,
+      'milestone',
+      'created',
+      `Added milestone "${saved.title}"`,
+      { entityId: saved.id },
+    );
+    return saved;
   }
 
   async deleteMilestone(
     companyId: number,
     milestoneId: number,
+    actorId: number,
     ownerId?: number,
   ) {
     await this.ensureAccess(companyId, ownerId);
@@ -471,6 +785,13 @@ export class CorporateRelationsService {
     });
     if (!row) throw new NotFoundException('Milestone not found.');
     await this.milestones.remove(row);
+    await this.logActivity(
+      companyId,
+      actorId,
+      'milestone',
+      'deleted',
+      `Removed milestone "${row.title}"`,
+    );
     return { deleted: true };
   }
 
@@ -542,6 +863,115 @@ export class CorporateRelationsService {
       company.tags = asRefs(dto.tag_ids) as CompanyTag[];
     if (dto.eligible_branch_ids !== undefined)
       company.eligible_branches = asRefs(dto.eligible_branch_ids) as Department[];
+  }
+
+  /** Capture the tracked scalar + classifier + relationship state for diffing. */
+  private snapshotCompany(company: Company) {
+    const scalars: Record<string, unknown> = {};
+    for (const key of Object.keys(TRACKED_COMPANY_FIELDS)) {
+      scalars[key] = (company as unknown as Record<string, unknown>)[key];
+    }
+    const classifiers: Record<string, number[]> = {};
+    for (const rel of Object.keys(CLASSIFIER_FIELDS)) {
+      const arr = (company as unknown as Record<string, { id: number }[]>)[rel];
+      classifiers[rel] = (arr ?? []).map((x) => x.id).sort((a, b) => a - b);
+    }
+    return {
+      scalars,
+      classifiers,
+      relationship_status: company.relationship_status,
+      responsible_employee_id: company.responsible_employee_id,
+    };
+  }
+
+  /** Diff a company edit into one or more audit entries. */
+  private async logCompanyEdit(
+    companyId: number,
+    actorId: number,
+    dto: UpdateCompanyDto,
+    after: Company,
+    before: ReturnType<CorporateRelationsService['snapshotCompany']>,
+    beforeOfficerName: string | null,
+  ): Promise<void> {
+    const eq = (a: unknown, b: unknown) => {
+      const na = a === undefined ? null : a;
+      const nb = b === undefined ? null : b;
+      if (na === null && nb === null) return true;
+      return String(na) === String(nb);
+    };
+    const afterRec = after as unknown as Record<string, unknown>;
+
+    // 1. Relationship status → its own status_changed entry.
+    if (!eq(before.relationship_status, after.relationship_status)) {
+      await this.logActivity(
+        companyId,
+        actorId,
+        'company',
+        'status_changed',
+        `Changed relationship status from ${humanize(
+          before.relationship_status,
+        )} to ${humanize(after.relationship_status)}`,
+      );
+    }
+
+    // 2. Responsible-officer reassignment → assigned entry (resolve names).
+    if (!eq(before.responsible_employee_id, after.responsible_employee_id)) {
+      const toName = after.responsible_employee_id
+        ? (
+            await this.employees.findOne({
+              where: { id: after.responsible_employee_id },
+              select: { id: true, emp_display_name: true },
+            })
+          )?.emp_display_name ?? null
+        : null;
+      const summary = !toName
+        ? `Unassigned the responsible officer${
+            beforeOfficerName ? ` (was ${beforeOfficerName})` : ''
+          }`
+        : beforeOfficerName
+          ? `Reassigned responsible officer from ${beforeOfficerName} to ${toName}`
+          : `Assigned ${toName} as responsible officer`;
+      await this.logActivity(companyId, actorId, 'company', 'assigned', summary);
+    }
+
+    // 3. Remaining tracked scalar edits → one "Updated details" entry.
+    const changes: ActivityChange[] = [];
+    for (const [key, label] of Object.entries(TRACKED_COMPANY_FIELDS)) {
+      if (eq(before.scalars[key], afterRec[key])) continue;
+      changes.push({ field: label, from: before.scalars[key], to: afterRec[key] });
+    }
+    if (changes.length) {
+      await this.logActivity(
+        companyId,
+        actorId,
+        'company',
+        'updated',
+        'Updated company details',
+        { changes },
+      );
+    }
+
+    // 4. Classifier (multi-select) list changes → one coarse entry.
+    let classifiersChanged = false;
+    for (const [rel, dtoKey] of Object.entries(CLASSIFIER_FIELDS)) {
+      if (dto[dtoKey] === undefined) continue;
+      const afterIds = ((afterRec[rel] as { id: number }[] | undefined) ?? [])
+        .map((x) => x.id)
+        .sort((a, b) => a - b);
+      if (before.classifiers[rel].join(',') !== afterIds.join(',')) {
+        classifiersChanged = true;
+        break;
+      }
+    }
+    if (classifiersChanged) {
+      await this.logActivity(
+        companyId,
+        actorId,
+        'company',
+        'updated',
+        'Updated company classifiers',
+      );
+    }
   }
 
   private async mapDetail(company: Company, contacts: CompanyContact[]) {

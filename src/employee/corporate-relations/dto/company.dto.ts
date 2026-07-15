@@ -76,13 +76,58 @@ export const CompanyStatusSchema = z.object({
 });
 export class CompanyStatusDto extends createZodDto(CompanyStatusSchema) {}
 
-/** Filters for the manager company list. */
+/**
+ * Query-string arrays arrive either as repeated keys (`?x=1&x=2`) or as a comma
+ * list (`?x=1,2`). Normalise both to a trimmed string[] before validating.
+ */
+const toStringArray = (v: unknown): string[] | undefined => {
+  if (v === undefined || v === null || v === '') return undefined;
+  const arr = Array.isArray(v) ? v : String(v).split(',');
+  const cleaned = arr.map((x) => String(x).trim()).filter(Boolean);
+  return cleaned.length ? cleaned : undefined;
+};
+
+/** CSV / repeated-key list of positive ints (e.g. `?industry_ids=1,2`). */
+const csvIntArray = z.preprocess(
+  toStringArray,
+  z.array(z.coerce.number().int().positive()).optional(),
+);
+
+/** CSV / repeated-key list constrained to a fixed enum. */
+const csvEnumArray = (vals: readonly string[]) =>
+  z.preprocess(toStringArray, z.array(enumOf(vals)).optional());
+
+/**
+ * A query-string boolean flag. `z.coerce.boolean()` is unusable here because it
+ * treats the literal string `'false'` as `true`; only an explicit truthy token
+ * filters.
+ */
+const boolFlag = z.preprocess(
+  (v) => (v === undefined ? undefined : v === true || v === 'true' || v === '1'),
+  z.boolean().optional(),
+);
+
+/** Filters for the manager company list (all multi-select where sensible). */
 export const CompanyListQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
   status: z.enum(['active', 'inactive', 'all']).default('active'),
-  category_id: z.coerce.number().int().positive().optional(),
-  industry_id: z.coerce.number().int().positive().optional(),
-  responsible_employee_id: z.coerce.number().int().positive().optional(),
+  // Classifier filters — multi-select id arrays reconciled against join tables.
+  category_ids: csvIntArray,
+  industry_ids: csvIntArray,
+  type_ids: csvIntArray,
+  size_ids: csvIntArray,
+  source_ids: csvIntArray,
+  hiring_mode_ids: csvIntArray,
+  role_ids: csvIntArray,
+  tag_ids: csvIntArray,
+  eligible_branch_ids: csvIntArray,
+  // Plain-column filters.
+  tiers: csvEnumArray(COMPANY_TIERS),
+  relationship_statuses: csvEnumArray(RELATIONSHIP_STATUSES),
+  ownership_types: csvEnumArray(OWNERSHIP_TYPES),
+  responsible_employee_ids: csvIntArray,
+  offers_internships: boolFlag,
+  offers_ppo: boolFlag,
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
