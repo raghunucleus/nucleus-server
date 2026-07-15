@@ -235,4 +235,34 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     actions: ['scan'],
     attributes: [],
   },
+
+  // --- Corporate Relations -----------------------------------------------
+  //
+  // Placement / corporate-relations desk. Two web-only screens with no
+  // per-attribute scope: a placement officer manages the whole company
+  // catalog, and the "Companies" list is filtered to the officer's own
+  // assignments server-side from the token's employee id (not via an RBAC
+  // attribute). Screens are placeholders — the real pages ship later.
+  {
+    key: 'corporate_relations.company_management.manage',
+    module_key: 'corporate_relations',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Company Management',
+    description: 'Add, edit, activate/deactivate companies and assign employees.',
+    web_route: '/corporate-relations/company-management',
+    actions: ['view', 'create', 'edit', 'activate', 'assign'],
+    attributes: [],
+  },
+  {
+    key: 'corporate_relations.companies.view',
+    module_key: 'corporate_relations',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Companies',
+    description: 'View the companies assigned to you.',
+    web_route: '/corporate-relations/companies',
+    actions: ['view'],
+    attributes: [],
+  },
 ];

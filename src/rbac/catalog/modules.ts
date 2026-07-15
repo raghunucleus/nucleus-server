@@ -36,6 +36,12 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     icon: 'ShieldCheck',
     order: 50,
   },
+  {
+    key: 'corporate_relations',
+    label: 'Corporate Relations',
+    icon: 'Briefcase',
+    order: 60,
+  },
 
   // {
   //   key: 'academics',

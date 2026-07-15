@@ -32,6 +32,11 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
     label: 'Security',
     description: 'Security guard — scans and verifies student/employee identity QR codes.',
   },
+  {
+    key: 'placement',
+    label: 'Placement',
+    description: 'Placement / corporate-relations officer — manages companies and employee assignments.',
+  },
   // {
   //   key: 'management',
   //   label: 'Management',
