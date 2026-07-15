@@ -4,11 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomUUID } from 'crypto';
 import { Brackets, In, Repository } from 'typeorm';
 import { Department } from '../../admin/entities/department.entity';
 import { Employee } from '../../admin/entities/employee.entity';
 import { StorageService } from '../../storage/storage.service';
+import { storageKey } from '../../storage/storage.constants';
 import { CompanyAttributesService } from './company-attributes.service';
 import {
   COMPANY_TIERS,
@@ -467,7 +467,7 @@ export class CorporateRelationsService {
   ) {
     const company = await this.companies.findOne({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Company not found.');
-    const key = `companies/${companyId}/logo/${randomUUID()}`;
+    const key = storageKey.companyLogo(companyId);
     await this.storage.putObject(key, file.buffer, file.mimetype);
     company.logo_key = key;
     await this.companies.save(company);

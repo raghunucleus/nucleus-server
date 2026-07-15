@@ -10,6 +10,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { DEFAULT_STORAGE_BUCKET } from './storage.constants';
 
 // Cached-URL window: sign for 13h but serve the cached URL for only 12h, so a
 // client never receives a link with less than an hour of life left.
@@ -38,7 +39,7 @@ export class StorageService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     const endpoint = this.config.get<string>('S3_ENDPOINT');
-    this.bucket = this.config.get<string>('S3_BUCKET', 'nucleus');
+    this.bucket = this.config.get<string>('S3_BUCKET', DEFAULT_STORAGE_BUCKET);
     this.client = new S3Client({
       region: this.config.get<string>('S3_REGION', 'us-east-1'),
       // Present for MinIO; absent for real AWS (SDK derives the endpoint).

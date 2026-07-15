@@ -5,10 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { randomUUID } from 'crypto';
 import { DataSource, In, Repository } from 'typeorm';
 import { StudentAuthService } from '../../student/student-auth.service';
 import { StorageService } from '../../storage/storage.service';
+import { storageKey } from '../../storage/storage.constants';
 import type { StudentsSortField } from '../dto/list-students.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { Programme } from '../entities/programme.entity';
@@ -518,7 +518,7 @@ export class StudentsService {
     }
 
     const previousKey = student.photo_key;
-    const key = `student-photos/${randomUUID()}.${ext}`;
+    const key = storageKey.studentPhoto(ext);
     await this.storage.putObject(key, file.buffer, file.mimetype);
 
     student.photo_key = key;

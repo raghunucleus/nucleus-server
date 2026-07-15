@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   Injectable,
@@ -9,6 +8,7 @@ import { Repository } from 'typeorm';
 import { Student } from '../../admin/entities/student.entity';
 import { processStudentPhoto } from '../../common/photo-processing';
 import { StorageService } from '../../storage/storage.service';
+import { storageKey } from '../../storage/storage.constants';
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -48,7 +48,7 @@ export class StudentPhotoService {
     const processed = await processStudentPhoto(file.buffer);
 
     const previousKey = student.photo_key;
-    const key = `student-photos/${randomUUID()}.${processed.ext}`;
+    const key = storageKey.studentPhoto(processed.ext);
     await this.storage.putObject(key, processed.buffer, processed.contentType);
 
     student.photo_key = key;
