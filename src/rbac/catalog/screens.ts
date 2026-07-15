@@ -238,11 +238,13 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
 
   // --- Corporate Relations -----------------------------------------------
   //
-  // Placement / corporate-relations desk. Two web-only screens with no
-  // per-attribute scope: a placement officer manages the whole company
-  // catalog, and the "Companies" list is filtered to the officer's own
-  // assignments server-side from the token's employee id (not via an RBAC
-  // attribute). Screens are placeholders — the real pages ship later.
+  // Placement / corporate-relations desk. Web-only screens with no
+  // per-attribute scope: a placement manager configures the classifier lookups
+  // and manages the whole company catalog, while the "Companies" list is
+  // filtered to the officer's own assignments server-side from the token's
+  // employee id (not via an RBAC attribute). The `record` action gates writing
+  // CRM activity (interactions, milestones, contacts) — the officer can record
+  // on their assigned companies but cannot edit the company master fields.
   {
     key: 'corporate_relations.company_management.manage',
     module_key: 'corporate_relations',
@@ -251,7 +253,7 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     label: 'Company Management',
     description: 'Add, edit, activate/deactivate companies and assign employees.',
     web_route: '/corporate-relations/company-management',
-    actions: ['view', 'create', 'edit', 'activate', 'assign'],
+    actions: ['view', 'create', 'edit', 'activate', 'assign', 'record'],
     attributes: [],
   },
   {
@@ -260,9 +262,21 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     role_type_keys: ['placement'],
     platforms: ['web'],
     label: 'Companies',
-    description: 'View the companies assigned to you.',
+    description: 'View your assigned companies and record interactions.',
     web_route: '/corporate-relations/companies',
-    actions: ['view'],
+    actions: ['view', 'record'],
+    attributes: [],
+  },
+  {
+    key: 'corporate_relations.company_attributes.manage',
+    module_key: 'corporate_relations',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Company Attributes',
+    description:
+      'Configure company classifiers: category, industry, type, size, source, hiring modes, roles and tags.',
+    web_route: '/corporate-relations/company-attributes',
+    actions: ['view', 'create', 'edit', 'activate'],
     attributes: [],
   },
 ];

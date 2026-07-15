@@ -6,6 +6,7 @@ import { EmployeeAuthModule } from './auth/employee-auth.module';
 import { EmployeeBirthdaysModule } from './birthdays/employee-birthdays.module';
 import { CashierModule } from './cashier/cashier.module';
 import { EmployeeCommonModule } from './common/employee-common.module';
+import { CorporateRelationsModule } from './corporate-relations/corporate-relations.module';
 import { ExamCellModule } from './exam-cell/exam-cell.module';
 import { HodModule } from './hod/hod.module';
 import { EmployeeIdCardModule } from './id-card/employee-id-card.module';
@@ -40,6 +41,7 @@ import { TeacherModule } from './teacher/teacher.module';
     CashierModule,
     AttendanceInchargeModule,
     SecurityVerifyModule,
+    CorporateRelationsModule,
   ],
   exports: [EmployeeAuthModule],
 })
