@@ -8,6 +8,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { CreateProgrammeAdmissionYearDto } from '../dto/create-programme-admission-year.dto';
 import { ListProgrammeAdmissionYearsDto } from '../dto/list-programme-admission-years.dto';
+import { SetProfileVerifiersDto } from '../dto/set-profile-verifiers.dto';
 import { UpdateProgrammeAdmissionYearDto } from '../dto/update-programme-admission-year.dto';
 import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
 import {
@@ -109,5 +111,28 @@ export class ProgrammeAdmissionYearsController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<ProgrammeAdmissionYear> {
     return this.links.setActive(id, false);
+  }
+
+  @Get(':id/profile-verifiers')
+  @ApiOperation({
+    summary:
+      "List the employees who verify this batch's students' profile details.",
+  })
+  getProfileVerifiers(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
+    return this.links.getProfileVerifiers(id);
+  }
+
+  @Put(':id/profile-verifiers')
+  @ApiOperation({
+    summary:
+      "Replace the batch's profile verifiers with the given set of employees.",
+  })
+  setProfileVerifiers(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetProfileVerifiersDto,
+  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
+    return this.links.setProfileVerifiers(id, dto.profile_verifier_employee_ids);
   }
 }

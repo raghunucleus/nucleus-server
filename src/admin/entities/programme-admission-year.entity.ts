@@ -4,12 +4,14 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { AdmissionYear } from './admission-year.entity';
 import { Programme } from './programme.entity';
+import { ProgrammeAdmissionYearProfileVerifier } from './programme-admission-year-profile-verifier.entity';
 import { Regulation } from './regulation.entity';
 
 @Entity({ name: 'programme_admission_years' })
@@ -48,6 +50,14 @@ export class ProgrammeAdmissionYear {
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
+
+  // Employees who verify the details of this batch's students. Managed via the
+  // profile-verifiers endpoints, not through create/update of the batch itself.
+  @OneToMany(
+    () => ProgrammeAdmissionYearProfileVerifier,
+    (v) => v.programme_admission_year,
+  )
+  profile_verifiers: ProgrammeAdmissionYearProfileVerifier[];
 
   @CreateDateColumn()
   created_at: Date;

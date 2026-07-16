@@ -5,11 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import type { ProgrammeAdmissionYearsSortField } from '../dto/list-programme-admission-years.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
+import { Employee } from '../entities/employee.entity';
 import { Programme } from '../entities/programme.entity';
 import { ProgrammeAdmissionYear } from '../entities/programme-admission-year.entity';
+import { ProgrammeAdmissionYearProfileVerifier } from '../entities/programme-admission-year-profile-verifier.entity';
 import { Regulation } from '../entities/regulation.entity';
 
 export interface ListProgrammeAdmissionYearsResult {
@@ -50,6 +52,11 @@ export class ProgrammeAdmissionYearsService {
     private readonly admissionYears: Repository<AdmissionYear>,
     @InjectRepository(Regulation)
     private readonly regulations: Repository<Regulation>,
+    @InjectRepository(Employee)
+    private readonly employees: Repository<Employee>,
+    @InjectRepository(ProgrammeAdmissionYearProfileVerifier)
+    private readonly profileVerifiers: Repository<ProgrammeAdmissionYearProfileVerifier>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async list(opts: {
@@ -193,6 +200,64 @@ export class ProgrammeAdmissionYearsService {
     row.is_active = active;
     await this.links.save(row);
     return this.getOne(id);
+  }
+
+  // Profile verifiers — the employees who verify this batch's students'
+  // details. Stored as join rows; a batch can have several.
+  async getProfileVerifiers(
+    payId: number,
+  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
+    await this.getOne(payId); // 404 if the batch doesn't exist
+    const rows = await this.profileVerifiers
+      .createQueryBuilder('v')
+      .leftJoin('v.employee', 'e')
+      .addSelect(['e.id', 'e.emp_code', 'e.emp_display_name'])
+      .where('v.programme_admission_year_id = :payId', { payId })
+      .orderBy('e.emp_display_name', 'ASC')
+      .getMany();
+    return rows.map((r) => ({
+      id: r.employee.id,
+      emp_code: r.employee.emp_code,
+      emp_display_name: r.employee.emp_display_name,
+    }));
+  }
+
+  async setProfileVerifiers(
+    payId: number,
+    employeeIds: number[],
+  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
+    await this.getOne(payId); // 404 if the batch doesn't exist
+    await this.assertEmployeesExist(employeeIds);
+    await this.dataSource.transaction(async (tx) => {
+      const repo = tx.getRepository(ProgrammeAdmissionYearProfileVerifier);
+      // Replace the verifier set: clear the existing links, re-insert the
+      // requested ones. Nothing references join-row ids, so a wholesale swap
+      // is safe and keeps the logic trivial.
+      await repo.delete({ programme_admission_year_id: payId });
+      await repo.save(
+        employeeIds.map((eid) =>
+          repo.create({
+            programme_admission_year_id: payId,
+            employee_id: eid,
+          }),
+        ),
+      );
+    });
+    return this.getProfileVerifiers(payId);
+  }
+
+  private async assertEmployeesExist(employeeIds: number[]): Promise<void> {
+    const found = await this.employees.find({
+      where: { id: In(employeeIds) },
+      select: { id: true },
+    });
+    const foundIds = new Set(found.map((e) => e.id));
+    const missing = employeeIds.filter((id) => !foundIds.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `Selected profile verifier employee(s) do not exist: ${missing.join(', ')}`,
+      );
+    }
   }
 
   private async assertReferencesExist(

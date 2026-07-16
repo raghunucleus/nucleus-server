@@ -50,6 +50,7 @@ import { Employee } from './entities/employee.entity';
 import { InstitutionSetting } from './entities/institution-setting.entity';
 import { Programme } from './entities/programme.entity';
 import { ProgrammeAdmissionYear } from './entities/programme-admission-year.entity';
+import { ProgrammeAdmissionYearProfileVerifier } from './entities/programme-admission-year-profile-verifier.entity';
 import { ProgrammeSemester } from './entities/programme-semester.entity';
 import { ProgrammeSemesterSubject } from './entities/programme-semester-subject.entity';
 import { ProgrammeSemesterSubjectGroupFaculty } from './entities/programme-semester-subject-group-faculty.entity';
@@ -125,6 +126,7 @@ import { AdminUsersService } from './users/admin-users.service';
       InstitutionSetting,
       Programme,
       ProgrammeAdmissionYear,
+      ProgrammeAdmissionYearProfileVerifier,
       ProgrammeSemester,
       ProgrammeSemesterSubject,
       ProgrammeSemesterSubjectGroupFaculty,
