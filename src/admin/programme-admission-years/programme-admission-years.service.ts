@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { PermissionsService } from '../../rbac/permissions.service';
 import type { ProgrammeAdmissionYearsSortField } from '../dto/list-programme-admission-years.dto';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { Employee } from '../entities/employee.entity';
@@ -57,6 +58,7 @@ export class ProgrammeAdmissionYearsService {
     @InjectRepository(ProgrammeAdmissionYearProfileVerifier)
     private readonly profileVerifiers: Repository<ProgrammeAdmissionYearProfileVerifier>,
     private readonly dataSource: DataSource,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async list(opts: {
@@ -228,6 +230,12 @@ export class ProgrammeAdmissionYearsService {
   ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
     await this.getOne(payId); // 404 if the batch doesn't exist
     await this.assertEmployeesExist(employeeIds);
+    // Capture the outgoing set BEFORE the transactional swap deletes it — the
+    // removed employees' RBAC caches need busting too, not just the added ones.
+    const before = await this.profileVerifiers.find({
+      where: { programme_admission_year_id: payId },
+      select: { employee_id: true },
+    });
     await this.dataSource.transaction(async (tx) => {
       const repo = tx.getRepository(ProgrammeAdmissionYearProfileVerifier);
       // Replace the verifier set: clear the existing links, re-insert the
@@ -243,6 +251,17 @@ export class ProgrammeAdmissionYearsService {
         ),
       );
     });
+    // The employee Approvals screen is DERIVED from verifier membership
+    // (PermissionsService.deriveRequestScreens) and the derivation result is
+    // cached — bust old ∪ new so the change takes effect immediately rather
+    // than after the cache TTL.
+    const affected = new Set<number>([
+      ...before.map((b) => b.employee_id),
+      ...employeeIds,
+    ]);
+    await Promise.all(
+      [...affected].map((id) => this.permissions.invalidate(id)),
+    );
     return this.getProfileVerifiers(payId);
   }
 

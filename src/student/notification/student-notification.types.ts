@@ -28,6 +28,7 @@ export type StudentNotificationModuleKey =
   | 'birthdays'
   | 'id-card'
   | 'profile'
+  | 'requests'
   | 'announcements';
 
 /**

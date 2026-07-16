@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Redis } from 'ioredis';
 import { In, Repository } from 'typeorm';
+import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { isWildcardAll } from './catalog';
 import { CatalogService } from './catalog.service';
@@ -105,6 +106,8 @@ export class PermissionsService {
     private readonly assignments: Repository<RoleAssignment>,
     @InjectRepository(RoleAssignmentAttribute)
     private readonly assignmentAttributes: Repository<RoleAssignmentAttribute>,
+    @InjectRepository(ProgrammeAdmissionYearProfileVerifier)
+    private readonly profileVerifiers: Repository<ProgrammeAdmissionYearProfileVerifier>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly catalog: CatalogService,
   ) {}
@@ -290,7 +293,12 @@ export class PermissionsService {
     });
 
     if (activeAssignments.length === 0) {
-      return { employee_id: employeeId, screens: {} };
+      // No role — but derived screens (Requests) don't come from roles, so
+      // they must still be attached. Early-returning bare screens here would
+      // silently drop them for role-less employees.
+      const screens: CachedAccess['screens'] = {};
+      await this.deriveRequestScreens(employeeId, screens);
+      return { employee_id: employeeId, screens };
     }
 
     const assignmentIds = activeAssignments.map((a) => a.id);
@@ -428,7 +436,61 @@ export class PermissionsService {
       }
     }
 
+    await this.deriveRequestScreens(employeeId, screens);
+
     return { employee_id: employeeId, screens };
+  }
+
+  /**
+   * Derived "Requests" screens — attached in the COMPUTE (cache-miss) path,
+   * unlike {@link deriveStudentMarksView} which is pure in-memory in hydrate():
+   * the Approvals grant needs a DB EXISTS against the profile-verifier table,
+   * so the result must land in the cached blob. Freshness: `setProfileVerifiers`
+   * invalidates affected employees' cache; the 5-minute TTL is the backstop.
+   *
+   *   - `requests.mine.view` — every employee, unconditionally (own
+   *     submissions, self-scoped by the token's employee id).
+   *   - `requests.approvals.review` — employees who verify at least one
+   *     batch. No attributes: the verifier table itself scopes every query.
+   *
+   * Derived actions are UNIONed into an existing slot rather than skipped.
+   * The catalog says these screens are derived-only, but a stale explicit
+   * `role_screens` grant can still exist (seed data does this), and a grant
+   * written before a new action shipped would otherwise shadow the derived set
+   * forever — not just until the cache TTL. That is what makes a verifier's
+   * `send_back` 403 even though being a verifier IS the grant. Union never
+   * removes an explicitly granted action; row scope is unaffected either way,
+   * since every approvals query INNER JOINs the verifier table regardless.
+   */
+  private async deriveRequestScreens(
+    employeeId: number,
+    screens: CachedAccess['screens'],
+  ): Promise<void> {
+    const grant = (
+      key: string,
+      actions: string[],
+    ): void => {
+      const existing = screens[key];
+      if (!existing) {
+        screens[key] = { actions, attributes: {}, platforms: ['web', 'mobile'] };
+        return;
+      }
+      existing.actions = [...new Set([...existing.actions, ...actions])];
+    };
+
+    grant('requests.mine.view', ['view']);
+
+    const isVerifier = await this.profileVerifiers.exists({
+      where: { employee_id: employeeId },
+    });
+    if (isVerifier) {
+      grant('requests.approvals.review', [
+        'view',
+        'approve',
+        'reject',
+        'send_back',
+      ]);
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
+import { RequestsModule } from './requests/requests.module';
 import { StorageModule } from './storage/storage.module';
 import { StudentModule } from './student/student.module';
 import { StudentNotificationModule } from './student/notification/student-notification.module';
@@ -95,6 +96,7 @@ import { StudentNotificationModule } from './student/notification/student-notifi
     GuardianModule,
     EmployeeModule,
     RbacModule,
+    RequestsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

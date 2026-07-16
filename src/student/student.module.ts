@@ -11,6 +11,7 @@ import { StudentCgpa } from '../employee/exam-marks/entities/student-cgpa.entity
 import { StudentExamResult } from '../employee/exam-marks/entities/student-exam-result.entity';
 import { StudentSemesterGpa } from '../employee/exam-marks/entities/student-semester-gpa.entity';
 import { HolidaysReadModule } from '../holidays/holidays-read.module';
+import { RequestsModule } from '../requests/requests.module';
 import { SecurityPassModule } from '../security-pass/security-pass.module';
 import { ChatModule } from './chat/chat.module';
 import { RequirePasswordChangedGuard } from './auth/require-password-changed.guard';
@@ -24,6 +25,8 @@ import { StudentIdCardController } from './id-card/student-id-card.controller';
 import { StudentIdCardService } from './id-card/student-id-card.service';
 import { StudentExamResultsController } from './exam-results/student-exam-results.controller';
 import { StudentExamResultsService } from './exam-results/student-exam-results.service';
+import { ProfileUpdateRequestController } from './profile/profile-update-request.controller';
+import { ProfileUpdateRequestService } from './profile/profile-update-request.service';
 import { StudentPhotoController } from './profile/student-photo.controller';
 import { StudentPhotoService } from './profile/student-photo.service';
 import { StudentProfileController } from './profile/student-profile.controller';
@@ -51,6 +54,9 @@ import { StudentAuthService } from './student-auth.service';
     ChatModule,
     HolidaysReadModule,
     SecurityPassModule,
+    // The profile-update request type plugs into the approval-requests
+    // framework: this module owns the fields, the framework owns the lifecycle.
+    RequestsModule,
   ],
   controllers: [
     StudentAuthController,
@@ -61,6 +67,7 @@ import { StudentAuthService } from './student-auth.service';
     StudentExamResultsController,
     StudentProfileController,
     StudentPhotoController,
+    ProfileUpdateRequestController,
   ],
   providers: [
     StudentAuthService,
@@ -73,6 +80,7 @@ import { StudentAuthService } from './student-auth.service';
     StudentExamResultsService,
     StudentProfileService,
     StudentPhotoService,
+    ProfileUpdateRequestService,
   ],
   exports: [
     StudentAuthService,

@@ -7,6 +7,7 @@ import { Admin } from '../admin/entities/admin.entity';
 import { JwtStrategy } from '../admin/auth/jwt.strategy';
 import { RequireTotpEnrolledGuard } from '../admin/auth/require-totp-enrolled.guard';
 import { Employee } from '../admin/entities/employee.entity';
+import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
 import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
 import { RbacAdminController } from './admin/rbac-admin.controller';
 import { RbacAdminService } from './admin/rbac-admin.service';
@@ -38,6 +39,9 @@ import { ScreenAccessGuard } from './screen-access.guard';
       RoleAssignmentAttribute,
       Employee,
       Admin,
+      // The Requests screens are derived from profile-verifier membership —
+      // see PermissionsService.deriveRequestScreens.
+      ProgrammeAdmissionYearProfileVerifier,
     ]),
     ConfigModule,
     PassportModule,

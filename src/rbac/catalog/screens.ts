@@ -281,4 +281,41 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     actions: ['view', 'create', 'edit', 'activate'],
     attributes: [],
   },
+
+  // --- Requests ------------------------------------------------------------
+  //
+  // The generic approval-requests framework. BOTH screens are DERIVED, never
+  // assigned via roles (see PermissionsService.deriveRequestScreens):
+  //   - Approvals is synthesised for employees who are profile verifiers of at
+  //     least one batch (programme_admission_year_profile_verifiers) — being a
+  //     verifier IS the grant, and every query joins that table for row scope,
+  //     so there is no per-attribute scope here.
+  //   - My Requests is synthesised for every employee (their own submissions;
+  //     self-scoped by the token's employee id).
+  {
+    key: 'requests.approvals.review',
+    module_key: 'requests',
+    role_type_keys: ['employee'],
+    platforms: ['web', 'mobile'],
+    label: 'Approvals',
+    description:
+      'Review requests awaiting your decision — e.g. profile updates from students of batches you verify. Derived from profile-verifier membership; do not assign via roles.',
+    web_route: '/requests/approvals',
+    mobile_route: '/approvals',
+    actions: ['view', 'approve', 'reject', 'send_back'],
+    attributes: [],
+  },
+  {
+    key: 'requests.mine.view',
+    module_key: 'requests',
+    role_type_keys: ['employee'],
+    platforms: ['web', 'mobile'],
+    label: 'My Requests',
+    description:
+      'Requests you submitted and their approval status. Granted automatically to every employee; do not assign via roles.',
+    web_route: '/requests/mine',
+    mobile_route: '/my-requests',
+    actions: ['view'],
+    attributes: [],
+  },
 ];

@@ -83,6 +83,7 @@ import { SemestersController } from './semesters/semesters.controller';
 import { SemestersService } from './semesters/semesters.service';
 import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
 import { GuardianModule } from '../guardian/guardian.module';
+import { RbacModule } from '../rbac/rbac.module';
 import { StudentGuardian } from '../guardian/entities/student-guardian.entity';
 import { GuardiansController } from './guardians/guardians.controller';
 import { GuardiansService } from './guardians/guardians.service';
@@ -155,6 +156,9 @@ import { AdminUsersService } from './users/admin-users.service';
     StudentModule,
     GuardianModule,
     EmployeeAuthModule,
+    // PermissionsService — programme-admission-years invalidates verifier
+    // employees' cached access when their profile-verifier set changes.
+    RbacModule,
   ],
   controllers: [
     AdminController,

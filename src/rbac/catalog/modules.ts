@@ -42,6 +42,12 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     icon: 'Briefcase',
     order: 60,
   },
+  {
+    key: 'requests',
+    label: 'Requests',
+    icon: 'ClipboardList',
+    order: 70,
+  },
 
   // {
   //   key: 'academics',
