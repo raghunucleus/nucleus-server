@@ -23,16 +23,32 @@ import { JwtStrategy } from './auth/jwt.strategy';
 import { MasterAdminGuard } from './auth/master-admin.guard';
 import { RequireTotpEnrolledGuard } from './auth/require-totp-enrolled.guard';
 import { TotpService } from './auth/totp.service';
+import { CountriesController } from './countries/countries.controller';
+import { CountriesService } from './countries/countries.service';
 import { DegreesController } from './degrees/degrees.controller';
 import { DegreesService } from './degrees/degrees.service';
 import { DepartmentsController } from './departments/departments.controller';
 import { DepartmentsService } from './departments/departments.service';
 import { DesignationsController } from './designations/designations.controller';
 import { DesignationsService } from './designations/designations.service';
+import { DiplomaBoardsController } from './diploma-boards/diploma-boards.controller';
+import { DiplomaBoardsService } from './diploma-boards/diploma-boards.service';
+import { DistrictsController } from './districts/districts.controller';
+import { DistrictsService } from './districts/districts.service';
 import { EmployeesController } from './employees/employees.controller';
 import { EmployeesService } from './employees/employees.service';
+import { EntranceExamsController } from './entrance-exams/entrance-exams.controller';
+import { EntranceExamsService } from './entrance-exams/entrance-exams.service';
+import { IndustryCertificationsController } from './industry-certifications/industry-certifications.controller';
+import { IndustryCertificationsService } from './industry-certifications/industry-certifications.service';
 import { InstitutionSettingsController } from './institution-settings/institution-settings.controller';
 import { InstitutionSettingsService } from './institution-settings/institution-settings.service';
+import { SchoolBoardsXController } from './school-boards-x/school-boards-x.controller';
+import { SchoolBoardsXService } from './school-boards-x/school-boards-x.service';
+import { SchoolBoardsXiiController } from './school-boards-xii/school-boards-xii.controller';
+import { SchoolBoardsXiiService } from './school-boards-xii/school-boards-xii.service';
+import { StatesController } from './states/states.controller';
+import { StatesService } from './states/states.service';
 import { AcademicHoliday } from './entities/academic-holiday.entity';
 import { AdminRecoveryCode } from './entities/admin-recovery-code.entity';
 import { Admin } from './entities/admin.entity';
@@ -43,10 +59,15 @@ import { AttendanceGroupIncharge } from './entities/attendance-group-incharge.en
 import { ClassSession } from './entities/class-session.entity';
 import { ClassSessionAttendance } from './entities/class-session-attendance.entity';
 import { ClassSessionAuditLog } from './entities/class-session-audit-log.entity';
+import { Country } from './entities/country.entity';
 import { Degree } from './entities/degree.entity';
 import { Department } from './entities/department.entity';
 import { Designation } from './entities/designation.entity';
+import { DiplomaBoard } from './entities/diploma-board.entity';
+import { District } from './entities/district.entity';
 import { Employee } from './entities/employee.entity';
+import { EntranceExam } from './entities/entrance-exam.entity';
+import { IndustryCertification } from './entities/industry-certification.entity';
 import { InstitutionSetting } from './entities/institution-setting.entity';
 import { Programme } from './entities/programme.entity';
 import { ProgrammeAdmissionYear } from './entities/programme-admission-year.entity';
@@ -58,7 +79,10 @@ import { ProgrammeSemesterSubjectOption } from './entities/programme-semester-su
 import { ProgrammeSemesterSubjectOptionFaculty } from './entities/programme-semester-subject-option-faculty.entity';
 import { ProgrammeSemesterSubjectOptionStudent } from './entities/programme-semester-subject-option-student.entity';
 import { Regulation } from './entities/regulation.entity';
+import { SchoolBoardX } from './entities/school-board-x.entity';
+import { SchoolBoardXii } from './entities/school-board-xii.entity';
 import { Semester } from './entities/semester.entity';
+import { State } from './entities/state.entity';
 import { Subject } from './entities/subject.entity';
 import { Timetable } from './entities/timetable.entity';
 import { TimetableCourse } from './entities/timetable-course.entity';
@@ -120,10 +144,15 @@ import { AdminUsersService } from './users/admin-users.service';
       ClassSession,
       ClassSessionAttendance,
       ClassSessionAuditLog,
+      Country,
       Degree,
       Department,
       Designation,
+      DiplomaBoard,
+      District,
       Employee,
+      EntranceExam,
+      IndustryCertification,
       InstitutionSetting,
       Programme,
       ProgrammeAdmissionYear,
@@ -135,7 +164,10 @@ import { AdminUsersService } from './users/admin-users.service';
       ProgrammeSemesterSubjectOptionFaculty,
       ProgrammeSemesterSubjectOptionStudent,
       Regulation,
+      SchoolBoardX,
+      SchoolBoardXii,
       Semester,
+      State,
       Student,
       StudentGuardian,
       StudentGroup,
@@ -164,10 +196,18 @@ import { AdminUsersService } from './users/admin-users.service';
     AdminController,
     MigrationsController,
     AdminUsersController,
+    CountriesController,
     DegreesController,
     DepartmentsController,
     DesignationsController,
+    DistrictsController,
+    StatesController,
     EmployeesController,
+    EntranceExamsController,
+    IndustryCertificationsController,
+    SchoolBoardsXController,
+    SchoolBoardsXiiController,
+    DiplomaBoardsController,
     InstitutionSettingsController,
     AdmissionYearsController,
     AttendanceGroupsController,
@@ -191,10 +231,18 @@ import { AdminUsersService } from './users/admin-users.service';
   providers: [
     AdminService,
     AdminUsersService,
+    CountriesService,
     DegreesService,
     DepartmentsService,
     DesignationsService,
+    DistrictsService,
+    StatesService,
     EmployeesService,
+    EntranceExamsService,
+    IndustryCertificationsService,
+    SchoolBoardsXService,
+    SchoolBoardsXiiService,
+    DiplomaBoardsService,
     InstitutionSettingsService,
     AdmissionYearsService,
     AttendanceGroupsService,
