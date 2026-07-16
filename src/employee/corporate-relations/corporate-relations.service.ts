@@ -51,10 +51,22 @@ import {
   UpdateInteractionDto,
 } from './dto/activity.dto';
 import {
+  COMPANY_SORT_FIELDS,
   CompanyListQueryDto,
   CreateCompanyDto,
   UpdateCompanyDto,
 } from './dto/company.dto';
+
+/** Maps whitelisted sort keys to their DISTINCT-safe scalar column on `c`. */
+const COMPANY_SORT_COLUMN: Record<(typeof COMPANY_SORT_FIELDS)[number], string> =
+  {
+    name: 'c.name',
+    tier: 'c.tier',
+    relationship_status: 'c.relationship_status',
+    package: 'c.package_max',
+    last_engaged_on: 'c.last_engaged_on',
+    updated_at: 'c.updated_at',
+  };
 
 /** All company relations loaded for the detail view. */
 const COMPANY_DETAIL_RELATIONS = {
@@ -298,13 +310,17 @@ export class CorporateRelationsService {
     const total = Number(totalRaw?.cnt ?? 0);
 
     // Distinct, ordered page of ids. DISTINCT + ORDER BY requires the ordering
-    // column in the select list; updated_at is 1:1 per company so it's safe.
+    // column in the select list; every sortable column is 1:1 per company so
+    // it's safe. `c.id` is a stable tiebreaker so pagination never drifts.
+    const sortCol = COMPANY_SORT_COLUMN[query.sort_by];
+    const sortDir = query.sort_dir === 'asc' ? 'ASC' : 'DESC';
     const idRows = await qb
       .clone()
       .select('c.id', 'id')
-      .addSelect('c.updated_at', 'updated_at')
+      .addSelect(sortCol, 'sort_val')
       .distinct(true)
-      .orderBy('c.updated_at', 'DESC')
+      .orderBy(sortCol, sortDir, 'NULLS LAST')
+      .addOrderBy('c.id', 'ASC')
       .offset((query.page - 1) * query.limit)
       .limit(query.limit)
       .getRawMany<{ id: number }>();

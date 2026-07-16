@@ -107,6 +107,16 @@ const boolFlag = z.preprocess(
   z.boolean().optional(),
 );
 
+/** Columns the client may sort the company list by (whitelist). */
+export const COMPANY_SORT_FIELDS = [
+  'name',
+  'tier',
+  'relationship_status',
+  'package',
+  'last_engaged_on',
+  'updated_at',
+] as const;
+
 /** Filters for the manager company list (all multi-select where sensible). */
 export const CompanyListQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
@@ -128,6 +138,8 @@ export const CompanyListQuerySchema = z.object({
   responsible_employee_ids: csvIntArray,
   offers_internships: boolFlag,
   offers_ppo: boolFlag,
+  sort_by: z.enum(COMPANY_SORT_FIELDS).default('updated_at'),
+  sort_dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
