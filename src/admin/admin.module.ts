@@ -116,7 +116,9 @@ import { StudentGroup } from './entities/student-group.entity';
 import { StudentGroupHistory } from './entities/student-group-history.entity';
 import { StudentSubjectAttendance } from './entities/student-subject-attendance.entity';
 import { StudentModule } from '../student/student.module';
+import { StudentQueryModule } from '../student-query/student-query.module';
 import { StudentsController } from './students/students.controller';
+import { StudentsSearchController } from './students/students-search.controller';
 import { StudentsService } from './students/students.service';
 import { SubjectType } from './entities/subject-type.entity';
 import { SubjectTypeMarkStructure } from './entities/subject-type-mark-structure.entity';
@@ -191,6 +193,8 @@ import { AdminUsersService } from './users/admin-users.service';
     // PermissionsService — programme-admission-years invalidates verifier
     // employees' cached access when their profile-verifier set changes.
     RbacModule,
+    // Shared student search engine (POST /admin/students/search).
+    StudentQueryModule,
   ],
   controllers: [
     AdminController,
@@ -221,6 +225,9 @@ import { AdminUsersService } from './users/admin-users.service';
     ProgrammeSemesterSubjectsController,
     SlotEnrollmentsController,
     RegulationsController,
+    // Before StudentsController so the literal 'search' routes are never
+    // shadowed by its parameterized 'admin/students/:id'.
+    StudentsSearchController,
     StudentsController,
     GuardiansController,
     SubjectsController,

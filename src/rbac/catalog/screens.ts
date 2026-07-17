@@ -217,6 +217,59 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     ],
   },
 
+  // --- Students ----------------------------------------------------------
+  {
+    // Student directory — registry-driven search/filter/export over the
+    // student list (POST /employee/students/search). The four attributes are
+    // resolved independently via the PermissionsService accessible-ids
+    // helpers and INTERSECTED by the query engine: an HOD gets a department,
+    // a class teacher gets sections, a placement cell wildcards everything.
+    key: 'students.directory.view',
+    module_key: 'students',
+    role_type_keys: ['employee', 'teacher', 'placement'],
+    platforms: ['web'],
+    label: 'Student directory',
+    description:
+      'Search, filter and export students within your assigned departments, ' +
+      'programmes, admission years and sections.',
+    web_route: '/students/directory',
+    actions: ['view'],
+    attributes: [
+      {
+        key: 'department_id',
+        type: 'ref:department',
+        label: 'Departments',
+        required: false,
+        multi: true,
+        allow_all: true,
+      },
+      {
+        key: 'programme_ids',
+        type: 'ref:programme',
+        label: 'Programmes',
+        required: false,
+        multi: true,
+        allow_all: true,
+      },
+      {
+        key: 'admission_year_ids',
+        type: 'ref:admission_year',
+        label: 'Admission years',
+        required: false,
+        multi: true,
+        allow_all: true,
+      },
+      {
+        key: 'attendance_group_ids',
+        type: 'ref:attendance_group',
+        label: 'Sections',
+        required: false,
+        multi: true,
+        allow_all: true,
+      },
+    ],
+  },
+
   // --- Security ----------------------------------------------------------
   //
   // Gate-verification screen for security guards: scan a student/employee

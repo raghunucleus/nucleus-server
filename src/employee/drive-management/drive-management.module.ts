@@ -1,13 +1,17 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RbacModule } from '../../rbac/rbac.module';
+import { StudentQueryModule } from '../../student-query/student-query.module';
 import { EmployeeAuthModule } from '../auth/employee-auth.module';
+import { ExportsModule } from '../exports/exports.module';
 import { AdmissionYear } from '../../admin/entities/admission-year.entity';
 import { Programme } from '../../admin/entities/programme.entity';
 import { Company } from '../corporate-relations/entities/company.entity';
 import { CompanyCategory } from '../corporate-relations/entities/company-lookups.entity';
 import { DriveAttributesController } from './drive-attributes.controller';
 import { DriveAttributesService } from './drive-attributes.service';
+import { DriveStudentsSearchController } from './drive-students-search.controller';
+import { DriveStudentsSearchService } from './drive-students-search.service';
 import { DrivesController } from './drives.controller';
 import { DrivesService } from './drives.service';
 import { Drive } from './entities/drive.entity';
@@ -49,8 +53,18 @@ import {
     ]),
     RbacModule,
     EmployeeAuthModule,
+    StudentQueryModule,
+    ExportsModule,
   ],
-  controllers: [DriveAttributesController, DrivesController],
-  providers: [DriveAttributesService, DrivesService],
+  controllers: [
+    DriveAttributesController,
+    DrivesController,
+    DriveStudentsSearchController,
+  ],
+  providers: [
+    DriveAttributesService,
+    DrivesService,
+    DriveStudentsSearchService,
+  ],
 })
 export class DriveManagementModule {}

@@ -48,6 +48,13 @@ export const STORAGE_PREFIX = {
    * stay grouped — both are useful when auditing a drive's files in the bucket.
    */
   drives: 'drives',
+  /**
+   * Async export files: `exports/<employeeId>/<uuid>.<ext>`. PRIVATE (presigned
+   * reads only) and SHORT-LIVED — each object expires 24h after the job
+   * finishes and the hourly export cleanup cron deletes it from the bucket.
+   * The employee id leads so one person's exports share a prefix.
+   */
+  exports: 'exports',
   // Placeholder — company attachments (`Company.file_key`) will live under
   // `companies/<id>/attachments/...` once a write path exists; add the prefix
   // and a `storageKey` builder here when it lands.
@@ -77,6 +84,9 @@ export const storageKey = {
     ext: string,
   ): string =>
     `${STORAGE_PREFIX.drives}/${driveId}/jd/${profileId}/${randomUUID()}.${ext}`,
+  /** `exports/<employeeId>/<uuid>.<ext>` */
+  exportFile: (employeeId: number, ext: 'csv' | 'xlsx'): string =>
+    `${STORAGE_PREFIX.exports}/${employeeId}/${randomUUID()}.${ext}`,
 } as const;
 
 /** True when `key` lives in the given student's own certificate folder. */

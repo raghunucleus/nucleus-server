@@ -31,6 +31,12 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     order: 40,
   },
   {
+    key: 'students',
+    label: 'Students',
+    icon: 'Users',
+    order: 45,
+  },
+  {
     key: 'security',
     label: 'Security',
     icon: 'ShieldCheck',
@@ -66,12 +72,6 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
   //   label: 'Examinations',
   //   icon: 'GraduationCap',
   //   order: 40,
-  // },
-  // {
-  //   key: 'students',
-  //   label: 'Students',
-  //   icon: 'Users',
-  //   order: 50,
   // },
   // {
   //   key: 'accounts',

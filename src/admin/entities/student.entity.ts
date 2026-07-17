@@ -58,6 +58,14 @@ export const ENTRY_TYPE_LABELS: Record<EntryType, string> = {
 @Index('IDX_students_admission_year_id', ['admission_year_id'])
 @Index('IDX_students_mobile_number', ['mobile_number'])
 @Index('IDX_students_pass_out_year', ['pass_out_year'])
+// Student-search engine hot paths (migration 1794500000000).
+@Index('IDX_students_ug_cgpa', ['ug_cgpa'])
+@Index('IDX_students_current_backlogs', ['current_backlogs'])
+@Index('IDX_students_display_name', ['display_name'])
+@Index('IDX_students_programme_id_admission_year_id', [
+  'programme_id',
+  'admission_year_id',
+])
 export class Student {
   @PrimaryGeneratedColumn()
   id: number;
@@ -359,12 +367,14 @@ export class Student {
   @JoinColumn({ name: 'diploma_state_id' })
   diploma_state: State | null;
 
-  // Placement flags. NULL = not set yet (distinct from an explicit No).
-  // allowed_by_dept_for_placements is ADMIN_ONLY — read-only to the student.
-  @Column({ type: 'boolean', nullable: true })
+  // Placement flags — default true (a student is assumed allowed by dept and
+  // interested until explicitly set otherwise). Still nullable so an admin can
+  // clear the value; allowed_by_dept_for_placements is ADMIN_ONLY (read-only to
+  // the student).
+  @Column({ type: 'boolean', nullable: true, default: true })
   allowed_by_dept_for_placements: boolean | null;
 
-  @Column({ type: 'boolean', nullable: true })
+  @Column({ type: 'boolean', nullable: true, default: true })
   interested_in_placements_self: boolean | null;
 
   @Column({ type: 'boolean', default: true })

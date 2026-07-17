@@ -32,7 +32,8 @@ export type EmployeeNotificationModuleKey =
   | 'id-card'
   | 'profile'
   | 'corporate-relations'
-  | 'announcements';
+  | 'announcements'
+  | 'exports';
 
 /** Every module key, in the order a preferences screen should list them. */
 export const EMPLOYEE_NOTIFICATION_MODULE_KEYS: readonly EmployeeNotificationModuleKey[] =
@@ -46,6 +47,7 @@ export const EMPLOYEE_NOTIFICATION_MODULE_KEYS: readonly EmployeeNotificationMod
     'profile',
     'corporate-relations',
     'announcements',
+    'exports',
   ] as const;
 
 /** Human labels for the preferences screen — the server owns the wording. */
@@ -62,6 +64,7 @@ export const EMPLOYEE_NOTIFICATION_MODULE_LABELS: Record<
   profile: 'Profile',
   'corporate-relations': 'Corporate relations',
   announcements: 'Announcements',
+  exports: 'Data exports',
 };
 
 /**
