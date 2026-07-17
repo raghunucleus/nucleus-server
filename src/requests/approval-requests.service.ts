@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ProgrammeAdmissionYear } from '../admin/entities/programme-admission-year.entity';
 import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
 import { Student } from '../admin/entities/student.entity';
+import { EmployeeNotificationService } from '../employee/notification/employee-notification.service';
 import { StudentNotificationService } from '../student/notification/student-notification.service';
 import { ApprovalRequestEvent } from './entities/approval-request-event.entity';
 import {
@@ -111,6 +113,8 @@ export interface EmployeeListApprovalsInput {
  */
 @Injectable()
 export class ApprovalRequestsService {
+  private readonly logger = new Logger('ApprovalRequestsService');
+
   constructor(
     @InjectRepository(ApprovalRequest)
     private readonly requests: Repository<ApprovalRequest>,
@@ -124,6 +128,7 @@ export class ApprovalRequestsService {
     private readonly profileVerifiers: Repository<ProgrammeAdmissionYearProfileVerifier>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly notifications: StudentNotificationService,
+    private readonly employeeNotifications: EmployeeNotificationService,
     private readonly registry: RequestTypeRegistry,
   ) {}
 
@@ -204,6 +209,10 @@ export class ApprovalRequestsService {
       );
       return row;
     });
+    // After commit only, and fire-and-forget — a rolled-back submit must not
+    // summon anyone, and a notification failure must never turn a saved request
+    // into a failed one for the student.
+    this.dispatchApproverNotification(saved, studentId, 'raised');
     return this.toRequesterView(saved);
   }
 
@@ -344,6 +353,9 @@ export class ApprovalRequestsService {
       row.decision_note = null;
       return row;
     });
+    // A resubmit puts the request back in the verifiers' queue, so it warrants
+    // the same nudge as a fresh one. Post-commit, fire-and-forget (see create).
+    this.dispatchApproverNotification(saved, studentId, 'resubmitted');
     return this.toRequesterView(saved);
   }
 
@@ -845,5 +857,81 @@ export class ApprovalRequestsService {
       body: copy.body,
       target: { type: 'request', id: request.id },
     });
+  }
+
+  /**
+   * Tell the request's approvers it is waiting on them. Detached on purpose:
+   * the request is already committed by the time this runs, so nothing here may
+   * reject into the student's submit.
+   */
+  private dispatchApproverNotification(
+    request: ApprovalRequest,
+    studentId: number,
+    kind: 'raised' | 'resubmitted',
+  ): void {
+    void this.notifyApprovers(request, studentId, kind).catch((err) =>
+      this.logger.error(
+        `Approver notification for request ${request.id} failed: ${String(err)}`,
+      ),
+    );
+  }
+
+  /**
+   * Copy is generic on purpose — same reasoning as {@link notifySentBack}.
+   * Nothing type-specific has happened yet (nobody has decided anything), so
+   * there is no handler hook, and the framework must not read into the opaque
+   * payload to count or name fields. The type's catalog label carries the
+   * meaning.
+   *
+   * Email is on: a request nobody has looked at is exactly the case where the
+   * inbox beats a badge someone has to go looking for.
+   */
+  private async notifyApprovers(
+    request: ApprovalRequest,
+    studentId: number,
+    kind: 'raised' | 'resubmitted',
+  ): Promise<void> {
+    const approverIds = await this.approverIdsFor(
+      request.programme_admission_year_id,
+    );
+    if (approverIds.length === 0) return;
+
+    const student = await this.students.findOne({ where: { id: studentId } });
+    if (!student) return;
+
+    const label = this.registry.get(request.request_type).catalog.label;
+    const lower = label.toLowerCase();
+    await this.employeeNotifications.send(
+      approverIds,
+      {
+        module: 'requests',
+        type: `${request.request_type}-${kind}`,
+        // Cased like the sibling requester-facing copy in `notifySentBack`
+        // ("<Label> request needs changes") so the whole module reads alike.
+        title:
+          kind === 'raised'
+            ? `New ${label} request to review`
+            : `${label} request resubmitted`,
+        body: `${student.display_name} (${student.student_id}) ${kind === 'raised' ? 'raised' : 'resubmitted'} a ${lower} request for your approval.`,
+        target: { type: 'request', id: request.id },
+      },
+      { email: true },
+    );
+  }
+
+  /**
+   * Just the employee ids of a batch's verifiers — the recipient list. Separate
+   * from {@link approversFor}, which joins designation/department for display
+   * that a notification fan-out has no use for.
+   */
+  private async approverIdsFor(
+    programmeAdmissionYearId: number | null,
+  ): Promise<number[]> {
+    if (programmeAdmissionYearId === null) return [];
+    const rows = await this.profileVerifiers.find({
+      where: { programme_admission_year_id: programmeAdmissionYearId },
+      select: { employee_id: true },
+    });
+    return rows.map((v) => v.employee_id);
   }
 }

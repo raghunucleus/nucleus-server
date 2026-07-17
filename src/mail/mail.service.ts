@@ -259,6 +259,51 @@ export class MailService {
   }
 
   /**
+   * The email channel of the employee notification system — one generic
+   * template for every module, driven entirely by the notification's own title
+   * and body. Sending modules write the copy once and it renders identically
+   * in-app, in the push tray and here.
+   *
+   * `url` is always the notification inbox rather than a per-target deep link:
+   * the server has no knowledge of client routes (clients own that registry),
+   * so the click-through lands on the one page that can resolve any
+   * notification.
+   */
+  async sendEmployeeNotification(params: {
+    to: string;
+    displayName: string;
+    title: string;
+    body: string;
+    url: string;
+  }): Promise<void> {
+    const text = [
+      `Hello ${params.displayName},`,
+      '',
+      params.title,
+      '',
+      params.body,
+      '',
+      `Open Nucleus: ${params.url}`,
+      '',
+      'You are receiving this because notifications are on for this module.',
+      'You can turn email off per module in Nucleus under Profile → Notifications.',
+    ].join('\n');
+
+    await this.send({
+      to: params.to,
+      subject: params.title,
+      text,
+      html: wrapHtml(
+        `<p>Hello ${escapeHtml(params.displayName)},</p>
+         <p style="font-weight:600;font-size:15px;margin:16px 0 4px">${escapeHtml(params.title)}</p>
+         <p style="margin:0 0 16px">${escapeHtml(params.body)}</p>
+         <p><a href="${escapeAttr(params.url)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Open in Nucleus</a></p>
+         <p style="color:#999;font-size:12px">You are receiving this because notifications are on for this module. You can turn email off per module under Profile → Notifications.</p>`,
+      ),
+    });
+  }
+
+  /**
    * Delivers a one-time code a guardian uses to set or reset their login
    * password (the self-service "forgot password" flow). The code is short-lived
    * and single-use; nothing actionable is exposed once it has expired or been

@@ -17,6 +17,7 @@ import { RedisModule } from './redis/redis.module';
 import { RequestsModule } from './requests/requests.module';
 import { StorageModule } from './storage/storage.module';
 import { StudentModule } from './student/student.module';
+import { EmployeeNotificationModule } from './employee/notification/employee-notification.module';
 import { StudentNotificationModule } from './student/notification/student-notification.module';
 
 @Module({
@@ -95,6 +96,7 @@ import { StudentNotificationModule } from './student/notification/student-notifi
     StudentNotificationModule,
     GuardianModule,
     EmployeeModule,
+    EmployeeNotificationModule,
     RbacModule,
     RequestsModule,
   ],
