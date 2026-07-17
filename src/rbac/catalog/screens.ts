@@ -283,6 +283,33 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     attributes: [],
   },
 
+  // --- Drive Management ----------------------------------------------------
+  //
+  // Placement drives. Web-only, with no per-attribute scope — a placement
+  // manager configures the drive classifier lookups for the whole institution.
+  {
+    key: 'drive_management.drive_attributes.manage',
+    module_key: 'drive_management',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Drive Attributes',
+    description: 'Configure the classifiers placement drives can be tagged with.',
+    web_route: '/drive-management/drive-attributes',
+    actions: ['view', 'create', 'edit', 'activate'],
+    attributes: [],
+  },
+  {
+    key: 'drive_management.drives.manage',
+    module_key: 'drive_management',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Drives',
+    description: 'Create and manage placement drives.',
+    web_route: '/drive-management/drives',
+    actions: ['view', 'create', 'edit', 'delete'],
+    attributes: [],
+  },
+
   // --- Requests ------------------------------------------------------------
   //
   // The generic approval-requests framework. BOTH screens are DERIVED, never

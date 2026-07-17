@@ -41,6 +41,13 @@ export const STORAGE_PREFIX = {
    * mints a fresh key without ever changing the link HRs were given.
    */
   studentResumes: 'resumes',
+  /**
+   * Drive JD attachments: `drives/<driveId>/jd/<profileId>/<uuid>.<ext>`.
+   * PRIVATE (presigned reads only). The drive id leads so every file for a drive
+   * shares a prefix, and the profile id nests under it so a designation's JDs
+   * stay grouped — both are useful when auditing a drive's files in the bucket.
+   */
+  drives: 'drives',
   // Placeholder — company attachments (`Company.file_key`) will live under
   // `companies/<id>/attachments/...` once a write path exists; add the prefix
   // and a `storageKey` builder here when it lands.
@@ -63,6 +70,13 @@ export const storageKey = {
   /** `resumes/<uuid>.pdf` */
   studentResume: (): string =>
     `${STORAGE_PREFIX.studentResumes}/${randomUUID()}.pdf`,
+  /** `drives/<driveId>/jd/<profileId>/<uuid>.<ext>` */
+  driveJdAttachment: (
+    driveId: number,
+    profileId: number,
+    ext: string,
+  ): string =>
+    `${STORAGE_PREFIX.drives}/${driveId}/jd/${profileId}/${randomUUID()}.${ext}`,
 } as const;
 
 /** True when `key` lives in the given student's own certificate folder. */

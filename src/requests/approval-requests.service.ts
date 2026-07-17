@@ -99,8 +99,19 @@ export interface PaginatedApprovals {
 export interface EmployeeListApprovalsInput {
   status: ApprovalRequestStatus | 'all';
   type?: ApprovalRequestType;
+  /** Inclusive local-date window on created_at (YYYY-MM-DD). */
+  from?: string;
+  to?: string;
+  sort: 'newest' | 'oldest';
   page: number;
   limit: number;
+}
+
+/** The day after a `YYYY-MM-DD` date, as `YYYY-MM-DD` (UTC math, date-only). */
+function nextDay(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -411,10 +422,18 @@ export class ApprovalRequestsService {
       qb.andWhere('r.status = :st', { st: q.status });
     }
     if (q.type) qb.andWhere('r.request_type = :ty', { ty: q.type });
+    if (q.from) qb.andWhere('r.created_at >= :from', { from: q.from });
+    // Inclusive end: everything before the day after `to` (covers `to` in full).
+    // The next-day bound is computed here to avoid a `::date` cast, which
+    // TypeORM's parameter parser can mistake for a `:date` named parameter.
+    if (q.to) {
+      qb.andWhere('r.created_at < :toExclusive', { toExclusive: nextDay(q.to) });
+    }
 
+    const dir = q.sort === 'oldest' ? 'ASC' : 'DESC';
     const [rows, total] = await qb
-      .orderBy('r.created_at', 'DESC')
-      .addOrderBy('r.id', 'DESC')
+      .orderBy('r.created_at', dir)
+      .addOrderBy('r.id', dir)
       .skip((q.page - 1) * q.limit)
       .take(q.limit)
       .getManyAndCount();

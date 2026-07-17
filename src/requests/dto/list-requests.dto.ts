@@ -26,6 +26,11 @@ export const EmployeeListApprovalsSchema = z
   .object({
     status: z.enum(APPROVAL_STATUS_FILTERS).default('pending'),
     type: z.enum(APPROVAL_REQUEST_TYPES).optional(),
+    // Inclusive local-date window on created_at (YYYY-MM-DD). The `to` day
+    // counts to its end — the service treats it as `< to + 1 day`.
+    from: z.string().date().optional(),
+    to: z.string().date().optional(),
+    sort: z.enum(['newest', 'oldest']).default('newest'),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })

@@ -43,6 +43,12 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     order: 60,
   },
   {
+    key: 'drive_management',
+    label: 'Drive Management',
+    icon: 'CalendarDays',
+    order: 65,
+  },
+  {
     key: 'requests',
     label: 'Requests',
     icon: 'ClipboardList',
