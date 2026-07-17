@@ -6,9 +6,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Hand-written (like the chat tables) so it touches only the two new tables and
  * uses the codebase's readable FK/index names rather than TypeORM hash defaults.
  */
-export class CreateStudentNotificationTables1781000000000
-  implements MigrationInterface
-{
+export class CreateStudentNotificationTables1781000000000 implements MigrationInterface {
   name = 'CreateStudentNotificationTables1781000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

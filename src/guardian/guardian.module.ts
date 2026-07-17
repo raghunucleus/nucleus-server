@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -14,6 +14,7 @@ import { GuardianOtp } from './entities/guardian-otp.entity';
 import { StudentGuardian } from './entities/student-guardian.entity';
 import { GuardianAuthController } from './guardian-auth.controller';
 import { GuardianAuthService } from './guardian-auth.service';
+import { GuardianSyncService } from './guardian-sync.service';
 import { GuardianAcademicsController } from './portal/guardian-academics.controller';
 import { GuardianLinkGuard } from './portal/guardian-link.guard';
 import { GuardianPortalService } from './portal/guardian-portal.service';
@@ -30,8 +31,10 @@ import { GuardianStudentsController } from './portal/guardian-students.controlle
     PassportModule.register({ defaultStrategy: 'guardian-jwt' }),
     JwtModule.register({}),
     // Reused, student-scoped read services (timetable/attendance, exam
-    // results) and the shared academic-calendar reads.
-    StudentModule,
+    // results) and the shared academic-calendar reads. forwardRef: the student
+    // module imports THIS module back for GuardianSyncService (profile updates
+    // mirror parent/guardian contacts into student_guardians).
+    forwardRef(() => StudentModule),
     HolidaysReadModule,
   ],
   controllers: [
@@ -41,6 +44,7 @@ import { GuardianStudentsController } from './portal/guardian-students.controlle
   ],
   providers: [
     GuardianAuthService,
+    GuardianSyncService,
     GuardianJwtStrategy,
     GuardianRequirePasswordChangedGuard,
     GuardianPortalService,
@@ -55,6 +59,6 @@ import { GuardianStudentsController } from './portal/guardian-students.controlle
       useFactory: (email: EmailOtpChannel) => [email],
     },
   ],
-  exports: [GuardianAuthService, GuardianPortalService],
+  exports: [GuardianAuthService, GuardianPortalService, GuardianSyncService],
 })
 export class GuardianModule {}

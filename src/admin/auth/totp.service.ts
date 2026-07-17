@@ -18,11 +18,20 @@ export class TotpService {
   }
 
   buildOtpauthUrl(secret: string, accountName: string, issuer: string): string {
-    return otpGenerateURI({ strategy: 'totp', issuer, label: accountName, secret });
+    return otpGenerateURI({
+      strategy: 'totp',
+      issuer,
+      label: accountName,
+      secret,
+    });
   }
 
   generateQrDataUrl(otpauthUrl: string): Promise<string> {
-    return qrcode.toDataURL(otpauthUrl, { errorCorrectionLevel: 'M', margin: 1, width: 240 });
+    return qrcode.toDataURL(otpauthUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 240,
+    });
   }
 
   async verifyToken(secret: string, token: string): Promise<boolean> {

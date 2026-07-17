@@ -62,9 +62,7 @@ export class StudentRequestsController {
     summary:
       "Count of the caller's own requests per status, across every type — drives the status chips.",
   })
-  counts(
-    @GetStudent() s: AuthenticatedStudent,
-  ): Promise<RequestStatusCounts> {
+  counts(@GetStudent() s: AuthenticatedStudent): Promise<RequestStatusCounts> {
     return this.requests.countsForStudent(s.id);
   }
 

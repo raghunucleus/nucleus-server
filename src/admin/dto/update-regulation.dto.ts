@@ -13,7 +13,10 @@ export const UpdateRegulationSchema = z
       .pipe(
         z
           .string()
-          .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+          .regex(
+            /^[A-Z0-9._-]+$/,
+            'Use letters, numbers, dot, underscore, or dash',
+          ),
       )
       .optional(),
     year_of_regulation: z.coerce.number().int().min(1900).max(2100).optional(),

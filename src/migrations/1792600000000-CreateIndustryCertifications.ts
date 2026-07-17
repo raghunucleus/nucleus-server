@@ -7,9 +7,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // Master list only: nothing references it yet, so there are no FKs in or out.
 // `code` is stored already-uppercased by the DTO, so plain UNIQUE is enough —
 // the service additionally pre-checks case-insensitively.
-export class CreateIndustryCertifications1792600000000
-  implements MigrationInterface
-{
+export class CreateIndustryCertifications1792600000000 implements MigrationInterface {
   name = 'CreateIndustryCertifications1792600000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

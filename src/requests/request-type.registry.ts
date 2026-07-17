@@ -128,6 +128,16 @@ export interface ApprovalRequestTypeHandler {
     status: DecidedStatus,
     note: string | null,
   ): { title: string; body: string };
+
+  /**
+   * Optional, view-only: decorate the payload just before a DETAIL view is
+   * returned (requester or approver) — e.g. attach short-lived presigned URLs
+   * to file references. Whatever this returns is rendered but NEVER persisted;
+   * throwing is treated as "no enrichment", never a failed request.
+   */
+  enrichPayloadForView?(
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
 }
 
 @Injectable()

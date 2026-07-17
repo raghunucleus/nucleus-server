@@ -29,8 +29,8 @@ import {
 // drive the "Published / Partial / Empty" badge; cancellations/completions
 // surface separately so the admin can spot a partial roll-out.
 export interface WeekSummary {
-  week_start: string;   // 'YYYY-MM-DD', a Monday
-  week_end: string;     // 'YYYY-MM-DD', the corresponding Sunday
+  week_start: string; // 'YYYY-MM-DD', a Monday
+  week_end: string; // 'YYYY-MM-DD', the corresponding Sunday
   scheduled: number;
   completed: number;
   cancelled: number;
@@ -138,7 +138,9 @@ export class TimetablesService {
       .leftJoinAndSelect('t.attendance_group', 'attendance_group')
       .leftJoinAndSelect('t.programme_semester', 'programme_semester');
     if (programmeSemesterId !== undefined) {
-      qb.andWhere('t.programme_semester_id = :psid', { psid: programmeSemesterId });
+      qb.andWhere('t.programme_semester_id = :psid', {
+        psid: programmeSemesterId,
+      });
     }
     if (attendanceGroupId !== undefined) {
       qb.andWhere('t.attendance_group_id = :agid', { agid: attendanceGroupId });
@@ -196,7 +198,9 @@ export class TimetablesService {
       where: { id: input.programme_semester_id },
     });
     if (!ps) {
-      throw new BadRequestException('Selected programme semester does not exist');
+      throw new BadRequestException(
+        'Selected programme semester does not exist',
+      );
     }
     const group = await this.attendanceGroups.findOne({
       where: { id: input.attendance_group_id },
@@ -257,7 +261,9 @@ export class TimetablesService {
         .createQueryBuilder()
         .update()
         .set({ is_default: false })
-        .where('programme_semester_id = :psid', { psid: tt.programme_semester_id })
+        .where('programme_semester_id = :psid', {
+          psid: tt.programme_semester_id,
+        })
         .andWhere('attendance_group_id = :gid', { gid: tt.attendance_group_id })
         .andWhere('is_default = TRUE')
         .execute();
@@ -337,7 +343,12 @@ export class TimetablesService {
     // Group-scoped sessions, including cross-group elective sessions whose
     // entry sits on one of this group's templates.
     const rows = await this.dataSource.query<
-      Array<{ session_date: string; status: string; timetable_id: number | null; timetable_name: string | null }>
+      Array<{
+        session_date: string;
+        status: string;
+        timetable_id: number | null;
+        timetable_name: string | null;
+      }>
     >(
       `SELECT
          cs.session_date::text AS session_date,
@@ -352,7 +363,12 @@ export class TimetablesService {
            cs.attendance_group_id = $1
            OR (cs.attendance_group_id IS NULL AND cs.programme_semester_id = $2 AND t.attendance_group_id = $1)
          )`,
-      [tt.attendance_group_id, tt.programme_semester_id, overallFrom, overallTo],
+      [
+        tt.attendance_group_id,
+        tt.programme_semester_id,
+        overallFrom,
+        overallTo,
+      ],
     );
 
     const out: WeekSummary[] = ranges.map((r) => ({
@@ -373,7 +389,8 @@ export class TimetablesService {
     >();
     for (const row of rows) {
       const bucket = out.find(
-        (b) => row.session_date >= b.week_start && row.session_date <= b.week_end,
+        (b) =>
+          row.session_date >= b.week_start && row.session_date <= b.week_end,
       );
       if (!bucket) continue;
       bucket.has_any = true;
@@ -554,9 +571,7 @@ export class TimetablesService {
       const existing = await periodRepo.find({ where: { timetable_id: id } });
       const existingIds = new Set(existing.map((p) => p.id));
       const keptIds = new Set(
-        incoming
-          .filter((p) => p.id !== undefined)
-          .map((p) => p.id as number),
+        incoming.filter((p) => p.id !== undefined).map((p) => p.id as number),
       );
 
       for (const p of incoming) {
@@ -703,7 +718,9 @@ export class TimetablesService {
     const nextSubjectId =
       patch.subject_id !== undefined ? patch.subject_id : course.subject_id;
     const nextLabel =
-      patch.custom_label !== undefined ? patch.custom_label : course.custom_label;
+      patch.custom_label !== undefined
+        ? patch.custom_label
+        : course.custom_label;
     const hasSubject = nextSubjectId !== null && nextSubjectId !== undefined;
     const hasLabel =
       nextLabel !== null && nextLabel !== undefined && nextLabel !== '';
@@ -725,7 +742,7 @@ export class TimetablesService {
         throw new BadRequestException('Selected subject does not exist');
       }
     }
-    course.subject_id = hasSubject ? nextSubjectId! : null;
+    course.subject_id = hasSubject ? nextSubjectId : null;
     course.custom_label = hasSubject ? null : nextLabel!;
     await this.courses.save(course);
     return this.getOne(course.timetable_id);
@@ -952,10 +969,7 @@ export class TimetablesService {
     return tt;
   }
 
-  private assertSameBatch(
-    ps: ProgrammeSemester,
-    group: AttendanceGroup,
-  ): void {
+  private assertSameBatch(ps: ProgrammeSemester, group: AttendanceGroup): void {
     if (
       ps.programme_id !== group.programme_id ||
       ps.admission_year_id !== group.admission_year_id

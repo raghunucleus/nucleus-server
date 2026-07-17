@@ -103,7 +103,10 @@ export class SubjectTypesService {
     return this.subjectTypes.save(subjectType);
   }
 
-  async update(id: number, patch: UpdateSubjectTypeInput): Promise<SubjectType> {
+  async update(
+    id: number,
+    patch: UpdateSubjectTypeInput,
+  ): Promise<SubjectType> {
     const subjectType = await this.subjectTypes.findOne({ where: { id } });
     if (!subjectType) throw new NotFoundException('Subject type not found');
 
@@ -140,11 +143,20 @@ export class SubjectTypesService {
     code?: string;
     excludeId?: number;
   }): Promise<void> {
-    const checks: { field: 'name' | 'code'; value: string; message: string }[] = [];
+    const checks: { field: 'name' | 'code'; value: string; message: string }[] =
+      [];
     if (opts.name !== undefined)
-      checks.push({ field: 'name', value: opts.name, message: 'Name is already in use' });
+      checks.push({
+        field: 'name',
+        value: opts.name,
+        message: 'Name is already in use',
+      });
     if (opts.code !== undefined)
-      checks.push({ field: 'code', value: opts.code, message: 'Code is already in use' });
+      checks.push({
+        field: 'code',
+        value: opts.code,
+        message: 'Code is already in use',
+      });
 
     for (const c of checks) {
       const qb = this.subjectTypes

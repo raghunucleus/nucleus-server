@@ -24,9 +24,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 //      violated again. Adjustments (OD / medical) live in
 //      attendance_adjustments and are folded in at read time — they are NOT
 //      stored on this row — so the stored rollup is always attended <= held.
-export class RecomputeAttendanceRollups1781800000000
-  implements MigrationInterface
-{
+export class RecomputeAttendanceRollups1781800000000 implements MigrationInterface {
   name = 'RecomputeAttendanceRollups1781800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

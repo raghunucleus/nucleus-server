@@ -4,7 +4,11 @@ import { z } from 'zod';
 const INDIA_LOCAL_RE = /^[6-9]\d{9}$/;
 const COUNTRY_CODE_RE = /^\d{1,4}$/;
 
-const nullableTrimmed = (max: number, validate?: (v: string) => boolean, msg?: string) =>
+const nullableTrimmed = (
+  max: number,
+  validate?: (v: string) => boolean,
+  msg?: string,
+) =>
   z
     .union([z.string(), z.null()])
     .optional()
@@ -13,7 +17,10 @@ const nullableTrimmed = (max: number, validate?: (v: string) => boolean, msg?: s
     .superRefine((v, ctx) => {
       if (typeof v !== 'string') return;
       if (v.length > max) {
-        ctx.addIssue({ code: 'custom', message: `Must be at most ${max} characters` });
+        ctx.addIssue({
+          code: 'custom',
+          message: `Must be at most ${max} characters`,
+        });
         return;
       }
       if (validate && !validate(v)) {

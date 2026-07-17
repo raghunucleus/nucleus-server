@@ -7,7 +7,10 @@ export const GuardianVerifyOtpSchema = z.object({
     .string()
     .trim()
     .regex(/^[6-9]\d{9}$/, 'Enter a 10-digit Indian mobile number'),
-  otp: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+  otp: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Enter the 6-digit code'),
   newPassword: strongPasswordSchema,
 });
 

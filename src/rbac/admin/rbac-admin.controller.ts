@@ -114,9 +114,7 @@ export class RbacAdminController {
   @Post('roles/:id/deactivate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Deactivate a role.' })
-  deactivateRole(
-    @Param('id', ParseIntPipe) id: number,
-  ): Promise<RoleDetail> {
+  deactivateRole(@Param('id', ParseIntPipe) id: number): Promise<RoleDetail> {
     return this.rbac.setRoleActive(id, false);
   }
 
@@ -131,7 +129,9 @@ export class RbacAdminController {
   }
 
   @Get('assignments/:id')
-  @ApiOperation({ summary: 'Get a single role assignment with its attributes.' })
+  @ApiOperation({
+    summary: 'Get a single role assignment with its attributes.',
+  })
   getAssignment(
     @Param('id', ParseIntPipe) id: number,
   ): Promise<AssignmentDetail> {

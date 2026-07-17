@@ -106,9 +106,9 @@ export class MigrationsService {
         timestamp: m.timestamp,
       }));
       this.logger.log(
-        `Ran ${executed.length} migration(s): ${executed
-          .map((m) => m.name)
-          .join(', ') || '(none pending)'}`,
+        `Ran ${executed.length} migration(s): ${
+          executed.map((m) => m.name).join(', ') || '(none pending)'
+        }`,
       );
       return {
         success: true,

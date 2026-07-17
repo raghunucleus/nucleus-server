@@ -6,7 +6,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { RequireScreen } from '../../rbac/require-screen.decorator';
 import { ScreenAccessGuard } from '../../rbac/screen-access.guard';
 import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
@@ -49,9 +54,21 @@ export class EmployeeBirthdaysController {
       'department. Paginated (limit/offset) for load-on-scroll; search (q) ' +
       'spans the whole department. Birth year is never returned.',
   })
-  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
-  @ApiQuery({ name: 'offset', required: false, description: 'Rows to skip (default 0).' })
-  @ApiQuery({ name: 'q', required: false, description: 'Search by name or employee code.' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size (1–100, default 30).',
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    description: 'Rows to skip (default 0).',
+  })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    description: 'Search by name or employee code.',
+  })
   list(
     @GetEmployee() employee: AuthenticatedEmployee,
     @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,

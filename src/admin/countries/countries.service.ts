@@ -126,11 +126,15 @@ export class CountriesService {
       // Only re-check a code when it is changing to a non-null value; clearing
       // it to null can never collide (NULL is exempt from UNIQUE in Postgres).
       iso2:
-        patch.iso2 !== undefined && patch.iso2 !== null && patch.iso2 !== row.iso2
+        patch.iso2 !== undefined &&
+        patch.iso2 !== null &&
+        patch.iso2 !== row.iso2
           ? patch.iso2
           : undefined,
       iso3:
-        patch.iso3 !== undefined && patch.iso3 !== null && patch.iso3 !== row.iso3
+        patch.iso3 !== undefined &&
+        patch.iso3 !== null &&
+        patch.iso3 !== row.iso3
           ? patch.iso3
           : undefined,
       excludeId: id,
@@ -163,11 +167,12 @@ export class CountriesService {
     iso3?: string;
     excludeId?: number;
   }): Promise<void> {
-    const checks: Array<[keyof Country & string, string | undefined, string]> = [
-      ['name', opts.name, 'Name is already in use'],
-      ['iso2', opts.iso2, 'ISO alpha-2 code is already in use'],
-      ['iso3', opts.iso3, 'ISO alpha-3 code is already in use'],
-    ];
+    const checks: Array<[keyof Country & string, string | undefined, string]> =
+      [
+        ['name', opts.name, 'Name is already in use'],
+        ['iso2', opts.iso2, 'ISO alpha-2 code is already in use'],
+        ['iso3', opts.iso3, 'ISO alpha-3 code is already in use'],
+      ];
 
     for (const [column, value, message] of checks) {
       if (value === undefined) continue;

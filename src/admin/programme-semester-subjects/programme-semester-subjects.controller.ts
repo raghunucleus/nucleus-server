@@ -124,7 +124,7 @@ export class ProgrammeSemesterSubjectsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "Set (or clear) the teacher for one (subject, attendance-group) cell. employee_id null clears it.",
+      'Set (or clear) the teacher for one (subject, attendance-group) cell. employee_id null clears it.',
   })
   setGroupFaculty(
     @Param('id', ParseIntPipe) id: number,
@@ -142,7 +142,7 @@ export class ProgrammeSemesterSubjectsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "Replace the faculty roster for one candidate subject of an open-elective slot. Send the full list; an empty list clears it.",
+      'Replace the faculty roster for one candidate subject of an open-elective slot. Send the full list; an empty list clears it.',
   })
   setOptionFaculty(
     @Param('optionId', ParseIntPipe) optionId: number,

@@ -105,7 +105,11 @@ export const CreateAdHocSessionSchema = z
 // at least one must be present so the call actually changes something.
 export const EditSessionSchema = z
   .object({
-    programme_semester_subject_id: z.coerce.number().int().positive().optional(),
+    programme_semester_subject_id: z.coerce
+      .number()
+      .int()
+      .positive()
+      .optional(),
     programme_semester_subject_option_id: z.coerce
       .number()
       .int()
@@ -153,7 +157,9 @@ export const MarkAttendanceSchema = z
 
 export class CancelSessionDto extends createZodDto(CancelSessionSchema) {}
 export class UncancelSessionDto extends createZodDto(UncancelSessionSchema) {}
-export class SubstituteSessionDto extends createZodDto(SubstituteSessionSchema) {}
+export class SubstituteSessionDto extends createZodDto(
+  SubstituteSessionSchema,
+) {}
 export class BulkCancelSessionsDto extends createZodDto(
   BulkCancelSessionsSchema,
 ) {}
@@ -161,9 +167,7 @@ export class BulkSubstituteSessionsDto extends createZodDto(
   BulkSubstituteSessionsSchema,
 ) {}
 export class MoveSessionDto extends createZodDto(MoveSessionSchema) {}
-export class MoveManySessionsDto extends createZodDto(
-  MoveManySessionsSchema,
-) {}
+export class MoveManySessionsDto extends createZodDto(MoveManySessionsSchema) {}
 export class EditSessionDto extends createZodDto(EditSessionSchema) {}
 export class CreateAdHocSessionDto extends createZodDto(
   CreateAdHocSessionSchema,

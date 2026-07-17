@@ -86,7 +86,9 @@ export class ProgrammeSemestersService {
     if (opts.programmeId !== undefined)
       qb.andWhere('ps.programme_id = :pid', { pid: opts.programmeId });
     if (opts.admissionYearId !== undefined)
-      qb.andWhere('ps.admission_year_id = :ayid', { ayid: opts.admissionYearId });
+      qb.andWhere('ps.admission_year_id = :ayid', {
+        ayid: opts.admissionYearId,
+      });
     if (opts.semesterId !== undefined)
       qb.andWhere('ps.semester_id = :sid', { sid: opts.semesterId });
 
@@ -196,7 +198,10 @@ export class ProgrammeSemestersService {
   //     ongoing → completed on end).
   async setDates(
     id: number,
-    input: { planned_start_date: string | null; planned_end_date: string | null },
+    input: {
+      planned_start_date: string | null;
+      planned_end_date: string | null;
+    },
   ): Promise<ProgrammeSemester> {
     const row = await this.links.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Programme semester not found');
@@ -269,11 +274,12 @@ export class ProgrammeSemestersService {
     if (!row) throw new NotFoundException('Programme semester not found');
     if (row.status === target) return this.getOne(id);
 
-    const allowed: Record<ProgrammeSemesterStatus, ProgrammeSemesterStatus[]> = {
-      upcoming: ['ongoing'],
-      ongoing: ['completed'],
-      completed: [],
-    };
+    const allowed: Record<ProgrammeSemesterStatus, ProgrammeSemesterStatus[]> =
+      {
+        upcoming: ['ongoing'],
+        ongoing: ['completed'],
+        completed: [],
+      };
     if (!allowed[row.status].includes(target)) {
       throw new ConflictException(
         `Cannot move semester from '${row.status}' to '${target}'.`,
@@ -289,7 +295,9 @@ export class ProgrammeSemestersService {
         .createQueryBuilder('ps')
         .leftJoinAndSelect('ps.semester', 'semester')
         .where('ps.programme_id = :pid', { pid: row.programme_id })
-        .andWhere('ps.admission_year_id = :ayid', { ayid: row.admission_year_id })
+        .andWhere('ps.admission_year_id = :ayid', {
+          ayid: row.admission_year_id,
+        })
         .andWhere('ps.id != :id', { id: row.id })
         .andWhere('ps.is_active = TRUE')
         .andWhere('ps.status != :done', { done: 'completed' })
@@ -338,7 +346,8 @@ export class ProgrammeSemestersService {
 
   private async assertProgrammeExists(id: number): Promise<void> {
     const exists = await this.programmes.exists({ where: { id } });
-    if (!exists) throw new BadRequestException('Selected programme does not exist');
+    if (!exists)
+      throw new BadRequestException('Selected programme does not exist');
   }
 
   private async assertAdmissionYearExists(id: number): Promise<void> {

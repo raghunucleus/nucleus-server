@@ -10,7 +10,10 @@ const codeSchema = z
   .pipe(
     z
       .string()
-      .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+      .regex(
+        /^[A-Z0-9._-]+$/,
+        'Use letters, numbers, dot, underscore, or dash',
+      ),
   );
 
 const optionalName = z.string().trim().min(1).max(128).optional();
@@ -81,10 +84,10 @@ const l2ItemSchema = z
     rule: ruleSchema,
   })
   .strict()
-  .refine(
-    (v) => v.rule.kind === 'direct' || codesUnique(v.rule.inputs),
-    { message: 'Input codes within a rule must be unique', path: ['rule', 'inputs'] },
-  );
+  .refine((v) => v.rule.kind === 'direct' || codesUnique(v.rule.inputs), {
+    message: 'Input codes within a rule must be unique',
+    path: ['rule', 'inputs'],
+  });
 
 const l1ComponentSchema = z
   .object({

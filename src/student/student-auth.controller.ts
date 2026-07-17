@@ -125,8 +125,7 @@ export class StudentAuthController {
   ): Promise<{ message: string }> {
     await this.auth.forgotPassword(dto.identifier, ip);
     return {
-      message:
-        'If an account matches, a password-reset email has been sent.',
+      message: 'If an account matches, a password-reset email has been sent.',
     };
   }
 

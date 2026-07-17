@@ -151,7 +151,11 @@ export class SubjectsService {
       row.code = patch.code;
     }
     if (patch.name !== undefined && patch.name !== row.name) {
-      await this.assertNameUniqueInRegulation(row.regulation_id, patch.name, id);
+      await this.assertNameUniqueInRegulation(
+        row.regulation_id,
+        patch.name,
+        id,
+      );
       row.name = patch.name;
     }
 
@@ -170,7 +174,8 @@ export class SubjectsService {
 
   private async assertRegulationExists(id: number): Promise<void> {
     const exists = await this.regulations.exists({ where: { id } });
-    if (!exists) throw new BadRequestException('Selected regulation does not exist');
+    if (!exists)
+      throw new BadRequestException('Selected regulation does not exist');
   }
 
   private async assertSubjectTypeExists(id: number): Promise<void> {
@@ -179,7 +184,10 @@ export class SubjectsService {
       throw new BadRequestException('Selected subject type does not exist');
   }
 
-  private async assertCodeUnique(code: string, excludeId?: number): Promise<void> {
+  private async assertCodeUnique(
+    code: string,
+    excludeId?: number,
+  ): Promise<void> {
     const qb = this.subjects
       .createQueryBuilder('s')
       .where('LOWER(s.code) = LOWER(:v)', { v: code });

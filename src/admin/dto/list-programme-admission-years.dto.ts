@@ -16,9 +16,7 @@ export type ProgrammeAdmissionYearsSortField =
 export const ListProgrammeAdmissionYearsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
-  sortBy: z
-    .enum(PROGRAMME_ADMISSION_YEARS_SORT_FIELDS)
-    .default('created_at'),
+  sortBy: z.enum(PROGRAMME_ADMISSION_YEARS_SORT_FIELDS).default('created_at'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
   status: z.enum(['active', 'inactive']).optional(),
   programmeId: z.coerce.number().int().positive().optional(),

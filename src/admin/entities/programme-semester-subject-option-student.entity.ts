@@ -28,7 +28,9 @@ import { Student } from './student.entity';
   'programme_semester_subject_id',
   'student_id',
 ])
-@Index('IDX_pss_opt_students_option_id', ['programme_semester_subject_option_id'])
+@Index('IDX_pss_opt_students_option_id', [
+  'programme_semester_subject_option_id',
+])
 @Index('IDX_pss_opt_students_slot_id', ['programme_semester_subject_id'])
 @Index('IDX_pss_opt_students_student_id', ['student_id'])
 @Index('IDX_pss_opt_students_employee_id', ['employee_id'])

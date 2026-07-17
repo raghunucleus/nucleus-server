@@ -16,10 +16,5 @@ export const CATALOG: Catalog = {
   screens: SCREENS,
 };
 
-export {
-  ATTRIBUTE_TYPES,
-  MODULES,
-  ROLE_TYPES,
-  SCREENS,
-};
+export { ATTRIBUTE_TYPES, MODULES, ROLE_TYPES, SCREENS };
 export * from './types';

@@ -51,9 +51,7 @@ export class AddChatGatingBlockMute1782100000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP INDEX "IDX_chat_conversations_pending"`,
-    );
+    await queryRunner.query(`DROP INDEX "IDX_chat_conversations_pending"`);
     await queryRunner.query(
       `ALTER TABLE "chat_conversations" DROP CONSTRAINT "FK_chat_conversations_initiated_by_id"`,
     );

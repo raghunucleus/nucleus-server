@@ -156,15 +156,12 @@ export class CatalogService implements OnModuleInit {
         }
       }
       if (screen.platforms.length === 0) {
-        errors.push(`Screen "${screen.key}" must declare at least one platform`);
-      }
-      if (
-        screen.platforms.some((p) => p === 'web') &&
-        !screen.web_route
-      ) {
         errors.push(
-          `Screen "${screen.key}" lists "web" but has no web_route`,
+          `Screen "${screen.key}" must declare at least one platform`,
         );
+      }
+      if (screen.platforms.some((p) => p === 'web') && !screen.web_route) {
+        errors.push(`Screen "${screen.key}" lists "web" but has no web_route`);
       }
       if (
         screen.platforms.some((p) => p === 'mobile') &&
@@ -191,16 +188,12 @@ export class CatalogService implements OnModuleInit {
       const seenActions = new Set<string>();
       for (const a of screen.actions) {
         if (seenActions.has(a)) {
-          errors.push(
-            `Screen "${screen.key}" has duplicate action "${a}"`,
-          );
+          errors.push(`Screen "${screen.key}" has duplicate action "${a}"`);
         }
         seenActions.add(a);
       }
       if (screen.actions.length === 0) {
-        errors.push(
-          `Screen "${screen.key}" must declare at least one action`,
-        );
+        errors.push(`Screen "${screen.key}" must declare at least one action`);
       }
     }
 

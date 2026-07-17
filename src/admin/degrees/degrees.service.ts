@@ -135,8 +135,14 @@ export class DegreesService {
     if (!degree) throw new NotFoundException('Degree not found');
 
     await this.assertUnique({
-      name: patch.name !== undefined && patch.name !== degree.name ? patch.name : undefined,
-      code: patch.code !== undefined && patch.code !== degree.code ? patch.code : undefined,
+      name:
+        patch.name !== undefined && patch.name !== degree.name
+          ? patch.name
+          : undefined,
+      code:
+        patch.code !== undefined && patch.code !== degree.code
+          ? patch.code
+          : undefined,
       short_name:
         patch.short_name !== undefined && patch.short_name !== degree.short_name
           ? patch.short_name
@@ -144,13 +150,36 @@ export class DegreesService {
       excludeId: id,
     });
 
+    const durationChanged =
+      patch.duration_years !== undefined &&
+      patch.duration_years !== degree.duration_years;
+
     if (patch.name !== undefined) degree.name = patch.name;
     if (patch.code !== undefined) degree.code = patch.code;
     if (patch.short_name !== undefined) degree.short_name = patch.short_name;
-    if (patch.academic_level !== undefined) degree.academic_level = patch.academic_level;
-    if (patch.duration_years !== undefined) degree.duration_years = patch.duration_years;
+    if (patch.academic_level !== undefined)
+      degree.academic_level = patch.academic_level;
+    if (patch.duration_years !== undefined)
+      degree.duration_years = patch.duration_years;
 
-    return this.degrees.save(degree);
+    const saved = await this.degrees.save(degree);
+
+    // Keep the cached students.pass_out_year honest: it is admission year +
+    // THIS duration, so a duration change re-derives it for every student in
+    // every programme of this degree, in one statement.
+    if (durationChanged) {
+      await this.degrees.manager.query(
+        `UPDATE "students" s
+         SET "pass_out_year" = ay."year" + $2
+         FROM "programmes" p, "admission_years" ay
+         WHERE p."id" = s."programme_id"
+           AND ay."id" = s."admission_year_id"
+           AND p."degree_id" = $1`,
+        [id, saved.duration_years],
+      );
+    }
+
+    return saved;
   }
 
   async setActive(id: number, active: boolean): Promise<Degree> {
@@ -169,11 +198,23 @@ export class DegreesService {
     short_name?: string;
     excludeId?: number;
   }): Promise<void> {
-    const checks: { field: 'name' | 'code' | 'short_name'; value: string; message: string }[] = [];
+    const checks: {
+      field: 'name' | 'code' | 'short_name';
+      value: string;
+      message: string;
+    }[] = [];
     if (opts.name !== undefined)
-      checks.push({ field: 'name', value: opts.name, message: 'Name is already in use' });
+      checks.push({
+        field: 'name',
+        value: opts.name,
+        message: 'Name is already in use',
+      });
     if (opts.code !== undefined)
-      checks.push({ field: 'code', value: opts.code, message: 'Code is already in use' });
+      checks.push({
+        field: 'code',
+        value: opts.code,
+        message: 'Code is already in use',
+      });
     if (opts.short_name !== undefined)
       checks.push({
         field: 'short_name',

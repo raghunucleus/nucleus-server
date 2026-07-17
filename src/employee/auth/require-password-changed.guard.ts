@@ -17,9 +17,8 @@ const ALLOW_PASSWORD_CHANGE_PENDING_KEY = 'employee:allowPasswordChangePending';
  * Every other route guarded by RequireEmployeePasswordChangedGuard is blocked
  * until the employee picks their own password.
  */
-export const AllowEmployeePasswordChangePending =
-  (): MethodDecorator & ClassDecorator =>
-    SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true);
+export const AllowEmployeePasswordChangePending = (): MethodDecorator &
+  ClassDecorator => SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true);
 
 @Injectable()
 export class RequireEmployeePasswordChangedGuard implements CanActivate {

@@ -24,10 +24,10 @@ export class RequireTotpEnrolledGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(ctx: ExecutionContext): boolean {
-    const allow = this.reflector.getAllAndOverride<boolean>(ALLOW_TOTP_PENDING_KEY, [
-      ctx.getHandler(),
-      ctx.getClass(),
-    ]);
+    const allow = this.reflector.getAllAndOverride<boolean>(
+      ALLOW_TOTP_PENDING_KEY,
+      [ctx.getHandler(), ctx.getClass()],
+    );
     if (allow) return true;
 
     const req = ctx.switchToHttp().getRequest<{ user?: AuthenticatedAdmin }>();

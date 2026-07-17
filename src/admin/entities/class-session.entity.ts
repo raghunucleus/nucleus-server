@@ -50,10 +50,7 @@ export type ClassSessionStatus =
 // equal to it and gets overwritten when a substitute fills in — the rollup
 // keys on the subject, not the teacher, so subs land in the right bucket.
 @Entity({ name: 'class_sessions' })
-@Index('IDX_class_sessions_group_date', [
-  'attendance_group_id',
-  'session_date',
-])
+@Index('IDX_class_sessions_group_date', ['attendance_group_id', 'session_date'])
 @Index('IDX_class_sessions_ps_date', ['programme_semester_id', 'session_date'])
 @Index('IDX_class_sessions_teacher_date', [
   'effective_employee_id',

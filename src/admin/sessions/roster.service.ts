@@ -65,7 +65,11 @@ export class RosterService {
           gid: session.attendance_group_id,
         })
         .andWhere('s.is_active = TRUE')
-        .select(['s.id AS id', 's.student_id AS student_id', 's.display_name AS display_name'])
+        .select([
+          's.id AS id',
+          's.student_id AS student_id',
+          's.display_name AS display_name',
+        ])
         .orderBy('s.display_name', 'ASC')
         .getRawMany<RosterStudent>();
     }
@@ -98,7 +102,11 @@ export class RosterService {
     }
 
     return qb
-      .select(['s.id AS id', 's.student_id AS student_id', 's.display_name AS display_name'])
+      .select([
+        's.id AS id',
+        's.student_id AS student_id',
+        's.display_name AS display_name',
+      ])
       .orderBy('s.display_name', 'ASC')
       .getRawMany<RosterStudent>();
   }

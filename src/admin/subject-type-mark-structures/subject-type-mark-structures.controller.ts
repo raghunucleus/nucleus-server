@@ -25,9 +25,7 @@ import {
 @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
 @Controller('admin/regulations/:regulationId/mark-structures')
 export class SubjectTypeMarkStructuresController {
-  constructor(
-    private readonly structures: SubjectTypeMarkStructuresService,
-  ) {}
+  constructor(private readonly structures: SubjectTypeMarkStructuresService) {}
 
   @Get()
   @ApiOperation({

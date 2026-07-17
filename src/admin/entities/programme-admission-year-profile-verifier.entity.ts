@@ -28,11 +28,9 @@ export class ProgrammeAdmissionYearProfileVerifier {
   @Column({ type: 'int' })
   programme_admission_year_id: number;
 
-  @ManyToOne(
-    () => ProgrammeAdmissionYear,
-    (pay) => pay.profile_verifiers,
-    { onDelete: 'CASCADE' },
-  )
+  @ManyToOne(() => ProgrammeAdmissionYear, (pay) => pay.profile_verifiers, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'programme_admission_year_id' })
   programme_admission_year: ProgrammeAdmissionYear;
 

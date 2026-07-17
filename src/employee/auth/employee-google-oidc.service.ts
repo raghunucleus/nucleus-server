@@ -30,7 +30,9 @@ export class EmployeeGoogleOidcService {
 
   constructor(private readonly config: ConfigService) {}
 
-  async verifyIdToken(idToken: string): Promise<VerifiedEmployeeGoogleIdentity> {
+  async verifyIdToken(
+    idToken: string,
+  ): Promise<VerifiedEmployeeGoogleIdentity> {
     if (!idToken || typeof idToken !== 'string') {
       throw new UnauthorizedException('Invalid Google credential');
     }

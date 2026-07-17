@@ -32,7 +32,8 @@ export class SubjectTypesController {
 
   @Get()
   @ApiOperation({
-    summary: 'List subject types with server-side pagination, search, and sort.',
+    summary:
+      'List subject types with server-side pagination, search, and sort.',
   })
   list(@Query() query: ListSubjectTypesDto): Promise<ListSubjectTypesResult> {
     return this.subjectTypes.list(query);

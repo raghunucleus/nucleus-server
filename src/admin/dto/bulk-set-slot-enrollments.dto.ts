@@ -30,9 +30,7 @@ export const BulkSetSlotEnrollmentRowSchema = z
         z.null(),
       ])
       .optional()
-      .transform((v) =>
-        v === undefined || v === '' || v === null ? null : v,
-      ),
+      .transform((v) => (v === undefined || v === '' || v === null ? null : v)),
     faculty_emp_code: z
       .union([
         z
@@ -45,9 +43,7 @@ export const BulkSetSlotEnrollmentRowSchema = z
         z.null(),
       ])
       .optional()
-      .transform((v) =>
-        v === undefined || v === '' || v === null ? null : v,
-      ),
+      .transform((v) => (v === undefined || v === '' || v === null ? null : v)),
   })
   .strict()
   .superRefine((val, ctx) => {

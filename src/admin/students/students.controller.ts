@@ -11,6 +11,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseGuards,
@@ -31,11 +32,25 @@ import { CreateStudentDto } from '../dto/create-student.dto';
 import { ListStudentsDto } from '../dto/list-students.dto';
 import { SetStudentPasswordDto } from '../dto/set-student-password.dto';
 import { UpdateStudentDto } from '../dto/update-student.dto';
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
+import { SetResumeExternalUrlDto } from '../../student/profile/dto/set-resume-external-url.dto';
+import {
+  RESUME_MAX_BYTES,
+  ResumeView,
+} from '../../student/profile/student-resume.service';
 import { Student } from '../entities/student.entity';
 import {
+  AdminStudentCertification,
   ListStudentsResult,
   StudentsService,
 } from './students.service';
+
+class AddStudentCertificationDto extends createZodDto(
+  z.object({
+    industry_certification_id: z.coerce.number().int().positive(),
+  }),
+) {}
 
 @ApiTags('students')
 @ApiBearerAuth('admin-access-token')
@@ -54,7 +69,8 @@ export class StudentsController {
 
   @Get('student-ids')
   @ApiOperation({
-    summary: 'List every student_id in the table — for bulk-upload client-side dedupe.',
+    summary:
+      'List every student_id in the table — for bulk-upload client-side dedupe.',
   })
   listStudentIds(): Promise<{ ids: string[] }> {
     return this.students.listStudentIds().then((ids) => ({ ids }));
@@ -159,6 +175,121 @@ export class StudentsController {
   @ApiOperation({ summary: "Remove the student's ID-card photo." })
   removePhoto(@Param('id', ParseIntPipe) id: number): Promise<Student> {
     return this.students.removePhoto(id);
+  }
+
+  @Get(':id/certifications')
+  @ApiOperation({
+    summary:
+      "The student's industry certifications (with presigned certificate URLs).",
+  })
+  listCertifications(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<AdminStudentCertification[]> {
+    return this.students.listCertifications(id);
+  }
+
+  @Post(':id/certifications')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        industry_certification_id: { type: 'number' },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiOperation({
+    summary:
+      'Add a certification with its supporting file (PDF/JPEG/PNG, ≤ 5 MB). ' +
+      'Direct — no approval flow.',
+  })
+  addCertification(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddStudentCertificationDto,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 })],
+      }),
+    )
+    file: Express.Multer.File,
+  ): Promise<AdminStudentCertification[]> {
+    return this.students.addCertification(
+      id,
+      dto.industry_certification_id,
+      file,
+    );
+  }
+
+  @Delete(':id/certifications/:certRowId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remove a certification entry (and its file).' })
+  removeCertification(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('certRowId', ParseIntPipe) certRowId: number,
+  ): Promise<void> {
+    return this.students.removeCertification(id, certRowId);
+  }
+
+  @Post(':id/resume')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({
+    summary:
+      "Upload (or replace) the student's resume (PDF, < 2 MB). Returns the " +
+      'stable public URL.',
+  })
+  setResume(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [new MaxFileSizeValidator({ maxSize: RESUME_MAX_BYTES })],
+      }),
+    )
+    file: Express.Multer.File,
+  ): Promise<ResumeView> {
+    return this.students.setResume(id, file);
+  }
+
+  @Delete(':id/resume')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: "Remove the student's hosted resume file." })
+  removeResume(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.students.removeResume(id);
+  }
+
+  @Put(':id/resume/external-url')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Set the student's second, independent resume link. Both links stay " +
+      'live — this does not replace the hosted PDF.',
+  })
+  setResumeExternalUrl(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetResumeExternalUrlDto,
+  ): Promise<ResumeView> {
+    return this.students.setResumeExternalUrl(id, dto.url);
+  }
+
+  @Delete(':id/resume/external-url')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Clear the external resume link (the hosted PDF keeps working).',
+  })
+  clearResumeExternalUrl(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<ResumeView> {
+    return this.students.setResumeExternalUrl(id, null);
   }
 
   @Post(':id/activate')

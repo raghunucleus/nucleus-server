@@ -26,7 +26,9 @@ import { ProgrammeSemesterSubjectOption } from './programme-semester-subject-opt
   'programme_semester_subject_option_id',
   'employee_id',
 ])
-@Index('IDX_pss_opt_faculty_option_id', ['programme_semester_subject_option_id'])
+@Index('IDX_pss_opt_faculty_option_id', [
+  'programme_semester_subject_option_id',
+])
 @Index('IDX_pss_opt_faculty_employee_id', ['employee_id'])
 export class ProgrammeSemesterSubjectOptionFaculty {
   @PrimaryGeneratedColumn()

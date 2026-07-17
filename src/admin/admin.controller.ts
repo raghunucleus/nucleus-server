@@ -9,12 +9,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { AdminAuthTokens, AdminService, LoginResult } from './admin.service';
 import {
-  AdminAuthTokens,
-  AdminService,
-  LoginResult,
-} from './admin.service';
-import { AllowTotpPending, RequireTotpEnrolledGuard } from './auth/require-totp-enrolled.guard';
+  AllowTotpPending,
+  RequireTotpEnrolledGuard,
+} from './auth/require-totp-enrolled.guard';
 import { GetAdmin } from './auth/get-admin.decorator';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import type { AuthenticatedAdmin } from './auth/jwt.strategy';

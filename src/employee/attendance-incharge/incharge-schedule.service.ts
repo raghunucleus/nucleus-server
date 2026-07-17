@@ -417,9 +417,8 @@ export class InchargeScheduleService {
         "You aren't the incharge of that attendance group.",
       );
     }
-    const filterIds = attendanceGroupId !== undefined
-      ? [attendanceGroupId]
-      : ownedIds;
+    const filterIds =
+      attendanceGroupId !== undefined ? [attendanceGroupId] : ownedIds;
     const groups = await this.groups.find({ where: { id: In(filterIds) } });
     if (groups.length === 0) return [];
 
@@ -441,7 +440,9 @@ export class InchargeScheduleService {
       .leftJoinAndSelect('ps.admission_year', 'admission_year')
       .leftJoinAndSelect('ps.semester', 'semester')
       .where('ps.programme_id IN (:...pids)', { pids: programmeIds })
-      .andWhere('ps.admission_year_id IN (:...yids)', { yids: admissionYearIds })
+      .andWhere('ps.admission_year_id IN (:...yids)', {
+        yids: admissionYearIds,
+      })
       .andWhere('ps.is_active = TRUE')
       .orderBy('admission_year.year', 'DESC')
       .addOrderBy('semester.sem_number', 'ASC')
@@ -480,7 +481,8 @@ export class InchargeScheduleService {
     const ps = await this.programmeSemesters.findOne({
       where: { id: programmeSemesterId },
     });
-    if (!group || !ps) throw new NotFoundException('Group or semester not found');
+    if (!group || !ps)
+      throw new NotFoundException('Group or semester not found');
     if (
       ps.programme_id !== group.programme_id ||
       ps.admission_year_id !== group.admission_year_id
@@ -568,12 +570,14 @@ export class InchargeScheduleService {
     await this.requireOwnedTimetable(employeeId, course.timetable_id);
     return course;
   }
-
 }
 
 // Readable week range for a notification body, e.g. "25 May – 31 May 2026".
 function formatWeekRange(from: string, to: string): string {
-  const dm = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' });
+  const dm = new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+  });
   const dmy = new Intl.DateTimeFormat('en-IN', {
     day: '2-digit',
     month: 'short',

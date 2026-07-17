@@ -78,7 +78,7 @@ export class GuardiansController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary:
-      "Set the login password for a mobile number (out-of-band fallback). " +
+      'Set the login password for a mobile number (out-of-band fallback). ' +
       'Forces a change on first sign-in and revokes active sessions.',
   })
   setPassword(@Body() dto: SetGuardianPasswordDto): Promise<void> {

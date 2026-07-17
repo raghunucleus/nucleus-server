@@ -36,7 +36,9 @@ export const InteractionSchema = z.object({
 });
 export class InteractionDto extends createZodDto(InteractionSchema) {}
 export const UpdateInteractionSchema = InteractionSchema.partial();
-export class UpdateInteractionDto extends createZodDto(UpdateInteractionSchema) {}
+export class UpdateInteractionDto extends createZodDto(
+  UpdateInteractionSchema,
+) {}
 
 /** Month/year filter for the interactions list (placement cycles recur yearly). */
 export const InteractionQuerySchema = z.object({

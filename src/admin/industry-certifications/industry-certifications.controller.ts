@@ -28,9 +28,7 @@ import {
 @UseGuards(JwtAuthGuard, RequireTotpEnrolledGuard)
 @Controller('admin/industry-certifications')
 export class IndustryCertificationsController {
-  constructor(
-    private readonly certifications: IndustryCertificationsService,
-  ) {}
+  constructor(private readonly certifications: IndustryCertificationsService) {}
 
   @Get()
   @ApiOperation({

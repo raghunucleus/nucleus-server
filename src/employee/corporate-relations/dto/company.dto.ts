@@ -9,7 +9,8 @@ import {
 const enumOf = (vals: readonly string[]) =>
   z.enum(vals as unknown as [string, ...string[]]);
 
-const optStr = (max: number) => z.string().trim().max(max).optional().nullable();
+const optStr = (max: number) =>
+  z.string().trim().max(max).optional().nullable();
 const dateStr = z
   .string()
   .trim()
@@ -30,7 +31,13 @@ export const CreateCompanySchema = z.object({
   website: optStr(255),
   linkedin_url: optStr(255),
   description: optStr(5000),
-  founded_year: z.coerce.number().int().min(1800).max(2100).optional().nullable(),
+  founded_year: z.coerce
+    .number()
+    .int()
+    .min(1800)
+    .max(2100)
+    .optional()
+    .nullable(),
   glassdoor_rating: z.coerce.number().min(0).max(5).optional().nullable(),
   general_email: z.string().trim().email().max(255).optional().nullable(),
   general_phone: optStr(32),
@@ -52,7 +59,12 @@ export const CreateCompanySchema = z.object({
   state: optStr(120),
   country: optStr(120),
   pincode: optStr(16),
-  responsible_employee_id: z.coerce.number().int().positive().optional().nullable(),
+  responsible_employee_id: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .nullable(),
   category_ids: idArray,
   industry_ids: idArray,
   type_ids: idArray,
@@ -103,7 +115,8 @@ const csvEnumArray = (vals: readonly string[]) =>
  * filters.
  */
 const boolFlag = z.preprocess(
-  (v) => (v === undefined ? undefined : v === true || v === 'true' || v === '1'),
+  (v) =>
+    v === undefined ? undefined : v === true || v === 'true' || v === '1',
   z.boolean().optional(),
 );
 

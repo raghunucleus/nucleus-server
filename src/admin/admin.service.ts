@@ -36,7 +36,10 @@ export interface AdminAuthTokens {
 }
 
 export type LoginResult =
-  | (AdminAuthTokens & { twoFactorRequired?: false; requiresTotpSetup: boolean })
+  | (AdminAuthTokens & {
+      twoFactorRequired?: false;
+      requiresTotpSetup: boolean;
+    })
   | { twoFactorRequired: true; challengeToken: string };
 
 const BCRYPT_ROUNDS = 12;
@@ -102,9 +105,7 @@ export class AdminService {
     const identity = await this.googleOidc.verifyIdToken(idToken);
 
     if (!identity.emailVerified) {
-      throw new UnauthorizedException(
-        'Google account email is not verified',
-      );
+      throw new UnauthorizedException('Google account email is not verified');
     }
 
     const admin = await this.admins
@@ -144,14 +145,20 @@ export class AdminService {
     return { ...tokens, requiresTotpSetup: true };
   }
 
-  async verifyTwoFactor(challengeToken: string, code: string): Promise<AdminAuthTokens> {
+  async verifyTwoFactor(
+    challengeToken: string,
+    code: string,
+  ): Promise<AdminAuthTokens> {
     const adminId = await this.peekLoginChallenge(challengeToken);
-    if (!adminId) throw new UnauthorizedException('Challenge expired or invalid');
+    if (!adminId)
+      throw new UnauthorizedException('Challenge expired or invalid');
 
     const admin = await this.admins.findOne({ where: { id: adminId } });
     if (!admin || !admin.totp_enabled_at || !admin.totp_secret) {
       await this.clearLoginChallenge(challengeToken);
-      throw new UnauthorizedException('Two-factor authentication is not configured');
+      throw new UnauthorizedException(
+        'Two-factor authentication is not configured',
+      );
     }
     if (!admin.is_active) {
       await this.clearLoginChallenge(challengeToken);
@@ -163,7 +170,9 @@ export class AdminService {
       const attempts = await this.recordChallengeAttempt(challengeToken);
       if (attempts >= CHALLENGE_MAX_ATTEMPTS) {
         await this.clearLoginChallenge(challengeToken);
-        throw new UnauthorizedException('Too many invalid codes. Please sign in again.');
+        throw new UnauthorizedException(
+          'Too many invalid codes. Please sign in again.',
+        );
       }
       throw new UnauthorizedException('Invalid verification code');
     }
@@ -204,7 +213,8 @@ export class AdminService {
     const pattern = this.refreshKey(adminId, '*');
     const stream = this.redis.scanStream({ match: pattern, count: 100 });
     for await (const keys of stream) {
-      if ((keys as string[]).length) await this.redis.del(...(keys as string[]));
+      if ((keys as string[]).length)
+        await this.redis.del(...(keys as string[]));
     }
   }
 
@@ -230,7 +240,9 @@ export class AdminService {
     await this.logout(adminId);
   }
 
-  async getProfile(adminId: string): Promise<Omit<Admin, 'password_hash' | 'totp_secret' | 'syncDisplayName'>> {
+  async getProfile(
+    adminId: string,
+  ): Promise<Omit<Admin, 'password_hash' | 'totp_secret' | 'syncDisplayName'>> {
     const admin = await this.admins.findOne({ where: { id: adminId } });
     if (!admin) throw new UnauthorizedException();
     return this.toPublicProfile(admin);
@@ -263,8 +275,10 @@ export class AdminService {
 
     if (patch.first_name !== undefined) admin.first_name = patch.first_name;
     if (patch.last_name !== undefined) admin.last_name = patch.last_name;
-    if (patch.country_code !== undefined) admin.country_code = patch.country_code;
-    if (patch.mobile_number !== undefined) admin.mobile_number = patch.mobile_number;
+    if (patch.country_code !== undefined)
+      admin.country_code = patch.country_code;
+    if (patch.mobile_number !== undefined)
+      admin.mobile_number = patch.mobile_number;
 
     // Keep country_code consistent with mobile_number: clear when local is cleared,
     // and default to India ('91') when a number is set without an explicit code.
@@ -294,7 +308,11 @@ export class AdminService {
     admin.totp_secret = secret;
     await this.admins.save(admin);
 
-    const otpauthUrl = this.totp.buildOtpauthUrl(secret, admin.email, TOTP_ISSUER);
+    const otpauthUrl = this.totp.buildOtpauthUrl(
+      secret,
+      admin.email,
+      TOTP_ISSUER,
+    );
     const qrDataUrl = await this.totp.generateQrDataUrl(otpauthUrl);
     return { secret, otpauthUrl, qrDataUrl };
   }
@@ -306,7 +324,9 @@ export class AdminService {
     const admin = await this.admins.findOne({ where: { id: adminId } });
     if (!admin) throw new UnauthorizedException();
     if (admin.totp_enabled_at) {
-      throw new ConflictException('Two-factor authentication is already enabled.');
+      throw new ConflictException(
+        'Two-factor authentication is already enabled.',
+      );
     }
     if (!admin.totp_secret) {
       throw new BadRequestException(
@@ -323,11 +343,16 @@ export class AdminService {
     await this.admins.save(admin);
 
     // Replace any leftover codes from a previous enrolment, then issue fresh ones.
-    await this.recoveryCodes.delete({ admin_id: admin.id as unknown as number });
+    await this.recoveryCodes.delete({
+      admin_id: admin.id as unknown as number,
+    });
     const plaintextCodes = this.totp.generateRecoveryCodes();
     const rows = await Promise.all(
       plaintextCodes.map(async (plain) => {
-        const code_hash = await bcrypt.hash(this.totp.normalizeRecoveryCode(plain), BCRYPT_ROUNDS);
+        const code_hash = await bcrypt.hash(
+          this.totp.normalizeRecoveryCode(plain),
+          BCRYPT_ROUNDS,
+        );
         return this.recoveryCodes.create({
           admin_id: admin.id as unknown as number,
           code_hash,
@@ -344,7 +369,11 @@ export class AdminService {
     return { recoveryCodes: plaintextCodes, tokens };
   }
 
-  async disableTotp(adminId: string, password: string, code: string): Promise<void> {
+  async disableTotp(
+    adminId: string,
+    password: string,
+    code: string,
+  ): Promise<void> {
     const admin = await this.admins.findOne({ where: { id: adminId } });
     if (!admin) throw new UnauthorizedException();
     if (!admin.totp_enabled_at || !admin.totp_secret) {
@@ -360,7 +389,9 @@ export class AdminService {
     admin.totp_secret = null;
     admin.totp_enabled_at = null;
     await this.admins.save(admin);
-    await this.recoveryCodes.delete({ admin_id: admin.id as unknown as number });
+    await this.recoveryCodes.delete({
+      admin_id: admin.id as unknown as number,
+    });
   }
 
   private async issueLoginChallenge(adminId: string): Promise<string> {
@@ -382,7 +413,10 @@ export class AdminService {
 
   private async clearLoginChallenge(token: string): Promise<void> {
     if (!token) return;
-    await this.redis.del(this.challengeKey(token), this.challengeAttemptsKey(token));
+    await this.redis.del(
+      this.challengeKey(token),
+      this.challengeAttemptsKey(token),
+    );
   }
 
   private async recordChallengeAttempt(token: string): Promise<number> {
@@ -396,7 +430,10 @@ export class AdminService {
 
   // Accepts a 6-digit TOTP code or an 8-char recovery code (with optional dash).
   // Recovery codes are single-use and marked used_at on success.
-  private async consumeTwoFactorCode(admin: Admin, code: string): Promise<boolean> {
+  private async consumeTwoFactorCode(
+    admin: Admin,
+    code: string,
+  ): Promise<boolean> {
     if (!admin.totp_secret) return false;
     const trimmed = code.trim();
 

@@ -10,7 +10,14 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { AdmissionYear } from './admission-year.entity';
+import { Country } from './country.entity';
+import { DiplomaBoard } from './diploma-board.entity';
+import { District } from './district.entity';
+import { EntranceExam } from './entrance-exam.entity';
 import { Programme } from './programme.entity';
+import { SchoolBoardX } from './school-board-x.entity';
+import { SchoolBoardXii } from './school-board-xii.entity';
+import { State } from './state.entity';
 
 export const GENDERS = ['male', 'female', 'other'] as const;
 export type Gender = (typeof GENDERS)[number];
@@ -40,9 +47,17 @@ export const ENTRY_TYPE_LABELS: Record<EntryType, string> = {
 @Unique('UQ_students_student_id', ['student_id'])
 @Unique('UQ_students_email', ['email'])
 @Unique('UQ_students_abc_id', ['abc_id'])
+// Per-programme, not global: a re-admitted student (B.Tech → M.Tech) is a
+// second row with the same Aadhaar — same rationale as the non-unique mobile.
+@Unique('UQ_students_programme_id_aadhaar_number', [
+  'programme_id',
+  'aadhaar_number',
+])
+@Unique('UQ_students_resume_public_token', ['resume_public_token'])
 @Index('IDX_students_programme_id', ['programme_id'])
 @Index('IDX_students_admission_year_id', ['admission_year_id'])
 @Index('IDX_students_mobile_number', ['mobile_number'])
+@Index('IDX_students_pass_out_year', ['pass_out_year'])
 export class Student {
   @PrimaryGeneratedColumn()
   id: number;
@@ -102,6 +117,255 @@ export class Student {
   // holds a public URL. Null when no photo has been uploaded.
   @Column({ type: 'text', nullable: true })
   photo_key: string | null;
+
+  // ---------------------------------------------------------------------------
+  // Extended profile — filled in AFTER onboarding (by the student through the
+  // approval/OTP flows, or directly by an admin). Everything below is nullable
+  // or defaulted so the create + bulk-upload paths stay 9-field. The per-field
+  // student edit policy lives in src/student/profile/profile-fields.ts.
+  // ---------------------------------------------------------------------------
+
+  // Name split. The Aadhaar-matching full name is display_name (NOT a new
+  // column — it predates the split and is used everywhere: ID card, chat, lists).
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  first_name: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  middle_name: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  last_name: string | null;
+
+  // Personal email, distinct from the college email (`email`). Written ONLY by
+  // the OTP verify flow (student) or an admin; `personal_email_pending` stages
+  // the unverified address while an OTP is in flight.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  personal_email: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  personal_email_pending: string | null;
+
+  // Cached: admission_years.year + degrees.duration_years. Lateral entrants
+  // graduate with their batch, so entry_type never shifts this. Recomputed when
+  // programme/admission year (or the degree's duration) changes; consumed by
+  // placements without joins.
+  @Column({ type: 'int', nullable: true })
+  pass_out_year: number | null;
+
+  @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
+  tenth_percentage: string | null;
+
+  // Regular entrants only (lateral students enter via diploma).
+  @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
+  twelfth_percentage: string | null;
+
+  // Lateral entrants only.
+  @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
+  diploma_percentage: string | null;
+
+  // Synced from student_cgpa on every marks commit (10-point scale). A student
+  // may raise a change request, but the next marks upload overwrites it.
+  @Column({ type: 'numeric', precision: 4, scale: 2, nullable: true })
+  ug_cgpa: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  current_backlogs: number | null;
+
+  // Sticky: flips true when the student has EVER had a backlog; never auto-clears.
+  @Column({ type: 'boolean', default: false })
+  backlog_history: boolean;
+
+  // Object key under the PRIVATE `resumes/` prefix (uuid — unguessable; never
+  // the roll number). Like photo_key, bytes are served via presigned URLs; HRs
+  // reach them through the PERMANENT public route
+  // `GET /public/resumes/<resume_public_token>` which resolves this key at
+  // request time. Replaced key = new uuid + old deleted (the public link is
+  // unaffected — the token never rotates).
+  @Column({ type: 'text', nullable: true })
+  resume_key: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  resume_uploaded_at: Date | null;
+
+  // The permanent share token behind the public resume route. Minted once on
+  // first upload (crypto-random base64url) and NEVER regenerated — students
+  // put the link on job applications, so it must survive re-uploads and even
+  // remove+re-upload cycles. Kept on removeResume for the same reason.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  resume_public_token: string | null;
+
+  // The SECOND, independent resume source (Drive, personal site, …). Both
+  // links are handed to recruiters and both stay live — neither masks the
+  // other, so one failing (our storage down, or Drive permissions revoked)
+  // still leaves a working copy. Given out raw, never proxied: an external
+  // link routed through us would die with our API, defeating the redundancy.
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  resume_external_url: string | null;
+
+  // Hits on the permanent public route, cumulative per person — never reset by
+  // a re-upload or removal, so unusual activity stays visible. Counts Nucleus
+  // link OPENS (the route 302s to a cached presigned URL), not bytes served,
+  // and link-preview bots inflate it; external-link traffic is invisible by
+  // design. Bumped by StudentResumeService.resolvePublicDownload.
+  @Column({ type: 'int', default: 0 })
+  resume_download_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  resume_last_downloaded_at: Date | null;
+
+  // Flat parent/guardian contacts (profile truth). Mirrored on every write into
+  // the two FIXED student_guardians rows — (student_id,'parent') and
+  // (student_id,'default_guardian') — which power the parent-portal login.
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  parent_name: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  parent_mobile: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  parent_email: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  guardian_name: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  guardian_mobile: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  guardian_email: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  home_address: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  home_district_id: number | null;
+
+  @ManyToOne(() => District, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'home_district_id' })
+  home_district: District | null;
+
+  @Column({ type: 'varchar', length: 6, nullable: true })
+  home_pincode: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  home_state_id: number | null;
+
+  @ManyToOne(() => State, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'home_state_id' })
+  home_state: State | null;
+
+  @Column({ type: 'int', nullable: true })
+  home_country_id: number | null;
+
+  @ManyToOne(() => Country, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'home_country_id' })
+  home_country: Country | null;
+
+  // Exactly 12 digits; unique when present (NULLs don't collide).
+  @Column({ type: 'varchar', length: 12, nullable: true })
+  aadhaar_number: string | null;
+
+  // Stored uppercased (DTO transform), standard PAN shape AAAAA9999A.
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  pan_number: string | null;
+
+  // Entrance exam is a dependency group. N/A is an explicit boolean — never a
+  // magic rank value. Invariant (enforced in DTOs): na=true ⇒ rank/exam/year NULL.
+  @Column({ type: 'boolean', default: false })
+  entrance_exam_na: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  entrance_exam_rank: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  entrance_exam_id: number | null;
+
+  @ManyToOne(() => EntranceExam, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'entrance_exam_id' })
+  entrance_exam: EntranceExam | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  entrance_exam_year: number | null;
+
+  // Gap pair: reason required (in DTOs) only when year_of_gap > 0.
+  @Column({ type: 'smallint', nullable: true })
+  year_of_gap: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  reason_of_gap: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  tenth_board_id: number | null;
+
+  @ManyToOne(() => SchoolBoardX, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'tenth_board_id' })
+  tenth_board: SchoolBoardX | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  tenth_institution: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  tenth_year_of_pass: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  tenth_state_id: number | null;
+
+  @ManyToOne(() => State, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'tenth_state_id' })
+  tenth_state: State | null;
+
+  // 12th block — Regular entrants only (hidden for lateral).
+  @Column({ type: 'int', nullable: true })
+  twelfth_board_id: number | null;
+
+  @ManyToOne(() => SchoolBoardXii, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'twelfth_board_id' })
+  twelfth_board: SchoolBoardXii | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  twelfth_institution: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  twelfth_year_of_pass: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  twelfth_state_id: number | null;
+
+  @ManyToOne(() => State, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'twelfth_state_id' })
+  twelfth_state: State | null;
+
+  // Diploma block — Lateral entrants only (hidden for regular).
+  @Column({ type: 'int', nullable: true })
+  diploma_board_id: number | null;
+
+  @ManyToOne(() => DiplomaBoard, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'diploma_board_id' })
+  diploma_board: DiplomaBoard | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  diploma_institution: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  diploma_year_of_pass: number | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  diploma_specialization: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  diploma_state_id: number | null;
+
+  @ManyToOne(() => State, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'diploma_state_id' })
+  diploma_state: State | null;
+
+  // Placement flags. NULL = not set yet (distinct from an explicit No).
+  // allowed_by_dept_for_placements is ADMIN_ONLY — read-only to the student.
+  @Column({ type: 'boolean', nullable: true })
+  allowed_by_dept_for_placements: boolean | null;
+
+  @Column({ type: 'boolean', nullable: true })
+  interested_in_placements_self: boolean | null;
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;

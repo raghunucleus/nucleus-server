@@ -6,7 +6,11 @@ const emailSchema = z
   .union([z.string().trim().max(255).email(), z.literal(''), z.null()])
   .optional()
   .transform((v): string | null | undefined =>
-    v === undefined ? undefined : v === '' || v === null ? null : v.toLowerCase(),
+    v === undefined
+      ? undefined
+      : v === '' || v === null
+        ? null
+        : v.toLowerCase(),
   );
 
 // Edit a guardian contact in place. The owning student cannot change (delete +

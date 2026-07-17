@@ -58,15 +58,17 @@ import {
 } from './dto/company.dto';
 
 /** Maps whitelisted sort keys to their DISTINCT-safe scalar column on `c`. */
-const COMPANY_SORT_COLUMN: Record<(typeof COMPANY_SORT_FIELDS)[number], string> =
-  {
-    name: 'c.name',
-    tier: 'c.tier',
-    relationship_status: 'c.relationship_status',
-    package: 'c.package_max',
-    last_engaged_on: 'c.last_engaged_on',
-    updated_at: 'c.updated_at',
-  };
+const COMPANY_SORT_COLUMN: Record<
+  (typeof COMPANY_SORT_FIELDS)[number],
+  string
+> = {
+  name: 'c.name',
+  tier: 'c.tier',
+  relationship_status: 'c.relationship_status',
+  package: 'c.package_max',
+  last_engaged_on: 'c.last_engaged_on',
+  updated_at: 'c.updated_at',
+};
 
 /** All company relations loaded for the detail view. */
 const COMPANY_DETAIL_RELATIONS = {
@@ -82,7 +84,8 @@ const COMPANY_DETAIL_RELATIONS = {
   eligible_branches: true,
 } as const;
 
-const asRefs = (ids?: number[]) => (ids ? ids.map((id) => ({ id })) : undefined);
+const asRefs = (ids?: number[]) =>
+  ids ? ids.map((id) => ({ id })) : undefined;
 const chip = (r: { id: number; name: string }) => ({ id: r.id, name: r.name });
 
 /** 'mou_signed' → 'Mou signed'; 'prospect' → 'Prospect'. */
@@ -164,7 +167,10 @@ export class CorporateRelationsService {
    * single responsible officer. Also asserts the company exists. When
    * `ownerId` is undefined (manager surface) only existence is checked.
    */
-  private async ensureAccess(companyId: number, ownerId?: number): Promise<void> {
+  private async ensureAccess(
+    companyId: number,
+    ownerId?: number,
+  ): Promise<void> {
     const row = await this.companies.findOne({
       where: { id: companyId },
       select: { id: true, responsible_employee_id: true },
@@ -420,7 +426,11 @@ export class CorporateRelationsService {
     return this.getCompany(saved.id);
   }
 
-  async updateCompany(companyId: number, dto: UpdateCompanyDto, actorId: number) {
+  async updateCompany(
+    companyId: number,
+    dto: UpdateCompanyDto,
+    actorId: number,
+  ) {
     const company = await this.companies.findOne({
       where: { id: companyId },
       relations: COMPANY_DETAIL_RELATIONS,
@@ -440,7 +450,14 @@ export class CorporateRelationsService {
     this.applyClassifiers(company, dto);
     await this.companies.save(company);
 
-    await this.logCompanyEdit(companyId, actorId, dto, company, before, beforeOfficer);
+    await this.logCompanyEdit(
+      companyId,
+      actorId,
+      dto,
+      company,
+      before,
+      beforeOfficer,
+    );
     return this.getCompany(companyId);
   }
 
@@ -461,7 +478,11 @@ export class CorporateRelationsService {
     return this.updateCompany(companyId, rest, actorId);
   }
 
-  async setCompanyStatus(companyId: number, isActive: boolean, actorId: number) {
+  async setCompanyStatus(
+    companyId: number,
+    isActive: boolean,
+    actorId: number,
+  ) {
     const company = await this.companies.findOne({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Company not found.');
     company.is_active = isActive;
@@ -817,7 +838,10 @@ export class CorporateRelationsService {
     await this.companies
       .createQueryBuilder()
       .update(Company)
-      .set({ last_engaged_on: () => `GREATEST(COALESCE(last_engaged_on, '0001-01-01'), '${date}')` })
+      .set({
+        last_engaged_on: () =>
+          `GREATEST(COALESCE(last_engaged_on, '0001-01-01'), '${date}')`,
+      })
       .where('id = :companyId', { companyId })
       .execute();
   }
@@ -825,10 +849,25 @@ export class CorporateRelationsService {
   /** Copy the optional scalar company fields present in the DTO. */
   private applyScalars(company: Company, dto: UpdateCompanyDto) {
     const strKeys = [
-      'short_name', 'website', 'linkedin_url', 'description', 'general_email',
-      'general_phone', 'ownership_type', 'tier', 'gstin', 'cin', 'pan',
-      'registration_number', 'partnership_since', 'address_line1',
-      'address_line2', 'city', 'state', 'country', 'pincode',
+      'short_name',
+      'website',
+      'linkedin_url',
+      'description',
+      'general_email',
+      'general_phone',
+      'ownership_type',
+      'tier',
+      'gstin',
+      'cin',
+      'pan',
+      'registration_number',
+      'partnership_since',
+      'address_line1',
+      'address_line2',
+      'city',
+      'state',
+      'country',
+      'pincode',
     ] as const;
     const target = company as unknown as Record<string, unknown>;
     for (const k of strKeys) {
@@ -843,10 +882,12 @@ export class CorporateRelationsService {
         dto.glassdoor_rating == null ? null : String(dto.glassdoor_rating);
     }
     if ('package_min' in dto) {
-      company.package_min = dto.package_min == null ? null : String(dto.package_min);
+      company.package_min =
+        dto.package_min == null ? null : String(dto.package_min);
     }
     if ('package_max' in dto) {
-      company.package_max = dto.package_max == null ? null : String(dto.package_max);
+      company.package_max =
+        dto.package_max == null ? null : String(dto.package_max);
     }
     if ('offers_internships' in dto && dto.offers_internships !== undefined) {
       company.offers_internships = dto.offers_internships;
@@ -878,7 +919,9 @@ export class CorporateRelationsService {
     if (dto.tag_ids !== undefined)
       company.tags = asRefs(dto.tag_ids) as CompanyTag[];
     if (dto.eligible_branch_ids !== undefined)
-      company.eligible_branches = asRefs(dto.eligible_branch_ids) as Department[];
+      company.eligible_branches = asRefs(
+        dto.eligible_branch_ids,
+      ) as Department[];
   }
 
   /** Capture the tracked scalar + classifier + relationship state for diffing. */
@@ -933,12 +976,12 @@ export class CorporateRelationsService {
     // 2. Responsible-officer reassignment → assigned entry (resolve names).
     if (!eq(before.responsible_employee_id, after.responsible_employee_id)) {
       const toName = after.responsible_employee_id
-        ? (
+        ? ((
             await this.employees.findOne({
               where: { id: after.responsible_employee_id },
               select: { id: true, emp_display_name: true },
             })
-          )?.emp_display_name ?? null
+          )?.emp_display_name ?? null)
         : null;
       const summary = !toName
         ? `Unassigned the responsible officer${
@@ -947,14 +990,24 @@ export class CorporateRelationsService {
         : beforeOfficerName
           ? `Reassigned responsible officer from ${beforeOfficerName} to ${toName}`
           : `Assigned ${toName} as responsible officer`;
-      await this.logActivity(companyId, actorId, 'company', 'assigned', summary);
+      await this.logActivity(
+        companyId,
+        actorId,
+        'company',
+        'assigned',
+        summary,
+      );
     }
 
     // 3. Remaining tracked scalar edits → one "Updated details" entry.
     const changes: ActivityChange[] = [];
     for (const [key, label] of Object.entries(TRACKED_COMPANY_FIELDS)) {
       if (eq(before.scalars[key], afterRec[key])) continue;
-      changes.push({ field: label, from: before.scalars[key], to: afterRec[key] });
+      changes.push({
+        field: label,
+        from: before.scalars[key],
+        to: afterRec[key],
+      });
     }
     if (changes.length) {
       await this.logActivity(

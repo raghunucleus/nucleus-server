@@ -370,10 +370,7 @@ export class StudentPortalService {
 
     const subjectRow = await this.dataSource.query<
       Array<{ id: number; code: string; name: string }>
-    >(
-      `SELECT id, code, name FROM "subjects" WHERE id = $1`,
-      [subjectId],
-    );
+    >(`SELECT id, code, name FROM "subjects" WHERE id = $1`, [subjectId]);
     if (subjectRow.length === 0) {
       throw new NotFoundException('Subject not found');
     }

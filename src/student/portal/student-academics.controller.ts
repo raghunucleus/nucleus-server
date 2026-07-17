@@ -80,8 +80,8 @@ export class StudentAcademicsController {
   @Get('attendance/subject/:subjectId/sessions')
   @ApiOperation({
     summary:
-      "Every class_session for one subject that the signed-in student was on " +
-      "the roster for, with their per-session attendance mark. Drives the " +
+      'Every class_session for one subject that the signed-in student was on ' +
+      'the roster for, with their per-session attendance mark. Drives the ' +
       'drill-down view on the attendance dashboard.',
   })
   subjectSessions(

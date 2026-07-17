@@ -18,11 +18,7 @@ const studentIdSchema = z
   .min(1)
   .max(32)
   .transform((v) => v.toUpperCase())
-  .pipe(
-    z
-      .string()
-      .regex(/^[A-Z0-9]+$/, 'Use letters and numbers only'),
-  );
+  .pipe(z.string().regex(/^[A-Z0-9]+$/, 'Use letters and numbers only'));
 
 const dobSchema = z
   .string()

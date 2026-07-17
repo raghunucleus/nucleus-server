@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 // Defensive cleanup for tables that were superseded by later migrations:
 //   - programme_regulations  -> renamed to programme_admission_years (1779420000000)
@@ -9,15 +9,19 @@ import { MigrationInterface, QueryRunner } from "typeorm";
 // It is intentionally not reversible — recreating empty husks of removed
 // tables would be misleading.
 export class DropOrphanedLegacyTables1779980000000 implements MigrationInterface {
-    name = 'DropOrphanedLegacyTables1779980000000'
+  name = 'DropOrphanedLegacyTables1779980000000';
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP TABLE IF EXISTS "attendance_group_students" CASCADE`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "programme_regulations" CASCADE`);
-    }
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "attendance_group_students" CASCADE`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "programme_regulations" CASCADE`,
+    );
+  }
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        // No-op: these tables are obsolete; reversing the cleanup would
-        // resurrect schemas that no current code references.
-    }
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // No-op: these tables are obsolete; reversing the cleanup would
+    // resurrect schemas that no current code references.
+  }
 }

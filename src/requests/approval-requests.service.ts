@@ -191,10 +191,17 @@ export class ApprovalRequestsService {
           programme_admission_year_id: batch.id,
         }),
       );
-      await this.logEvent(tx, row.id, 'raised', {
-        kind: 'student',
-        id: studentId,
-      }, note ?? null, payload);
+      await this.logEvent(
+        tx,
+        row.id,
+        'raised',
+        {
+          kind: 'student',
+          id: studentId,
+        },
+        note ?? null,
+        payload,
+      );
       return row;
     });
     return this.toRequesterView(saved);
@@ -247,11 +254,12 @@ export class ApprovalRequestsService {
       where: { id, requester_student_id: studentId },
     });
     if (!row) throw new NotFoundException('Request not found');
-    const [approvers, timeline] = await Promise.all([
+    const [approvers, timeline, payload] = await Promise.all([
       this.approversFor(row),
       this.timelineFor(row.id),
+      this.enrichedPayload(row),
     ]);
-    return { ...this.toRequesterView(row), approvers, timeline };
+    return { ...this.toRequesterView(row), payload, approvers, timeline };
   }
 
   /** Chip counts across ALL of the student's requests — never type-scoped. */
@@ -318,10 +326,17 @@ export class ApprovalRequestsService {
           decision_note: null,
         },
       );
-      await this.logEvent(tx, row.id, 'resubmitted', {
-        kind: 'student',
-        id: studentId,
-      }, note ?? null, payload);
+      await this.logEvent(
+        tx,
+        row.id,
+        'resubmitted',
+        {
+          kind: 'student',
+          id: studentId,
+        },
+        note ?? null,
+        payload,
+      );
       row.status = 'pending';
       row.payload = payload;
       row.requester_note = note ?? null;
@@ -351,7 +366,11 @@ export class ApprovalRequestsService {
       if (!row || row.requester_student_id !== studentId) {
         throw new NotFoundException('Request not found');
       }
-      if (!(OPEN_APPROVAL_REQUEST_STATUSES as readonly string[]).includes(row.status)) {
+      if (
+        !(OPEN_APPROVAL_REQUEST_STATUSES as readonly string[]).includes(
+          row.status,
+        )
+      ) {
         throw new ConflictException(
           'This request has already been decided and can no longer be cancelled.',
         );
@@ -418,11 +437,12 @@ export class ApprovalRequestsService {
       .andWhere('r.id = :id', { id })
       .getOne();
     if (!row) throw new NotFoundException('Request not found');
-    const [approvers, timeline] = await Promise.all([
+    const [approvers, timeline, payload] = await Promise.all([
       this.approversFor(row),
       this.timelineFor(row.id),
+      this.enrichedPayload(row),
     ]);
-    return { ...this.toApprovalView(row), approvers, timeline };
+    return { ...this.toApprovalView(row), payload, approvers, timeline };
   }
 
   /**
@@ -571,9 +591,7 @@ export class ApprovalRequestsService {
       if (!isVerifier) throw new NotFoundException('Request not found');
 
       if (row.status !== 'pending') {
-        throw new ConflictException(
-          'Only a pending request can be sent back.',
-        );
+        throw new ConflictException('Only a pending request can be sent back.');
       }
 
       await repo.update(
@@ -588,10 +606,16 @@ export class ApprovalRequestsService {
           decision_note: note,
         },
       );
-      await this.logEvent(tx, row.id, 'sent_back', {
-        kind: 'employee',
-        id: employeeId,
-      }, note);
+      await this.logEvent(
+        tx,
+        row.id,
+        'sent_back',
+        {
+          kind: 'employee',
+          id: employeeId,
+        },
+        note,
+      );
       row.status = 'sent_back';
       return row;
     });
@@ -644,6 +668,24 @@ export class ApprovalRequestsService {
         detail,
       }),
     );
+  }
+
+  /**
+   * The payload as the DETAIL views should render it: passed through the
+   * type's optional `enrichPayloadForView` (e.g. presigned file URLs).
+   * View-only — never persisted; enrichment failures fall back to the raw
+   * payload rather than failing the request fetch.
+   */
+  private async enrichedPayload(
+    request: ApprovalRequest,
+  ): Promise<Record<string, unknown>> {
+    const handler = this.registry.get(request.request_type);
+    if (!handler.enrichPayloadForView) return request.payload;
+    try {
+      return await handler.enrichPayloadForView(request.payload);
+    } catch {
+      return request.payload;
+    }
   }
 
   /**

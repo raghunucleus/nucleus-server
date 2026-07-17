@@ -313,12 +313,31 @@ export class GuardiansService {
     const contactsByRow: Contact[][] = rows.map(() => []);
 
     rows.forEach((r, i) => {
-      const defs: { role: BulkRole; name?: string; mobile?: string; email?: string }[] =
-        [
-          { role: 'father', name: r.father_name, mobile: r.father_mobile, email: r.father_email },
-          { role: 'mother', name: r.mother_name, mobile: r.mother_mobile, email: r.mother_email },
-          { role: 'guardian', name: r.guardian_name, mobile: r.guardian_mobile, email: r.guardian_email },
-        ];
+      const defs: {
+        role: BulkRole;
+        name?: string;
+        mobile?: string;
+        email?: string;
+      }[] = [
+        {
+          role: 'father',
+          name: r.father_name,
+          mobile: r.father_mobile,
+          email: r.father_email,
+        },
+        {
+          role: 'mother',
+          name: r.mother_name,
+          mobile: r.mother_mobile,
+          email: r.mother_email,
+        },
+        {
+          role: 'guardian',
+          name: r.guardian_name,
+          mobile: r.guardian_mobile,
+          email: r.guardian_email,
+        },
+      ];
 
       const rowHadAttempt = defs.some((d) => d.name || d.mobile || d.email);
       if (!rowHadAttempt) {

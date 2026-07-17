@@ -17,9 +17,7 @@ export const UpdateProgrammeSemesterSubjectSchema = z
     placeholder_name: z
       .union([z.string().trim().max(64), z.null()])
       .optional()
-      .transform((v) =>
-        typeof v === 'string' && v === '' ? null : v,
-      ),
+      .transform((v) => (typeof v === 'string' && v === '' ? null : v)),
     credits: z.coerce.number().multipleOf(0.5).min(0).max(30).optional(),
     // null clears slot_type (only valid when swapping to a real subject in
     // the same patch). For slot-to-slot category changes, pass the new value.

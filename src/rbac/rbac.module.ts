@@ -57,10 +57,6 @@ import { ScreenAccessGuard } from './screen-access.guard';
     JwtStrategy,
     RequireTotpEnrolledGuard,
   ],
-  exports: [
-    CatalogService,
-    PermissionsService,
-    ScreenAccessGuard,
-  ],
+  exports: [CatalogService, PermissionsService, ScreenAccessGuard],
 })
 export class RbacModule {}

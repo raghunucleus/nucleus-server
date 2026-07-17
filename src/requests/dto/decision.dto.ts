@@ -43,7 +43,11 @@ export class DecideDto extends createZodDto(DecideSchema) {}
 // them with no way to know what to fix.
 export const SendBackSchema = z
   .object({
-    note: z.string().trim().min(1, 'Tell the requester what to change').max(1000),
+    note: z
+      .string()
+      .trim()
+      .min(1, 'Tell the requester what to change')
+      .max(1000),
   })
   .strict();
 

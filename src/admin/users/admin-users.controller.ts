@@ -42,7 +42,9 @@ export class AdminUsersController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single admin user by ID (master admins only).' })
+  @ApiOperation({
+    summary: 'Get a single admin user by ID (master admins only).',
+  })
   getOne(@Param('id') id: string): Promise<PublicAdmin> {
     return this.users.getOne(id);
   }

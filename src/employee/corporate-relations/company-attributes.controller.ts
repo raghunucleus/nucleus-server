@@ -40,7 +40,9 @@ export class CompanyAttributesController {
 
   @Get(':type')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'All values (active + inactive) for a lookup type.' })
+  @ApiOperation({
+    summary: 'All values (active + inactive) for a lookup type.',
+  })
   list(@Param('type') type: string) {
     return this.svc.list(type, true);
   }

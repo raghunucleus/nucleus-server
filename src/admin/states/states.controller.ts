@@ -32,7 +32,7 @@ export class StatesController {
   @Get()
   @ApiOperation({
     summary:
-      'List states with server-side pagination, search, and sort. `status` filters on the row\'s own is_active; `effectiveActive` filters on the whole state -> country chain and is what consumer pickers should use.',
+      "List states with server-side pagination, search, and sort. `status` filters on the row's own is_active; `effectiveActive` filters on the whole state -> country chain and is what consumer pickers should use.",
   })
   list(@Query() query: ListStatesDto): Promise<ListStatesResult> {
     return this.states.list(query);

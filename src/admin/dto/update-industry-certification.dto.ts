@@ -18,7 +18,10 @@ export const UpdateIndustryCertificationSchema = z
       .pipe(
         z
           .string()
-          .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+          .regex(
+            /^[A-Z0-9._-]+$/,
+            'Use letters, numbers, dot, underscore, or dash',
+          ),
       )
       .optional(),
     // Already optional and null-accepting — pass `null` to clear, omit to keep.

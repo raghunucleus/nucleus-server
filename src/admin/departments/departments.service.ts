@@ -152,7 +152,8 @@ export class DepartmentsService {
           ? patch.code
           : undefined,
       short_name:
-        patch.short_name !== undefined && patch.short_name !== department.short_name
+        patch.short_name !== undefined &&
+        patch.short_name !== department.short_name
           ? patch.short_name
           : undefined,
       excludeId: id,
@@ -168,7 +169,8 @@ export class DepartmentsService {
 
     if (patch.name !== undefined) department.name = patch.name;
     if (patch.code !== undefined) department.code = patch.code;
-    if (patch.short_name !== undefined) department.short_name = patch.short_name;
+    if (patch.short_name !== undefined)
+      department.short_name = patch.short_name;
     if (patch.hod_employee_id !== undefined)
       department.hod_employee_id = patch.hod_employee_id;
 
@@ -201,11 +203,23 @@ export class DepartmentsService {
     short_name?: string;
     excludeId?: number;
   }): Promise<void> {
-    const checks: { field: 'name' | 'code' | 'short_name'; value: string; message: string }[] = [];
+    const checks: {
+      field: 'name' | 'code' | 'short_name';
+      value: string;
+      message: string;
+    }[] = [];
     if (opts.name !== undefined)
-      checks.push({ field: 'name', value: opts.name, message: 'Name is already in use' });
+      checks.push({
+        field: 'name',
+        value: opts.name,
+        message: 'Name is already in use',
+      });
     if (opts.code !== undefined)
-      checks.push({ field: 'code', value: opts.code, message: 'Code is already in use' });
+      checks.push({
+        field: 'code',
+        value: opts.code,
+        message: 'Code is already in use',
+      });
     if (opts.short_name !== undefined)
       checks.push({
         field: 'short_name',

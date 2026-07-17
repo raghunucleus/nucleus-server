@@ -53,7 +53,11 @@ export const CreateProgrammeSemesterSubjectSchema = z
         path: ['slot_type'],
       });
     }
-    if (hasSubject && val.option_subject_ids && val.option_subject_ids.length > 0) {
+    if (
+      hasSubject &&
+      val.option_subject_ids &&
+      val.option_subject_ids.length > 0
+    ) {
       ctx.addIssue({
         code: 'custom',
         message: 'option_subject_ids is only valid for slot rows',

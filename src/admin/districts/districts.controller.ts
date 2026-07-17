@@ -32,7 +32,7 @@ export class DistrictsController {
   @Get()
   @ApiOperation({
     summary:
-      'List districts with server-side pagination, search, and sort. `status` filters on the row\'s own is_active; `effectiveActive` filters on the whole district -> state -> country chain and is what consumer pickers should use.',
+      "List districts with server-side pagination, search, and sort. `status` filters on the row's own is_active; `effectiveActive` filters on the whole district -> state -> country chain and is what consumer pickers should use.",
   })
   list(@Query() query: ListDistrictsDto): Promise<ListDistrictsResult> {
     return this.districts.list(query);
@@ -54,7 +54,9 @@ export class DistrictsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a district. Passing state_id re-parents it.' })
+  @ApiOperation({
+    summary: 'Update a district. Passing state_id re-parents it.',
+  })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateDistrictDto,

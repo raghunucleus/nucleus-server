@@ -73,7 +73,9 @@ export class CompanyAttributesService {
   }
 
   /** All active lookups, keyed by kind — feeds the company form's pickers. */
-  async activeByKind(): Promise<Record<CompanyLookupKind, CompanyLookupBase[]>> {
+  async activeByKind(): Promise<
+    Record<CompanyLookupKind, CompanyLookupBase[]>
+  > {
     const out = {} as Record<CompanyLookupKind, CompanyLookupBase[]>;
     for (const kind of COMPANY_LOOKUP_KINDS) {
       out[kind] = await this.repos[kind].find({

@@ -8,4 +8,6 @@ export const UpdateAdmissionYearSchema = z
   })
   .strict();
 
-export class UpdateAdmissionYearDto extends createZodDto(UpdateAdmissionYearSchema) {}
+export class UpdateAdmissionYearDto extends createZodDto(
+  UpdateAdmissionYearSchema,
+) {}

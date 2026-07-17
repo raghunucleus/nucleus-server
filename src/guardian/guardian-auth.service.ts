@@ -426,7 +426,11 @@ export class GuardianAuthService {
 
     const jti = randomUUID();
     const refreshToken = await this.jwt.signAsync(
-      { sub: mobileNumber, fid: familyId, jti } satisfies GuardianRefreshPayload,
+      {
+        sub: mobileNumber,
+        fid: familyId,
+        jti,
+      } satisfies GuardianRefreshPayload,
       {
         secret: this.config.getOrThrow<string>('JWT_GUARDIAN_REFRESH_SECRET'),
         expiresIn: refreshTtl,

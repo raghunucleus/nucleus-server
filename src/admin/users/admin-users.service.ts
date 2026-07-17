@@ -111,10 +111,9 @@ export class AdminUsersService {
     }
 
     if (opts.mobileSearch) {
-      qb.andWhere(
-        "LOWER(COALESCE(a.mobile_number, '')) LIKE :mn",
-        { mn: `%${opts.mobileSearch.toLowerCase()}%` },
-      );
+      qb.andWhere("LOWER(COALESCE(a.mobile_number, '')) LIKE :mn", {
+        mn: `%${opts.mobileSearch.toLowerCase()}%`,
+      });
     }
 
     if (opts.status === 'active') {
@@ -155,10 +154,13 @@ export class AdminUsersService {
   async create(input: CreateAdminUserInput): Promise<PublicAdmin> {
     const existing = await this.admins
       .createQueryBuilder('a')
-      .where('LOWER(a.email) = LOWER(:email) OR LOWER(a.username) = LOWER(:username)', {
-        email: input.email,
-        username: input.username,
-      })
+      .where(
+        'LOWER(a.email) = LOWER(:email) OR LOWER(a.username) = LOWER(:username)',
+        {
+          email: input.email,
+          username: input.username,
+        },
+      )
       .getOne();
     if (existing) {
       throw new ConflictException(
@@ -170,7 +172,7 @@ export class AdminUsersService {
 
     const passwordHash = await AdminService.hashPassword(input.password);
     const mobile = input.mobile_number ?? null;
-    const countryCode = mobile ? input.country_code ?? '91' : null;
+    const countryCode = mobile ? (input.country_code ?? '91') : null;
 
     const admin = this.admins.create({
       username: input.username,
@@ -205,8 +207,10 @@ export class AdminUsersService {
 
     if (patch.first_name !== undefined) admin.first_name = patch.first_name;
     if (patch.last_name !== undefined) admin.last_name = patch.last_name;
-    if (patch.country_code !== undefined) admin.country_code = patch.country_code;
-    if (patch.mobile_number !== undefined) admin.mobile_number = patch.mobile_number;
+    if (patch.country_code !== undefined)
+      admin.country_code = patch.country_code;
+    if (patch.mobile_number !== undefined)
+      admin.mobile_number = patch.mobile_number;
 
     if (admin.mobile_number === null) {
       admin.country_code = null;

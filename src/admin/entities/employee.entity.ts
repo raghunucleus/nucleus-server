@@ -18,7 +18,10 @@ export type Gender = (typeof GENDERS)[number];
 @Entity({ name: 'employees' })
 @Unique('UQ_employees_emp_code', ['emp_code'])
 @Unique('UQ_employees_email', ['email'])
-@Unique('UQ_employees_country_code_mobile_number', ['country_code', 'mobile_number'])
+@Unique('UQ_employees_country_code_mobile_number', [
+  'country_code',
+  'mobile_number',
+])
 @Index('IDX_employees_department_id', ['department_id'])
 @Index('IDX_employees_designation_id', ['designation_id'])
 @Index('IDX_employees_rm_emp_code', ['rm_emp_code'])

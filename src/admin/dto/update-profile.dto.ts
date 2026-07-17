@@ -1,7 +1,11 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-const nullableTrimmed = (max: number, validate?: (v: string) => boolean, msg?: string) =>
+const nullableTrimmed = (
+  max: number,
+  validate?: (v: string) => boolean,
+  msg?: string,
+) =>
   z
     .union([z.string(), z.null()])
     .optional()
@@ -10,7 +14,10 @@ const nullableTrimmed = (max: number, validate?: (v: string) => boolean, msg?: s
     .superRefine((v, ctx) => {
       if (typeof v !== 'string') return;
       if (v.length > max) {
-        ctx.addIssue({ code: 'custom', message: `Must be at most ${max} characters` });
+        ctx.addIssue({
+          code: 'custom',
+          message: `Must be at most ${max} characters`,
+        });
         return;
       }
       if (validate && !validate(v)) {

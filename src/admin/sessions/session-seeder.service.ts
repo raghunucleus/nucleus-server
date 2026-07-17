@@ -18,7 +18,7 @@ import { TimetablePeriod } from '../entities/timetable-period.entity';
 
 export interface SeedWindow {
   from: string; // 'YYYY-MM-DD', inclusive
-  to: string;   // 'YYYY-MM-DD', inclusive
+  to: string; // 'YYYY-MM-DD', inclusive
   // Optional ISO weekday filter (1=Mon..7=Sun). When set, both the wipe
   // (publish only) and the seed loop ignore weekdays outside this list,
   // so callers can publish a partial week without touching the days they
@@ -151,7 +151,12 @@ export class SessionSeederService {
     const tt = await this.loadTimetable(timetableId);
     const window2 = this.clampWindow(tt, window);
     if (window2 === null) {
-      return { sessions: [], holidays: [], blocked_dates: [], kept_sessions: [] };
+      return {
+        sessions: [],
+        holidays: [],
+        blocked_dates: [],
+        kept_sessions: [],
+      };
     }
     return this.dataSource.transaction(async (tx) => {
       const dowFilter = toDowFilter(window2.days_of_week);
@@ -437,7 +442,9 @@ export class SessionSeederService {
 
       this.logger.log(
         `publishWindow: timetable=${timetableId} range=${clamped.from}..${clamped.to}` +
-          (dowFilter ? ` dow=[${Array.from(dowFilter).sort().join(',')}]` : '') +
+          (dowFilter
+            ? ` dow=[${Array.from(dowFilter).sort().join(',')}]`
+            : '') +
           ` replaced=${wipe.affected ?? 0} inserted=${inserted} kept_marked=${keptMarked} excluded=${excluded} skipped_holidays=${skippedHolidays}`,
       );
       return {

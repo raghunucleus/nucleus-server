@@ -47,7 +47,11 @@ export class ProgrammeSemesterSubject {
   @Column({ type: 'int', nullable: true })
   subject_id: number | null;
 
-  @ManyToOne(() => Subject, { onDelete: 'RESTRICT', eager: true, nullable: true })
+  @ManyToOne(() => Subject, {
+    onDelete: 'RESTRICT',
+    eager: true,
+    nullable: true,
+  })
   @JoinColumn({ name: 'subject_id' })
   subject: Subject | null;
 

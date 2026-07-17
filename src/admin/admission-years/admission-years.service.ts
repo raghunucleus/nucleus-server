@@ -129,8 +129,13 @@ export class AdmissionYearsService {
     return this.years.save(row);
   }
 
-  private async assertYearUnique(year: number, excludeId?: number): Promise<void> {
-    const qb = this.years.createQueryBuilder('y').where('y.year = :year', { year });
+  private async assertYearUnique(
+    year: number,
+    excludeId?: number,
+  ): Promise<void> {
+    const qb = this.years
+      .createQueryBuilder('y')
+      .where('y.year = :year', { year });
     if (excludeId !== undefined) qb.andWhere('y.id != :id', { id: excludeId });
     const collision = await qb.getOne();
     if (collision) throw new ConflictException('Year is already in use');

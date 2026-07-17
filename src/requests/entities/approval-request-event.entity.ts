@@ -28,8 +28,7 @@ export const APPROVAL_REQUEST_EVENTS = [
   'rejected',
   'cancelled',
 ] as const;
-export type ApprovalRequestEventKind =
-  (typeof APPROVAL_REQUEST_EVENTS)[number];
+export type ApprovalRequestEventKind = (typeof APPROVAL_REQUEST_EVENTS)[number];
 
 /** Who caused an event. `system` is reserved for future automated actions. */
 export const APPROVAL_REQUEST_ACTOR_KINDS = [

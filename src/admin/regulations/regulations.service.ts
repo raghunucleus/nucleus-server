@@ -154,7 +154,8 @@ export class RegulationsService {
       const qb = this.regulations
         .createQueryBuilder('r')
         .where('LOWER(r.name) = LOWER(:v)', { v: opts.name });
-      if (opts.excludeId !== undefined) qb.andWhere('r.id != :id', { id: opts.excludeId });
+      if (opts.excludeId !== undefined)
+        qb.andWhere('r.id != :id', { id: opts.excludeId });
       if (await qb.getOne())
         throw new ConflictException('Name is already in use');
     }
@@ -162,7 +163,8 @@ export class RegulationsService {
       const qb = this.regulations
         .createQueryBuilder('r')
         .where('LOWER(r.code) = LOWER(:v)', { v: opts.code });
-      if (opts.excludeId !== undefined) qb.andWhere('r.id != :id', { id: opts.excludeId });
+      if (opts.excludeId !== undefined)
+        qb.andWhere('r.id != :id', { id: opts.excludeId });
       if (await qb.getOne())
         throw new ConflictException('Code is already in use');
     }

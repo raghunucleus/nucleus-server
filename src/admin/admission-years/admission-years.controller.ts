@@ -35,7 +35,9 @@ export class AdmissionYearsController {
     summary:
       'List admission years with server-side pagination, search, and sort.',
   })
-  list(@Query() query: ListAdmissionYearsDto): Promise<ListAdmissionYearsResult> {
+  list(
+    @Query() query: ListAdmissionYearsDto,
+  ): Promise<ListAdmissionYearsResult> {
     return this.years.list(query);
   }
 

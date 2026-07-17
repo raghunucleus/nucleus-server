@@ -34,7 +34,10 @@ export const CreateSchoolBoardXiiSchema = z
       .pipe(
         z
           .string()
-          .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+          .regex(
+            /^[A-Z0-9._-]+$/,
+            'Use letters, numbers, dot, underscore, or dash',
+          ),
       ),
     description: optionalDescription,
   })

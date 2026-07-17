@@ -8,9 +8,7 @@ export class AddIdCardSupport1780900000000 implements MigrationInterface {
   name = 'AddIdCardSupport1780900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE "students" ADD "photo_key" text`,
-    );
+    await queryRunner.query(`ALTER TABLE "students" ADD "photo_key" text`);
 
     await queryRunner.query(
       `CREATE TABLE "institution_settings" ("id" SERIAL NOT NULL, "name" character varying(256) NOT NULL, "short_name" character varying(64), "address_line1" character varying(256), "address_line2" character varying(256), "city" character varying(128), "state" character varying(128), "pincode" character varying(16), "logo_url" text, "affiliation_code" character varying(128), "aicte_code" character varying(128), "naac_grade" character varying(32), "card_footer_note" character varying(256), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_institution_settings_id" PRIMARY KEY ("id"))`,

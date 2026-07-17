@@ -31,7 +31,8 @@ export class HolidaysController {
 
   @Get()
   @ApiOperation({
-    summary: 'List institution-wide holidays, optionally filtered by date range.',
+    summary:
+      'List institution-wide holidays, optionally filtered by date range.',
   })
   list(@Query() query: ListAcademicHolidaysDto): Promise<AcademicHoliday[]> {
     return this.holidays.list(query);

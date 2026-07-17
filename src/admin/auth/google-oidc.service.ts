@@ -22,7 +22,7 @@ export class GoogleOidcService {
   private readonly logger = new Logger(GoogleOidcService.name);
   private clientCache: OAuth2Client | null = null;
 
-  constructor(private readonly config: ConfigService) { }
+  constructor(private readonly config: ConfigService) {}
 
   // Verifies a Google ID token (issued to the admin web client) and returns
   // the validated identity. Throws UnauthorizedException for any failure
@@ -53,9 +53,10 @@ export class GoogleOidcService {
       );
       throw new UnauthorizedException('Invalid Google credential');
     }
-    console.log({ payload })
+    console.log({ payload });
     if (!payload) throw new UnauthorizedException('Invalid Google credential');
-    if (!payload.email) throw new UnauthorizedException('Invalid Google credential');
+    if (!payload.email)
+      throw new UnauthorizedException('Invalid Google credential');
 
     const allowedDomains = this.parseAllowedDomains();
     if (allowedDomains.length > 0) {

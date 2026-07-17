@@ -192,12 +192,7 @@ export class RbacAdminService {
     pageSize: number;
     name?: string;
     status?: 'active' | 'inactive';
-    sortBy?:
-      | 'code'
-      | 'name'
-      | 'is_active'
-      | 'created_at'
-      | 'updated_at';
+    sortBy?: 'code' | 'name' | 'is_active' | 'created_at' | 'updated_at';
     sortOrder?: 'asc' | 'desc';
   }): Promise<ListRolesResult> {
     const qb = this.roles.createQueryBuilder('r');
@@ -768,7 +763,10 @@ export class RbacAdminService {
             `Attribute "${attr.attribute_key}" on "${attr.screen_key}" must be a single value, not an array`,
           );
         }
-        if ((attr.value === null || attr.value === undefined) && attrDef.required) {
+        if (
+          (attr.value === null || attr.value === undefined) &&
+          attrDef.required
+        ) {
           throw new BadRequestException(
             `Attribute "${attr.attribute_key}" on "${attr.screen_key}" is required`,
           );

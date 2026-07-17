@@ -15,7 +15,8 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
   {
     key: 'teacher',
     label: 'Teacher',
-    description: 'Class teacher — manages day-to-day attendance and marks for assigned courses.',
+    description:
+      'Class teacher — manages day-to-day attendance and marks for assigned courses.',
   },
   // {
   //   key: 'hod',
@@ -25,17 +26,20 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
   {
     key: 'examcell',
     label: 'Exam Cell',
-    description: 'Examination cell member — manages mark structures and marks entry across programmes.',
+    description:
+      'Examination cell member — manages mark structures and marks entry across programmes.',
   },
   {
     key: 'security',
     label: 'Security',
-    description: 'Security guard — scans and verifies student/employee identity QR codes.',
+    description:
+      'Security guard — scans and verifies student/employee identity QR codes.',
   },
   {
     key: 'placement',
     label: 'Placement',
-    description: 'Placement / corporate-relations officer — manages companies and employee assignments.',
+    description:
+      'Placement / corporate-relations officer — manages companies and employee assignments.',
   },
   // {
   //   key: 'management',

@@ -13,10 +13,7 @@ import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
 import { GetEmployee } from '../auth/get-employee.decorator';
 import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
-import {
-  ResultsQueryDto,
-  StudentByRollQueryDto,
-} from './dto/upload-marks.dto';
+import { ResultsQueryDto, StudentByRollQueryDto } from './dto/upload-marks.dto';
 import {
   ExamMarksScopeItem,
   ExamMarksService,

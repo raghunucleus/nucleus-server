@@ -575,6 +575,26 @@ export class ExamMarksService {
         [programmeAdmissionYearId],
       );
 
+      // Mirror the fresh aggregates onto the student rows (profile fields the
+      // placement module reads without joins). backlog_history is STICKY —
+      // "ever had a backlog" — so it ORs with its current value and with any F
+      // grade across ALL attempts (not just is_best), and never flips back.
+      await tx.query(
+        `UPDATE "students" s SET
+           "ug_cgpa" = c."cgpa",
+           "current_backlogs" = c."backlog_count",
+           "backlog_history" = s."backlog_history"
+             OR c."backlog_count" > 0
+             OR EXISTS (
+               SELECT 1 FROM "student_exam_results" r
+               WHERE r."student_id" = s."id" AND r."grade" = 'F'
+             )
+         FROM "student_cgpa" c
+         WHERE c."student_id" = s."id"
+           AND c."programme_admission_year_id" = $1`,
+        [programmeAdmissionYearId],
+      );
+
       // Authoritative counts for the summary (the Postgres INSERT return shape
       // is not a reliable [rows, affected] tuple, so count the stored rows).
       const counts = await tx.query(
@@ -876,7 +896,9 @@ export class ExamMarksService {
     }
 
     // The cached CGPA row carries the student's batch; one row per student.
-    const cgpa = await this.cgpas.findOne({ where: { student_id: student.id } });
+    const cgpa = await this.cgpas.findOne({
+      where: { student_id: student.id },
+    });
     if (!cgpa) {
       throw new NotFoundException('No stored results for this student');
     }
@@ -1052,8 +1074,10 @@ export class ExamMarksService {
 
     const subjectCode = row.subject_code.trim();
     const subjectName = row.subject_name.trim();
-    if (!subjectCode) err('subject_code', row.subject_code, 'Sub Code is required');
-    if (!subjectName) err('subject_name', row.subject_name, 'Sub Name is required');
+    if (!subjectCode)
+      err('subject_code', row.subject_code, 'Sub Code is required');
+    if (!subjectName)
+      err('subject_name', row.subject_name, 'Sub Name is required');
 
     const credits = Number(row.credits);
     const creditsOk =

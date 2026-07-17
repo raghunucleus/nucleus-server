@@ -45,7 +45,4 @@ export const RequireScreen = (
 export const RequireAnyScreen = (
   ...specs: RequireScreenSpec[]
 ): MethodDecorator & ClassDecorator =>
-  SetMetadata<string, RequireScreenSpec[]>(
-    REQUIRE_ANY_SCREEN_METADATA,
-    specs,
-  );
+  SetMetadata<string, RequireScreenSpec[]>(REQUIRE_ANY_SCREEN_METADATA, specs);

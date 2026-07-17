@@ -30,10 +30,9 @@ export class ScreenAccessGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const spec = this.reflector.getAllAndOverride<RequireScreenSpec | undefined>(
-      REQUIRE_SCREEN_METADATA,
-      [ctx.getHandler(), ctx.getClass()],
-    );
+    const spec = this.reflector.getAllAndOverride<
+      RequireScreenSpec | undefined
+    >(REQUIRE_SCREEN_METADATA, [ctx.getHandler(), ctx.getClass()]);
     const anySpecs = this.reflector.getAllAndOverride<
       RequireScreenSpec[] | undefined
     >(REQUIRE_ANY_SCREEN_METADATA, [ctx.getHandler(), ctx.getClass()]);
@@ -63,7 +62,6 @@ export class ScreenAccessGuard implements CanActivate {
     // @RequireAnyScreen — pass if any of the listed (screen, action) pairs
     // is granted to the caller.
     for (const s of anySpecs!) {
-      // eslint-disable-next-line no-await-in-loop
       const ok = await this.permissions.hasAction(
         user.id,
         s.screenKey,

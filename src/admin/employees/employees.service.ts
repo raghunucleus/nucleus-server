@@ -80,7 +80,8 @@ export interface BulkCreateRow {
 @Injectable()
 export class EmployeesService {
   constructor(
-    @InjectRepository(Employee) private readonly employees: Repository<Employee>,
+    @InjectRepository(Employee)
+    private readonly employees: Repository<Employee>,
     @InjectRepository(Department)
     private readonly departments: Repository<Department>,
     @InjectRepository(Designation)
@@ -202,7 +203,10 @@ export class EmployeesService {
     await this.assertUnique({
       emp_code: input.emp_code,
       email: input.email,
-      mobile: { country_code: input.country_code, mobile_number: input.mobile_number },
+      mobile: {
+        country_code: input.country_code,
+        mobile_number: input.mobile_number,
+      },
     });
 
     const employee = this.employees.create({
@@ -237,16 +241,21 @@ export class EmployeesService {
           ? patch.designation_id
           : undefined,
       rm_emp_code:
-        patch.rm_emp_code !== undefined && patch.rm_emp_code !== employee.rm_emp_code
+        patch.rm_emp_code !== undefined &&
+        patch.rm_emp_code !== employee.rm_emp_code
           ? patch.rm_emp_code
           : undefined,
       selfEmpCode: patch.emp_code ?? employee.emp_code,
     });
 
     const nextCountryCode =
-      patch.country_code !== undefined ? patch.country_code : employee.country_code;
+      patch.country_code !== undefined
+        ? patch.country_code
+        : employee.country_code;
     const nextMobile =
-      patch.mobile_number !== undefined ? patch.mobile_number : employee.mobile_number;
+      patch.mobile_number !== undefined
+        ? patch.mobile_number
+        : employee.mobile_number;
     const mobileChanged =
       nextCountryCode !== employee.country_code ||
       nextMobile !== employee.mobile_number;
@@ -277,9 +286,11 @@ export class EmployeesService {
       employee.designation_id = patch.designation_id;
     if (patch.mobile_number !== undefined)
       employee.mobile_number = patch.mobile_number;
-    if (patch.country_code !== undefined) employee.country_code = patch.country_code;
+    if (patch.country_code !== undefined)
+      employee.country_code = patch.country_code;
     if (patch.email !== undefined) employee.email = patch.email;
-    if (patch.rm_emp_code !== undefined) employee.rm_emp_code = patch.rm_emp_code;
+    if (patch.rm_emp_code !== undefined)
+      employee.rm_emp_code = patch.rm_emp_code;
 
     return this.employees.save(employee);
   }

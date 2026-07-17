@@ -12,9 +12,7 @@ export const ListClassSessionsSchema = z
     status: z
       .union([
         z.enum(['scheduled', 'completed', 'cancelled', 'rescheduled']),
-        z.array(
-          z.enum(['scheduled', 'completed', 'cancelled', 'rescheduled']),
-        ),
+        z.array(z.enum(['scheduled', 'completed', 'cancelled', 'rescheduled'])),
       ])
       .optional(),
   })

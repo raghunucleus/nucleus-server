@@ -18,7 +18,10 @@ import { CreateRegulationDto } from '../dto/create-regulation.dto';
 import { ListRegulationsDto } from '../dto/list-regulations.dto';
 import { UpdateRegulationDto } from '../dto/update-regulation.dto';
 import { Regulation } from '../entities/regulation.entity';
-import { ListRegulationsResult, RegulationsService } from './regulations.service';
+import {
+  ListRegulationsResult,
+  RegulationsService,
+} from './regulations.service';
 
 @ApiTags('regulations')
 @ApiBearerAuth('admin-access-token')

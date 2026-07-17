@@ -17,8 +17,8 @@ const ALLOW_PASSWORD_CHANGE_PENDING_KEY = 'student:allowPasswordChangePending';
  * Every other route guarded by RequirePasswordChangedGuard is blocked until
  * the student picks their own password.
  */
-export const AllowPasswordChangePending = (): MethodDecorator & ClassDecorator =>
-  SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true);
+export const AllowPasswordChangePending = (): MethodDecorator &
+  ClassDecorator => SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true);
 
 @Injectable()
 export class RequirePasswordChangedGuard implements CanActivate {

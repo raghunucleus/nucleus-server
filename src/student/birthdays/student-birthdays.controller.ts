@@ -6,7 +6,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { GetStudent } from '../auth/get-student.decorator';
 import { RequirePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { StudentJwtAuthGuard } from '../auth/student-jwt-auth.guard';
@@ -34,9 +39,21 @@ export class StudentBirthdaysController {
       'section. Paginated (limit/offset) for load-on-scroll; search (q) spans ' +
       'the whole roster. Birth year is never returned.',
   })
-  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
-  @ApiQuery({ name: 'offset', required: false, description: 'Rows to skip (default 0).' })
-  @ApiQuery({ name: 'q', required: false, description: 'Search by name or roll number.' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size (1–100, default 30).',
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    description: 'Rows to skip (default 0).',
+  })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    description: 'Search by name or roll number.',
+  })
   list(
     @GetStudent() student: AuthenticatedStudent,
     @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,

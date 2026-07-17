@@ -50,9 +50,21 @@ export class StudentNotificationsController {
       "A page of the caller's notifications (newest first) with the unread " +
       'total. Seek older pages with `before=<oldest id seen>`.',
   })
-  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
-  @ApiQuery({ name: 'before', required: false, description: 'Return notifications with id < this.' })
-  @ApiQuery({ name: 'unread', required: false, description: 'When "true", only unread notifications.' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size (1–100, default 30).',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Return notifications with id < this.',
+  })
+  @ApiQuery({
+    name: 'unread',
+    required: false,
+    description: 'When "true", only unread notifications.',
+  })
   list(
     @GetStudent() s: AuthenticatedStudent,
     @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
@@ -67,7 +79,9 @@ export class StudentNotificationsController {
   }
 
   @Get('unread-count')
-  @ApiOperation({ summary: 'Unread notification count — for the header/tab badge.' })
+  @ApiOperation({
+    summary: 'Unread notification count — for the header/tab badge.',
+  })
   async unread(
     @GetStudent() s: AuthenticatedStudent,
   ): Promise<{ total: number }> {
@@ -94,7 +108,8 @@ export class StudentNotificationsController {
   @Post('push-tokens')
   @HttpCode(204)
   @ApiOperation({
-    summary: "Register (or refresh) this device's Expo push token for the caller.",
+    summary:
+      "Register (or refresh) this device's Expo push token for the caller.",
   })
   async register(
     @GetStudent() s: AuthenticatedStudent,

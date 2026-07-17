@@ -11,10 +11,14 @@ export const UpsertTimetableEntrySchema = z
     timetable_period_id: z.coerce.number().int().positive(),
     // How many consecutive periods the class occupies (merged-period labs).
     span: z.coerce.number().int().min(1).max(20).default(1),
-    programme_semester_subject_id: z.coerce.number().int().positive().optional(),
+    programme_semester_subject_id: z.coerce
+      .number()
+      .int()
+      .positive()
+      .optional(),
     timetable_course_id: z.coerce.number().int().positive().optional(),
-    employee_id: z
-      .coerce.number()
+    employee_id: z.coerce
+      .number()
       .int()
       .positive()
       .nullable()

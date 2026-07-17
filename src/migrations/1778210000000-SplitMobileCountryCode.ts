@@ -1,13 +1,15 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class SplitMobileCountryCode1778210000000 implements MigrationInterface {
-    name = 'SplitMobileCountryCode1778210000000'
+  name = 'SplitMobileCountryCode1778210000000';
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "admins" ADD "country_code" character varying(8)`);
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `ALTER TABLE "admins" ADD "country_code" character varying(8)`,
+    );
 
-        // Backfill: split existing values like "+91XXXXXXXXXX" into ("91", "XXXXXXXXXX").
-        await queryRunner.query(`
+    // Backfill: split existing values like "+91XXXXXXXXXX" into ("91", "XXXXXXXXXX").
+    await queryRunner.query(`
             UPDATE "admins"
             SET
                 "country_code" = CASE
@@ -23,21 +25,24 @@ export class SplitMobileCountryCode1778210000000 implements MigrationInterface {
             WHERE "mobile_number" IS NOT NULL
         `);
 
-        // Shrink the local-number column now that the prefix is gone.
-        await queryRunner.query(`ALTER TABLE "admins" ALTER COLUMN "mobile_number" TYPE character varying(16)`);
-    }
+    // Shrink the local-number column now that the prefix is gone.
+    await queryRunner.query(
+      `ALTER TABLE "admins" ALTER COLUMN "mobile_number" TYPE character varying(16)`,
+    );
+  }
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "admins" ALTER COLUMN "mobile_number" TYPE character varying(32)`);
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `ALTER TABLE "admins" ALTER COLUMN "mobile_number" TYPE character varying(32)`,
+    );
 
-        // Re-merge: prepend "+<country_code>" back onto mobile_number.
-        await queryRunner.query(`
+    // Re-merge: prepend "+<country_code>" back onto mobile_number.
+    await queryRunner.query(`
             UPDATE "admins"
             SET "mobile_number" = '+' || "country_code" || "mobile_number"
             WHERE "mobile_number" IS NOT NULL AND "country_code" IS NOT NULL
         `);
 
-        await queryRunner.query(`ALTER TABLE "admins" DROP COLUMN "country_code"`);
-    }
-
+    await queryRunner.query(`ALTER TABLE "admins" DROP COLUMN "country_code"`);
+  }
 }

@@ -135,7 +135,9 @@ export class SemestersService {
           ? patch.sem_number
           : undefined,
       code:
-        patch.code !== undefined && patch.code !== row.code ? patch.code : undefined,
+        patch.code !== undefined && patch.code !== row.code
+          ? patch.code
+          : undefined,
       excludeId: id,
     });
 
@@ -168,7 +170,8 @@ export class SemestersService {
       const qb = this.semesters
         .createQueryBuilder('s')
         .where('s.sem_number = :v', { v: opts.sem_number });
-      if (opts.excludeId !== undefined) qb.andWhere('s.id != :id', { id: opts.excludeId });
+      if (opts.excludeId !== undefined)
+        qb.andWhere('s.id != :id', { id: opts.excludeId });
       if (await qb.getOne())
         throw new ConflictException('Sem number is already in use');
     }
@@ -176,7 +179,8 @@ export class SemestersService {
       const qb = this.semesters
         .createQueryBuilder('s')
         .where('LOWER(s.code) = LOWER(:v)', { v: opts.code });
-      if (opts.excludeId !== undefined) qb.andWhere('s.id != :id', { id: opts.excludeId });
+      if (opts.excludeId !== undefined)
+        qb.andWhere('s.id != :id', { id: opts.excludeId });
       if (await qb.getOne())
         throw new ConflictException('Code is already in use');
     }

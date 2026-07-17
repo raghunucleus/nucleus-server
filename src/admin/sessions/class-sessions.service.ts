@@ -9,7 +9,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AcademicHoliday } from '../entities/academic-holiday.entity';
-import { ClassSession, ClassSessionStatus } from '../entities/class-session.entity';
+import {
+  ClassSession,
+  ClassSessionStatus,
+} from '../entities/class-session.entity';
 import { ClassSessionAuditLog } from '../entities/class-session-audit-log.entity';
 import { Employee } from '../entities/employee.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
@@ -130,10 +133,7 @@ export class ClassSessionsService {
       .leftJoinAndSelect('cs.timetable_period', 'timetable_period')
       .leftJoinAndSelect('cs.programme_semester_subject', 'pss')
       .leftJoinAndSelect('pss.subject', 'pss_subject')
-      .leftJoinAndSelect(
-        'cs.programme_semester_subject_option',
-        'pss_option',
-      )
+      .leftJoinAndSelect('cs.programme_semester_subject_option', 'pss_option')
       .leftJoinAndSelect('pss_option.subject', 'option_subject')
       .leftJoinAndSelect('cs.subject', 'subject')
       .leftJoinAndSelect('cs.scheduled_employee', 'scheduled_employee')
@@ -182,10 +182,7 @@ export class ClassSessionsService {
       .leftJoinAndSelect('cs.timetable_period', 'timetable_period')
       .leftJoinAndSelect('cs.programme_semester_subject', 'pss')
       .leftJoinAndSelect('pss.subject', 'pss_subject')
-      .leftJoinAndSelect(
-        'cs.programme_semester_subject_option',
-        'pss_option',
-      )
+      .leftJoinAndSelect('cs.programme_semester_subject_option', 'pss_option')
       .leftJoinAndSelect('pss_option.subject', 'option_subject')
       .leftJoinAndSelect('cs.subject', 'subject')
       .leftJoinAndSelect('cs.scheduled_employee', 'scheduled_employee')
@@ -634,15 +631,14 @@ export class ClassSessionsService {
     }
     if (row.status === 'cancelled') {
       throw new ConflictException(
-        "Re-open the cancelled session before moving it.",
+        'Re-open the cancelled session before moving it.',
       );
     }
     const before = snapshot(row);
     const movingPeriod = input.new_timetable_period_id !== undefined;
     const movingDate = input.new_session_date !== undefined;
-    const action: 'move' | 'reschedule' = movingDate && !movingPeriod
-      ? 'reschedule'
-      : 'move';
+    const action: 'move' | 'reschedule' =
+      movingDate && !movingPeriod ? 'reschedule' : 'move';
 
     let nextPeriodId = row.timetable_period_id;
     let nextDate = row.session_date;

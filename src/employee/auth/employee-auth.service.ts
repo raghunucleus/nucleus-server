@@ -85,7 +85,8 @@ export class EmployeeAuthService {
   private dummyHashPromise: Promise<string> | null = null;
 
   constructor(
-    @InjectRepository(Employee) private readonly employees: Repository<Employee>,
+    @InjectRepository(Employee)
+    private readonly employees: Repository<Employee>,
     @InjectRepository(EmployeeCredential)
     private readonly credentials: Repository<EmployeeCredential>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -242,9 +243,7 @@ export class EmployeeAuthService {
       payload = await this.jwt.verifyAsync<EmployeeRefreshPayload>(
         refreshToken,
         {
-          secret: this.config.getOrThrow<string>(
-            'JWT_EMPLOYEE_REFRESH_SECRET',
-          ),
+          secret: this.config.getOrThrow<string>('JWT_EMPLOYEE_REFRESH_SECRET'),
         },
       );
     } catch {
@@ -309,7 +308,9 @@ export class EmployeeAuthService {
     currentPassword: string,
     newPassword: string,
   ): Promise<EmployeeAuthTokens> {
-    const employee = await this.employees.findOne({ where: { id: employeeId } });
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+    });
     if (!employee) throw new UnauthorizedException();
 
     const cred = await this.getOrCreateCredential(employeeId);
@@ -401,7 +402,9 @@ export class EmployeeAuthService {
     await this.redis.del(key);
 
     const employeeId = Number(employeeIdRaw);
-    const employee = await this.employees.findOne({ where: { id: employeeId } });
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+    });
     if (!employee || !employee.is_active) {
       throw new HttpException(
         'This password reset link is invalid or has expired.',
@@ -431,7 +434,9 @@ export class EmployeeAuthService {
    * accepted, so a delivery failure never strands the employee.
    */
   async adminResetPassword(employeeId: number): Promise<{ email: string }> {
-    const employee = await this.employees.findOne({ where: { id: employeeId } });
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+    });
     if (!employee) throw new NotFoundException('Employee not found');
 
     const cred = await this.getOrCreateCredential(employeeId);
@@ -465,7 +470,9 @@ export class EmployeeAuthService {
    * forces a change on first login and revokes any active sessions.
    */
   async adminSetPassword(employeeId: number, password: string): Promise<void> {
-    const employee = await this.employees.findOne({ where: { id: employeeId } });
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+    });
     if (!employee) throw new NotFoundException('Employee not found');
 
     const cred = await this.getOrCreateCredential(employeeId);
@@ -485,7 +492,9 @@ export class EmployeeAuthService {
 
   async getProfile(employeeId: number): Promise<EmployeeProfile> {
     // The Employee entity eager-loads department and designation.
-    const employee = await this.employees.findOne({ where: { id: employeeId } });
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+    });
     if (!employee) throw new UnauthorizedException();
     return {
       id: employee.id,
@@ -602,10 +611,9 @@ export class EmployeeAuthService {
   ): Promise<Employee | null> {
     return this.employees
       .createQueryBuilder('e')
-      .where(
-        'LOWER(e.emp_code) = LOWER(:id) OR LOWER(e.email) = LOWER(:id)',
-        { id: identifier },
-      )
+      .where('LOWER(e.emp_code) = LOWER(:id) OR LOWER(e.email) = LOWER(:id)', {
+        id: identifier,
+      })
       .getOne();
   }
 

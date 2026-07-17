@@ -5,10 +5,7 @@ import { ScreenAccessGuard } from '../../rbac/screen-access.guard';
 import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { VerifyDto } from './dto/verify.dto';
-import {
-  SecurityVerifyService,
-  VerifyResult,
-} from './security-verify.service';
+import { SecurityVerifyService, VerifyResult } from './security-verify.service';
 
 const SCREEN_KEY = 'security.verify.scan';
 

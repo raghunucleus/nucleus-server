@@ -77,14 +77,18 @@ export class CompanyManagementController {
 
   @Get('companies/form-options')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Lookups, departments and enums for the company form.' })
+  @ApiOperation({
+    summary: 'Lookups, departments and enums for the company form.',
+  })
   formOptions() {
     return this.svc.formOptions();
   }
 
   @Get('companies/assignable-employees')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Active employees for the responsible-officer picker.' })
+  @ApiOperation({
+    summary: 'Active employees for the responsible-officer picker.',
+  })
   assignableEmployees() {
     return this.svc.assignableEmployees();
   }
@@ -108,7 +112,9 @@ export class CompanyManagementController {
 
   @Patch('companies/:id')
   @RequireScreen(KEY, 'edit')
-  @ApiOperation({ summary: 'Edit company fields, classifiers and responsible officer.' })
+  @ApiOperation({
+    summary: 'Edit company fields, classifiers and responsible officer.',
+  })
   update(
     @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,

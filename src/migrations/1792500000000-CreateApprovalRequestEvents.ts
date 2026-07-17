@@ -15,9 +15,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 //  - No status backfill: `sent_back` ships with this work, and existing rows
 //    have no recorded history to reconstruct — their timelines start empty and
 //    fill from the next transition on.
-export class CreateApprovalRequestEvents1792500000000
-  implements MigrationInterface
-{
+export class CreateApprovalRequestEvents1792500000000 implements MigrationInterface {
   name = 'CreateApprovalRequestEvents1792500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

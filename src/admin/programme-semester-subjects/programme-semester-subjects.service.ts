@@ -203,7 +203,9 @@ export class ProgrammeSemesterSubjectsService {
       where: { id: input.programme_semester_id },
     });
     if (!ps) {
-      throw new BadRequestException('Selected programme semester does not exist');
+      throw new BadRequestException(
+        'Selected programme semester does not exist',
+      );
     }
 
     const isSlot = input.subject_id === undefined;
@@ -313,15 +315,17 @@ export class ProgrammeSemesterSubjectsService {
     }
 
     // Real-subject rows must not carry an option pool or slot_type.
-    if (hasSubject && patch.option_subject_ids && patch.option_subject_ids.length > 0) {
+    if (
+      hasSubject &&
+      patch.option_subject_ids &&
+      patch.option_subject_ids.length > 0
+    ) {
       throw new BadRequestException(
         'option_subject_ids is only valid for slot rows',
       );
     }
     if (hasSubject && nextSlotType !== null) {
-      throw new BadRequestException(
-        'slot_type is only valid for slot rows',
-      );
+      throw new BadRequestException('slot_type is only valid for slot rows');
     }
     if (!hasSubject && (nextSlotType === null || nextSlotType === undefined)) {
       throw new BadRequestException('slot_type is required for slot rows');
@@ -514,7 +518,7 @@ export class ProgrammeSemesterSubjectsService {
     if (!subject) throw new NotFoundException('Subject entry not found');
     if (subject.subject_id === null) {
       throw new BadRequestException(
-        "This is a slot row — its faculty are allocated in the student-allocation flow, not here.",
+        'This is a slot row — its faculty are allocated in the student-allocation flow, not here.',
       );
     }
 
@@ -522,7 +526,9 @@ export class ProgrammeSemesterSubjectsService {
       where: { id: subject.programme_semester_id },
     });
     if (!ps) {
-      throw new NotFoundException('Programme semester not found for this subject');
+      throw new NotFoundException(
+        'Programme semester not found for this subject',
+      );
     }
 
     const group = await this.attendanceGroups.findOne({
@@ -596,7 +602,9 @@ export class ProgrammeSemesterSubjectsService {
     await this.assertEmployeesAllocatable(employeeIds);
 
     await this.dataSource.transaction(async (tx) => {
-      const facultyRepo = tx.getRepository(ProgrammeSemesterSubjectOptionFaculty);
+      const facultyRepo = tx.getRepository(
+        ProgrammeSemesterSubjectOptionFaculty,
+      );
       await facultyRepo.delete({
         programme_semester_subject_option_id: optionId,
       });
@@ -691,7 +699,8 @@ export class ProgrammeSemesterSubjectsService {
       .createQueryBuilder('pss')
       .where('pss.programme_semester_id = :psid', { psid: programmeSemesterId })
       .andWhere('pss.subject_id = :sid', { sid: subjectId });
-    if (excludeId !== undefined) qb.andWhere('pss.id != :id', { id: excludeId });
+    if (excludeId !== undefined)
+      qb.andWhere('pss.id != :id', { id: excludeId });
     if (await qb.getOne()) {
       throw new ConflictException(
         'This subject is already configured for the semester.',

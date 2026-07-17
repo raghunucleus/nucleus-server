@@ -11,10 +11,7 @@ import {
 import { Admin } from './admin.entity';
 import { Employee } from './employee.entity';
 
-export type AcademicHolidayType =
-  | 'public'
-  | 'institutional'
-  | 'unplanned';
+export type AcademicHolidayType = 'public' | 'institutional' | 'unplanned';
 
 // A no-class day (or a range of days) that the session seeder honours so it
 // never creates a class on that date. A mid-semester declaration also

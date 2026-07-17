@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Expo, type ExpoPushMessage, type ExpoPushTicket } from 'expo-server-sdk';
+import {
+  Expo,
+  type ExpoPushMessage,
+  type ExpoPushTicket,
+} from 'expo-server-sdk';
 import { In, IsNull, Repository } from 'typeorm';
 import { StudentNotification } from './entities/student-notification.entity';
 import { StudentPushToken } from './entities/student-push-token.entity';

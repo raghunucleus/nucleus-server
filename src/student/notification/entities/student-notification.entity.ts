@@ -21,7 +21,10 @@ import type {
   'student_id',
   'created_at',
 ])
-@Index('IDX_student_notifications_student_id_read_at', ['student_id', 'read_at'])
+@Index('IDX_student_notifications_student_id_read_at', [
+  'student_id',
+  'read_at',
+])
 export class StudentNotification {
   @PrimaryGeneratedColumn()
   id: number;

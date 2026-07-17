@@ -62,7 +62,9 @@ export class CompaniesController {
 
   @Get('form-options')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Enums (interaction/milestone types) for the record forms.' })
+  @ApiOperation({
+    summary: 'Enums (interaction/milestone types) for the record forms.',
+  })
   formOptions() {
     return this.svc.formOptions();
   }

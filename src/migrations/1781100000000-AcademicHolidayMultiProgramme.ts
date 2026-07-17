@@ -6,9 +6,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // programme-scoped holidays existed) and the scope CHECK is rewritten to no
 // longer reference it — "programme has at least one programme" is enforced at
 // the service/DTO layer, since a CHECK can't reach into the join table.
-export class AcademicHolidayMultiProgramme1781100000000
-  implements MigrationInterface
-{
+export class AcademicHolidayMultiProgramme1781100000000 implements MigrationInterface {
   name = 'AcademicHolidayMultiProgramme1781100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

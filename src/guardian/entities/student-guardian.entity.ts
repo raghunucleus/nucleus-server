@@ -11,11 +11,18 @@ import {
 } from 'typeorm';
 import { Student } from '../../admin/entities/student.entity';
 
+// 'parent' and 'default_guardian' are the two FIXED per-student rows mirrored
+// from the flat parent_*/guardian_* profile columns on `students` (see
+// src/student/profile/guardian-sync.service.ts). Profile updates always land
+// on those two rows via the (student_id, relationship) unique key and never
+// touch the admin/bulk-managed father/mother/guardian/other contacts.
 export const GUARDIAN_RELATIONSHIPS = [
   'father',
   'mother',
   'guardian',
   'other',
+  'parent',
+  'default_guardian',
 ] as const;
 export type GuardianRelationship = (typeof GUARDIAN_RELATIONSHIPS)[number];
 

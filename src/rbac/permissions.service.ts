@@ -22,9 +22,7 @@ import { Role } from './entities/role.entity';
  * setting `{ all: true }` on this attribute. Otherwise values are the union
  * across contributing assignments.
  */
-export type AttributeAccess =
-  | { all: true }
-  | { all: false; values: unknown[] };
+export type AttributeAccess = { all: true } | { all: false; values: unknown[] };
 
 /**
  * The full effective-access map for an employee, returned by
@@ -200,15 +198,13 @@ export class PermissionsService {
 
       const moduleDef = this.catalog.getModule(def.module_key);
       if (!moduleDef) continue;
-      const modSlot =
-        modules[moduleDef.key] ??
-        ({
-          key: moduleDef.key,
-          label: moduleDef.label,
-          icon: moduleDef.icon,
-          order: moduleDef.order,
-          screen_keys: [],
-        } as EffectiveAccess['modules'][string]);
+      const modSlot = modules[moduleDef.key] ?? {
+        key: moduleDef.key,
+        label: moduleDef.label,
+        icon: moduleDef.icon,
+        order: moduleDef.order,
+        screen_keys: [],
+      };
       if (!modSlot.screen_keys.includes(screenKey)) {
         modSlot.screen_keys.push(screenKey);
       }
@@ -261,15 +257,13 @@ export class PermissionsService {
 
     const moduleDef = this.catalog.getModule(viewDef.module_key);
     if (!moduleDef) return;
-    const modSlot =
-      modules[moduleDef.key] ??
-      ({
-        key: moduleDef.key,
-        label: moduleDef.label,
-        icon: moduleDef.icon,
-        order: moduleDef.order,
-        screen_keys: [],
-      } as EffectiveAccess['modules'][string]);
+    const modSlot = modules[moduleDef.key] ?? {
+      key: moduleDef.key,
+      label: moduleDef.label,
+      icon: moduleDef.icon,
+      order: moduleDef.order,
+      screen_keys: [],
+    };
     if (!modSlot.screen_keys.includes(VIEW_KEY)) {
       modSlot.screen_keys.push(VIEW_KEY);
     }
@@ -281,9 +275,7 @@ export class PermissionsService {
    * fields ({@link hydrate} re-attaches them) are deliberately NOT included so
    * catalog edits don't require cache invalidation.
    */
-  private async computeCachedAccess(
-    employeeId: number,
-  ): Promise<CachedAccess> {
+  private async computeCachedAccess(employeeId: number): Promise<CachedAccess> {
     // An employee holds at most one assignment (unique on employee_id), but
     // the rest of this function works with a list to keep the union logic
     // straightforward — assignment revoke is a hard delete, so any row found
@@ -302,7 +294,9 @@ export class PermissionsService {
     }
 
     const assignmentIds = activeAssignments.map((a) => a.id);
-    const roleIds = Array.from(new Set(activeAssignments.map((a) => a.role_id)));
+    const roleIds = Array.from(
+      new Set(activeAssignments.map((a) => a.role_id)),
+    );
 
     const [activeRoles, screenRows, attrRows] = await Promise.all([
       this.roles.find({ where: { id: In(roleIds), is_active: true } }),
@@ -392,7 +386,9 @@ export class PermissionsService {
         // Merge attribute values for this screen from this assignment.
         const attrsForScreen = attrsByScreen.get(rs.screen_key) ?? [];
         for (const attr of attrsForScreen) {
-          const attrDef = def.attributes.find((a) => a.key === attr.attribute_key);
+          const attrDef = def.attributes.find(
+            (a) => a.key === attr.attribute_key,
+          );
           if (!attrDef) continue; // catalog drift on attributes — ignore
 
           const existing: AttributeAccess = slot.attributes[
@@ -466,13 +462,14 @@ export class PermissionsService {
     employeeId: number,
     screens: CachedAccess['screens'],
   ): Promise<void> {
-    const grant = (
-      key: string,
-      actions: string[],
-    ): void => {
+    const grant = (key: string, actions: string[]): void => {
       const existing = screens[key];
       if (!existing) {
-        screens[key] = { actions, attributes: {}, platforms: ['web', 'mobile'] };
+        screens[key] = {
+          actions,
+          attributes: {},
+          platforms: ['web', 'mobile'],
+        };
         return;
       }
       existing.actions = [...new Set([...existing.actions, ...actions])];
@@ -605,11 +602,7 @@ export class PermissionsService {
     employeeId: number,
     screenKey: string,
   ): Promise<AccessibleIds> {
-    return this.getAttributeNumericIds(
-      employeeId,
-      screenKey,
-      'regulation_ids',
-    );
+    return this.getAttributeNumericIds(employeeId, screenKey, 'regulation_ids');
   }
 
   getAccessibleAttendanceGroupIds(

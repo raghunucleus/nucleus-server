@@ -14,12 +14,7 @@ import { ClassSessionAuditLog } from '../entities/class-session-audit-log.entity
 import { RosterService, type RosterStudent } from './roster.service';
 import type { ActorContext } from './class-sessions.service';
 
-export type AttendanceStatus =
-  | 'present'
-  | 'absent'
-  | 'late'
-  | 'exempt'
-  | 'od';
+export type AttendanceStatus = 'present' | 'absent' | 'late' | 'exempt' | 'od';
 
 export interface MarkEntry {
   student_id: number;
@@ -293,4 +288,3 @@ export class AttendanceMarkingService {
     }
   }
 }
-

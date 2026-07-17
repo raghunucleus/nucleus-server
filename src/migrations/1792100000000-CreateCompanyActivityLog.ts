@@ -6,9 +6,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * employee. Separate migration layered on top of the base corporate-relations
  * schema (1792000000000).
  */
-export class CreateCompanyActivityLog1792100000000
-  implements MigrationInterface
-{
+export class CreateCompanyActivityLog1792100000000 implements MigrationInterface {
   name = 'CreateCompanyActivityLog1792100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

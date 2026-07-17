@@ -11,7 +11,8 @@ const MAX_DELAY_MS = 0;
 export class FakeDelayMiddleware implements NestMiddleware {
   use(_req: Request, _res: Response, next: NextFunction) {
     const delay =
-      MIN_DELAY_MS + Math.floor(Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS + 1));
+      MIN_DELAY_MS +
+      Math.floor(Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS + 1));
     setTimeout(next, delay);
   }
 }

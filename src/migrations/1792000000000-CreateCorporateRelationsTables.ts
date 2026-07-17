@@ -6,9 +6,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * lookups + departments, and the CRM activity tables (contacts, interactions,
  * relationship milestones, attachments). Seeds sensible default lookup rows.
  */
-export class CreateCorporateRelationsTables1792000000000
-  implements MigrationInterface
-{
+export class CreateCorporateRelationsTables1792000000000 implements MigrationInterface {
   name = 'CreateCorporateRelationsTables1792000000000';
 
   // Configurable lookup tables — identical shape.
@@ -25,15 +23,31 @@ export class CreateCorporateRelationsTables1792000000000
 
   // Multi-select join tables: (company_id, <col>) → <ref>(id).
   private readonly links = [
-    { table: 'company_categories_link', col: 'category_id', ref: 'company_categories' },
-    { table: 'company_industries_link', col: 'industry_id', ref: 'company_industries' },
+    {
+      table: 'company_categories_link',
+      col: 'category_id',
+      ref: 'company_categories',
+    },
+    {
+      table: 'company_industries_link',
+      col: 'industry_id',
+      ref: 'company_industries',
+    },
     { table: 'company_types_link', col: 'type_id', ref: 'company_types' },
     { table: 'company_sizes_link', col: 'size_id', ref: 'company_sizes' },
     { table: 'company_sources_link', col: 'source_id', ref: 'company_sources' },
-    { table: 'company_hiring_modes_link', col: 'hiring_mode_id', ref: 'company_hiring_modes' },
+    {
+      table: 'company_hiring_modes_link',
+      col: 'hiring_mode_id',
+      ref: 'company_hiring_modes',
+    },
     { table: 'company_roles_link', col: 'role_id', ref: 'company_roles' },
     { table: 'company_tags_link', col: 'tag_id', ref: 'company_tags' },
-    { table: 'company_eligible_branches', col: 'department_id', ref: 'departments' },
+    {
+      table: 'company_eligible_branches',
+      col: 'department_id',
+      ref: 'departments',
+    },
   ];
 
   // Default seed rows per lookup.
@@ -48,12 +62,36 @@ export class CreateCorporateRelationsTables1792000000000
       'Education',
       'E-commerce',
     ],
-    company_types: ['Product', 'Service', 'MNC', 'Startup', 'PSU', 'Government'],
+    company_types: [
+      'Product',
+      'Service',
+      'MNC',
+      'Startup',
+      'PSU',
+      'Government',
+    ],
     company_sizes: ['1-50', '51-200', '201-1000', '1001-5000', '5000+'],
-    company_sources: ['Referral', 'Alumni', 'Inbound', 'Event', 'Cold outreach'],
+    company_sources: [
+      'Referral',
+      'Alumni',
+      'Inbound',
+      'Event',
+      'Cold outreach',
+    ],
     company_hiring_modes: ['On-campus', 'Off-campus', 'Virtual', 'Internship'],
-    company_roles: ['SDE', 'Analyst', 'Trainee', 'Consultant', 'Research Associate'],
-    company_tags: ['Dream', 'Super dream', 'Mass recruiter', 'Repeat recruiter'],
+    company_roles: [
+      'SDE',
+      'Analyst',
+      'Trainee',
+      'Consultant',
+      'Research Associate',
+    ],
+    company_tags: [
+      'Dream',
+      'Super dream',
+      'Mass recruiter',
+      'Repeat recruiter',
+    ],
   };
 
   public async up(queryRunner: QueryRunner): Promise<void> {

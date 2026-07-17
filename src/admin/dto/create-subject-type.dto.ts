@@ -13,9 +13,14 @@ export const CreateSubjectTypeSchema = z
       .pipe(
         z
           .string()
-          .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+          .regex(
+            /^[A-Z0-9._-]+$/,
+            'Use letters, numbers, dot, underscore, or dash',
+          ),
       ),
   })
   .strict();
 
-export class CreateSubjectTypeDto extends createZodDto(CreateSubjectTypeSchema) {}
+export class CreateSubjectTypeDto extends createZodDto(
+  CreateSubjectTypeSchema,
+) {}

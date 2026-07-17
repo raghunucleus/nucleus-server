@@ -62,9 +62,7 @@ export class ProgrammeSemestersController {
   @Post(':id/activate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Activate a programme-semester link.' })
-  activate(
-    @Param('id', ParseIntPipe) id: number,
-  ): Promise<ProgrammeSemester> {
+  activate(@Param('id', ParseIntPipe) id: number): Promise<ProgrammeSemester> {
     return this.links.setActive(id, true);
   }
 

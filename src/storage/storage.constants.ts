@@ -26,6 +26,21 @@ export const STORAGE_PREFIX = {
   studentPhotos: 'student-photos',
   /** Company logos: `companies/<companyId>/logo/<uuid>`. */
   companyLogos: 'companies',
+  /**
+   * Industry-certification files: `student-certificates/<studentId>/<uuid>.<ext>`.
+   * PRIVATE (presigned reads only). The student id is embedded so a staged
+   * key's ownership is provable without a DB row — the profile-update request
+   * flow rejects any key outside the requesting student's own folder.
+   */
+  studentCertificates: 'student-certificates',
+  /**
+   * Resumes: `resumes/<uuid>.pdf`. PRIVATE like everything else (presigned
+   * reads only). The shareable link is the PERMANENT tokenized route
+   * `GET /public/resumes/<Student.resume_public_token>`, which resolves the
+   * current key at request time and 302s to a presigned URL — so a replace
+   * mints a fresh key without ever changing the link HRs were given.
+   */
+  studentResumes: 'resumes',
   // Placeholder — company attachments (`Company.file_key`) will live under
   // `companies/<id>/attachments/...` once a write path exists; add the prefix
   // and a `storageKey` builder here when it lands.
@@ -42,4 +57,18 @@ export const storageKey = {
   /** `companies/<companyId>/logo/<uuid>` */
   companyLogo: (companyId: number): string =>
     `${STORAGE_PREFIX.companyLogos}/${companyId}/logo/${randomUUID()}`,
+  /** `student-certificates/<studentId>/<uuid>.<ext>` */
+  studentCertificate: (studentId: number, ext: string): string =>
+    `${STORAGE_PREFIX.studentCertificates}/${studentId}/${randomUUID()}.${ext}`,
+  /** `resumes/<uuid>.pdf` */
+  studentResume: (): string =>
+    `${STORAGE_PREFIX.studentResumes}/${randomUUID()}.pdf`,
 } as const;
+
+/** True when `key` lives in the given student's own certificate folder. */
+export function isStudentCertificateKey(
+  key: string,
+  studentId: number,
+): boolean {
+  return key.startsWith(`${STORAGE_PREFIX.studentCertificates}/${studentId}/`);
+}

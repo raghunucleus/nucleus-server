@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ClassSession } from '../../admin/entities/class-session.entity';
@@ -8,7 +12,10 @@ import {
   type AttendanceStatus,
   type MarkResult,
 } from '../../admin/sessions/attendance-marking.service';
-import { RosterService, type RosterStudent } from '../../admin/sessions/roster.service';
+import {
+  RosterService,
+  type RosterStudent,
+} from '../../admin/sessions/roster.service';
 
 export interface TeacherSessionListItem {
   id: number;
@@ -22,7 +29,12 @@ export interface TeacherSessionListItem {
   attendance_group: { id: number; name: string } | null;
   programme_semester_id: number;
   /** Programme of the cohort this session serves — drives the "B.Tech CSE" line on the card. */
-  programme: { id: number; code: string; name: string; display_name: string } | null;
+  programme: {
+    id: number;
+    code: string;
+    name: string;
+    display_name: string;
+  } | null;
   /** Semester within the programme — e.g. `{ sem_number: 6, code: 'VI' }`. */
   semester: { id: number; sem_number: number; code: string } | null;
   /** Batch (admission year) — disambiguates between sections that share a semester. */
@@ -123,7 +135,12 @@ export class TeacherAttendanceService {
     return rows.map((cs) => {
       const counts = countMap.get(cs.id);
       const rosterSize = counts && counts.marked > 0 ? counts.marked : null;
-      return this.toListItem(cs, teacherId, rosterSize, counts?.present ?? null);
+      return this.toListItem(
+        cs,
+        teacherId,
+        rosterSize,
+        counts?.present ?? null,
+      );
     });
   }
 
@@ -255,9 +272,7 @@ export class TeacherAttendanceService {
     weekEnd: string,
   ): Promise<TeacherSessionListItem[]> {
     if (weekEnd < weekStart) {
-      throw new ForbiddenException(
-        'week_end must not be before week_start',
-      );
+      throw new ForbiddenException('week_end must not be before week_start');
     }
     return this.listInRange(teacherId, weekStart, weekEnd, 'ASC');
   }

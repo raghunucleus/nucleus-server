@@ -120,7 +120,9 @@ export class ProgrammeAdmissionYearsController {
   })
   getProfileVerifiers(
     @Param('id', ParseIntPipe) id: number,
-  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
+  ): Promise<
+    Array<{ id: number; emp_code: string; emp_display_name: string }>
+  > {
     return this.links.getProfileVerifiers(id);
   }
 
@@ -132,7 +134,12 @@ export class ProgrammeAdmissionYearsController {
   setProfileVerifiers(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SetProfileVerifiersDto,
-  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
-    return this.links.setProfileVerifiers(id, dto.profile_verifier_employee_ids);
+  ): Promise<
+    Array<{ id: number; emp_code: string; emp_display_name: string }>
+  > {
+    return this.links.setProfileVerifiers(
+      id,
+      dto.profile_verifier_employee_ids,
+    );
   }
 }

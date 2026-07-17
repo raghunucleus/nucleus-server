@@ -13,10 +13,15 @@ export const UpdateSubjectTypeSchema = z
       .pipe(
         z
           .string()
-          .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+          .regex(
+            /^[A-Z0-9._-]+$/,
+            'Use letters, numbers, dot, underscore, or dash',
+          ),
       )
       .optional(),
   })
   .strict();
 
-export class UpdateSubjectTypeDto extends createZodDto(UpdateSubjectTypeSchema) {}
+export class UpdateSubjectTypeDto extends createZodDto(
+  UpdateSubjectTypeSchema,
+) {}

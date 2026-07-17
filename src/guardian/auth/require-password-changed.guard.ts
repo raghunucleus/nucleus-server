@@ -8,8 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { AuthenticatedGuardian } from './guardian-jwt.strategy';
 
-const ALLOW_PASSWORD_CHANGE_PENDING_KEY =
-  'guardian:allowPasswordChangePending';
+const ALLOW_PASSWORD_CHANGE_PENDING_KEY = 'guardian:allowPasswordChangePending';
 
 /**
  * Mark a route (or controller) reachable by a guardian who is still on an
@@ -20,8 +19,7 @@ const ALLOW_PASSWORD_CHANGE_PENDING_KEY =
  * OTP-set passwords never raise the must-change flag.)
  */
 export const AllowPasswordChangePending = (): MethodDecorator &
-  ClassDecorator =>
-  SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true);
+  ClassDecorator => SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true);
 
 @Injectable()
 export class GuardianRequirePasswordChangedGuard implements CanActivate {

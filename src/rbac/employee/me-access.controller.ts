@@ -7,10 +7,7 @@ import {
   AllowEmployeePasswordChangePending,
   RequireEmployeePasswordChangedGuard,
 } from '../../employee/auth/require-password-changed.guard';
-import {
-  EffectiveAccess,
-  PermissionsService,
-} from '../permissions.service';
+import { EffectiveAccess, PermissionsService } from '../permissions.service';
 
 @ApiTags('employee-me')
 @ApiBearerAuth('employee-access-token')

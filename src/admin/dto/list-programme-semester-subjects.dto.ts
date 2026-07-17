@@ -14,9 +14,7 @@ export type ProgrammeSemesterSubjectsSortField =
 export const ListProgrammeSemesterSubjectsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(100),
-  sortBy: z
-    .enum(PROGRAMME_SEMESTER_SUBJECTS_SORT_FIELDS)
-    .default('created_at'),
+  sortBy: z.enum(PROGRAMME_SEMESTER_SUBJECTS_SORT_FIELDS).default('created_at'),
   sortOrder: z.enum(['asc', 'desc']).default('asc'),
   status: z.enum(['active', 'inactive']).optional(),
   programmeSemesterId: z.coerce.number().int().positive().optional(),

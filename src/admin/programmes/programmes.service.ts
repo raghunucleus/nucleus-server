@@ -164,8 +164,14 @@ export class ProgrammesService {
     }
 
     await this.assertUnique({
-      name: patch.name !== undefined && patch.name !== row.name ? patch.name : undefined,
-      code: patch.code !== undefined && patch.code !== row.code ? patch.code : undefined,
+      name:
+        patch.name !== undefined && patch.name !== row.name
+          ? patch.name
+          : undefined,
+      code:
+        patch.code !== undefined && patch.code !== row.code
+          ? patch.code
+          : undefined,
       excludeId: id,
     });
 
@@ -198,12 +204,16 @@ export class ProgrammesService {
 
   private async assertDegreeExists(degreeId: number): Promise<void> {
     const exists = await this.degrees.exists({ where: { id: degreeId } });
-    if (!exists) throw new BadRequestException('Selected degree does not exist');
+    if (!exists)
+      throw new BadRequestException('Selected degree does not exist');
   }
 
   private async assertDepartmentExists(departmentId: number): Promise<void> {
-    const exists = await this.departments.exists({ where: { id: departmentId } });
-    if (!exists) throw new BadRequestException('Selected department does not exist');
+    const exists = await this.departments.exists({
+      where: { id: departmentId },
+    });
+    if (!exists)
+      throw new BadRequestException('Selected department does not exist');
   }
 
   private async assertUnique(opts: {
@@ -215,7 +225,8 @@ export class ProgrammesService {
       const qb = this.programmes
         .createQueryBuilder('p')
         .where('LOWER(p.name) = LOWER(:v)', { v: opts.name });
-      if (opts.excludeId !== undefined) qb.andWhere('p.id != :id', { id: opts.excludeId });
+      if (opts.excludeId !== undefined)
+        qb.andWhere('p.id != :id', { id: opts.excludeId });
       if (await qb.getOne())
         throw new ConflictException('Name is already in use');
     }
@@ -223,7 +234,8 @@ export class ProgrammesService {
       const qb = this.programmes
         .createQueryBuilder('p')
         .where('LOWER(p.code) = LOWER(:v)', { v: opts.code });
-      if (opts.excludeId !== undefined) qb.andWhere('p.id != :id', { id: opts.excludeId });
+      if (opts.excludeId !== undefined)
+        qb.andWhere('p.id != :id', { id: opts.excludeId });
       if (await qb.getOne())
         throw new ConflictException('Code is already in use');
     }

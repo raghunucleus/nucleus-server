@@ -5,8 +5,7 @@ import { z } from 'zod';
 // the row is deleted instead of being kept around with a null teacher.
 export const SetProgrammeSemesterSubjectGroupFacultySchema = z
   .object({
-    employee_id: z
-      .union([z.coerce.number().int().positive(), z.null()]),
+    employee_id: z.union([z.coerce.number().int().positive(), z.null()]),
   })
   .strict();
 

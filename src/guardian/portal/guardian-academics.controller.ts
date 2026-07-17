@@ -114,7 +114,7 @@ export class GuardianAcademicsController {
 
   @Get('attendance/dashboard')
   @ApiOperation({
-    summary: "Per-subject and overall attendance % for the child.",
+    summary: 'Per-subject and overall attendance % for the child.',
   })
   dashboard(
     @Param('studentId', ParseIntPipe) studentId: number,
@@ -124,7 +124,7 @@ export class GuardianAcademicsController {
 
   @Get('attendance/subject/:subjectId/sessions')
   @ApiOperation({
-    summary: "Per-session attendance for one subject for the child.",
+    summary: 'Per-session attendance for one subject for the child.',
   })
   subjectSessions(
     @Param('studentId', ParseIntPipe) studentId: number,

@@ -25,10 +25,7 @@ import { SetTimetableCourseFacultyDto } from '../dto/set-timetable-course-facult
 import { UpdateTimetableDto } from '../dto/update-timetable.dto';
 import { UpdateTimetableCourseDto } from '../dto/update-timetable-course.dto';
 import { UpsertTimetableEntryDto } from '../dto/upsert-timetable-entry.dto';
-import {
-  WeekSummariesDto,
-  WeekWindowDto,
-} from '../dto/timetable-week.dto';
+import { WeekSummariesDto, WeekWindowDto } from '../dto/timetable-week.dto';
 import { Timetable } from '../entities/timetable.entity';
 import { TimetableEntry } from '../entities/timetable-entry.entity';
 import {
@@ -84,7 +81,7 @@ export class TimetablesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "Replace the faculty allocated to a timetable-exclusive course. Send the full list; an empty list clears it.",
+      'Replace the faculty allocated to a timetable-exclusive course. Send the full list; an empty list clears it.',
   })
   setCourseFaculty(
     @Param('courseId', ParseIntPipe) courseId: number,
@@ -116,8 +113,7 @@ export class TimetablesController {
 
   @Patch(':id')
   @ApiOperation({
-    summary:
-      'Update timetable metadata — name, effective dates, working days.',
+    summary: 'Update timetable metadata — name, effective dates, working days.',
   })
   update(
     @Param('id', ParseIntPipe) id: number,
@@ -177,7 +173,7 @@ export class TimetablesController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary:
-      "Clone a template into a fresh one in the same group — periods, courses and cells are copied so the admin can tweak the copy for a variant week.",
+      'Clone a template into a fresh one in the same group — periods, courses and cells are copied so the admin can tweak the copy for a variant week.',
   })
   clone(
     @Param('id', ParseIntPipe) id: number,
@@ -192,9 +188,7 @@ export class TimetablesController {
     summary:
       "Mark this template as the group's default — auto-selected in the Schedule preview modal. The previous default for the same group is unset.",
   })
-  setDefault(
-    @Param('id', ParseIntPipe) id: number,
-  ): Promise<Timetable> {
+  setDefault(@Param('id', ParseIntPipe) id: number): Promise<Timetable> {
     return this.timetables.setDefault(id);
   }
 

@@ -14,7 +14,9 @@ export const StartConversationSchema = z.object({
   studentId: z.number().int().positive(),
 });
 
-export class StartConversationDto extends createZodDto(StartConversationSchema) {}
+export class StartConversationDto extends createZodDto(
+  StartConversationSchema,
+) {}
 
 /**
  * Body of POST /student/chat/conversations/:id/accept — accept an incoming

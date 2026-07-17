@@ -257,7 +257,7 @@ export class InchargeScheduleController {
   @RequireScreen('timetable.incharge.schedule.manage', 'view')
   @ApiOperation({
     summary:
-      "Preview the sessions a given week would seed without writing anything.",
+      'Preview the sessions a given week would seed without writing anything.',
   })
   previewWeek(
     @GetEmployee() employee: AuthenticatedEmployee,
@@ -316,7 +316,7 @@ export class InchargeScheduleController {
   @RequireScreen('timetable.incharge.templates.manage', 'edit')
   @ApiOperation({
     summary:
-      "Clone a template into a fresh one in the same group — periods, courses and cells are copied.",
+      'Clone a template into a fresh one in the same group — periods, courses and cells are copied.',
   })
   clone(
     @GetEmployee() employee: AuthenticatedEmployee,

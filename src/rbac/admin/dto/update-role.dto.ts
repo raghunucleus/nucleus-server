@@ -13,11 +13,7 @@ export const UpdateRoleSchema = z.object({
     .optional(),
   name: z.string().trim().min(1).max(128).optional(),
   description: z.string().trim().max(1024).nullable().optional(),
-  role_type_keys: z
-    .array(z.string().min(1).max(64))
-    .min(1)
-    .max(32)
-    .optional(),
+  role_type_keys: z.array(z.string().min(1).max(64)).min(1).max(32).optional(),
   // If supplied, fully replaces the role's screens.
   screens: z
     .array(

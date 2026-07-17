@@ -68,9 +68,21 @@ export class ChatController {
       'that they can start a one-to-one chat with. Name-ordered, with ' +
       'server-side search (`q` over name or roll number) and offset pagination.',
   })
-  @ApiQuery({ name: 'q', required: false, description: 'Search over display name or roll number.' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
-  @ApiQuery({ name: 'offset', required: false, description: 'Rows to skip (default 0).' })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    description: 'Search over display name or roll number.',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size (1–100, default 30).',
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    description: 'Rows to skip (default 0).',
+  })
   contacts(
     @GetStudent() s: AuthenticatedStudent,
     @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
@@ -161,7 +173,11 @@ export class ChatController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AcceptRequestDto,
   ): Promise<{ ok: true }> {
-    const { otherId } = await this.chat.acceptRequest(s.id, id, dto.mute ?? false);
+    const { otherId } = await this.chat.acceptRequest(
+      s.id,
+      id,
+      dto.mute ?? false,
+    );
     // Unlock the inviter's thread in realtime (no-op if they're offline).
     this.gateway.notifyAccepted(otherId, id, s.id);
     return { ok: true };
@@ -195,7 +211,7 @@ export class ChatController {
   @Post('conversations/:id/mute')
   @ApiOperation({
     summary:
-      'Mute the conversation — suppresses the caller\'s push notifications. ' +
+      "Mute the conversation — suppresses the caller's push notifications. " +
       'Messages still arrive and accrue unread.',
   })
   async mute(
@@ -236,8 +252,16 @@ export class ChatController {
       'A page of message history (newest first) for a conversation the caller ' +
       'participates in. Seek older pages with `before=<oldest id seen>`.',
   })
-  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
-  @ApiQuery({ name: 'before', required: false, description: 'Return messages with id < this.' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size (1–100, default 30).',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Return messages with id < this.',
+  })
   messages(
     @GetStudent() s: AuthenticatedStudent,
     @Param('id', ParseIntPipe) id: number,
@@ -254,9 +278,21 @@ export class ChatController {
       '`q` (case-insensitive, newest first). Scoped to a conversation the ' +
       'caller participates in. Page older matches with `before=<oldest id seen>`.',
   })
-  @ApiQuery({ name: 'q', required: true, description: 'Search term (min 1 char).' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Page size (1–100, default 30).' })
-  @ApiQuery({ name: 'before', required: false, description: 'Return matches with id < this.' })
+  @ApiQuery({
+    name: 'q',
+    required: true,
+    description: 'Search term (min 1 char).',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size (1–100, default 30).',
+  })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: 'Return matches with id < this.',
+  })
   searchMessages(
     @GetStudent() s: AuthenticatedStudent,
     @Param('id', ParseIntPipe) id: number,
@@ -264,7 +300,13 @@ export class ChatController {
     @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
     @Query('before', new ParseIntPipe({ optional: true })) before?: number,
   ): Promise<ChatMessagesPage> {
-    return this.chat.searchMessages(s.id, id, q ?? '', clamp(limit, 1, MAX_PAGE), before);
+    return this.chat.searchMessages(
+      s.id,
+      id,
+      q ?? '',
+      clamp(limit, 1, MAX_PAGE),
+      before,
+    );
   }
 
   @Get('unread-count')

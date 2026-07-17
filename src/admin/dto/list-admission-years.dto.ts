@@ -9,7 +9,8 @@ export const ADMISSION_YEARS_SORT_FIELDS = [
   'updated_at',
 ] as const;
 
-export type AdmissionYearsSortField = (typeof ADMISSION_YEARS_SORT_FIELDS)[number];
+export type AdmissionYearsSortField =
+  (typeof ADMISSION_YEARS_SORT_FIELDS)[number];
 
 const optionalSearchString = z
   .string()
@@ -28,4 +29,6 @@ export const ListAdmissionYearsSchema = z.object({
   status: z.enum(['active', 'inactive']).optional(),
 });
 
-export class ListAdmissionYearsDto extends createZodDto(ListAdmissionYearsSchema) {}
+export class ListAdmissionYearsDto extends createZodDto(
+  ListAdmissionYearsSchema,
+) {}

@@ -103,7 +103,10 @@ export class DesignationsService {
     return this.designations.save(designation);
   }
 
-  async update(id: number, patch: UpdateDesignationInput): Promise<Designation> {
+  async update(
+    id: number,
+    patch: UpdateDesignationInput,
+  ): Promise<Designation> {
     const designation = await this.designations.findOne({ where: { id } });
     if (!designation) throw new NotFoundException('Designation not found');
 
@@ -140,11 +143,20 @@ export class DesignationsService {
     code?: string;
     excludeId?: number;
   }): Promise<void> {
-    const checks: { field: 'name' | 'code'; value: string; message: string }[] = [];
+    const checks: { field: 'name' | 'code'; value: string; message: string }[] =
+      [];
     if (opts.name !== undefined)
-      checks.push({ field: 'name', value: opts.name, message: 'Name is already in use' });
+      checks.push({
+        field: 'name',
+        value: opts.name,
+        message: 'Name is already in use',
+      });
     if (opts.code !== undefined)
-      checks.push({ field: 'code', value: opts.code, message: 'Code is already in use' });
+      checks.push({
+        field: 'code',
+        value: opts.code,
+        message: 'Code is already in use',
+      });
 
     for (const c of checks) {
       const qb = this.designations

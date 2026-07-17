@@ -83,7 +83,9 @@ export class ProgrammeAdmissionYearsService {
     if (opts.programmeId !== undefined)
       qb.andWhere('pay.programme_id = :pid', { pid: opts.programmeId });
     if (opts.admissionYearId !== undefined)
-      qb.andWhere('pay.admission_year_id = :ayid', { ayid: opts.admissionYearId });
+      qb.andWhere('pay.admission_year_id = :ayid', {
+        ayid: opts.admissionYearId,
+      });
     if (opts.regulationId !== undefined)
       qb.andWhere('pay.regulation_id = :rid', { rid: opts.regulationId });
 
@@ -195,7 +197,10 @@ export class ProgrammeAdmissionYearsService {
     return this.getOne(id);
   }
 
-  async setActive(id: number, active: boolean): Promise<ProgrammeAdmissionYear> {
+  async setActive(
+    id: number,
+    active: boolean,
+  ): Promise<ProgrammeAdmissionYear> {
     const row = await this.links.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Programme admission year not found');
     if (row.is_active === active) return row;
@@ -208,7 +213,9 @@ export class ProgrammeAdmissionYearsService {
   // details. Stored as join rows; a batch can have several.
   async getProfileVerifiers(
     payId: number,
-  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
+  ): Promise<
+    Array<{ id: number; emp_code: string; emp_display_name: string }>
+  > {
     await this.getOne(payId); // 404 if the batch doesn't exist
     const rows = await this.profileVerifiers
       .createQueryBuilder('v')
@@ -227,7 +234,9 @@ export class ProgrammeAdmissionYearsService {
   async setProfileVerifiers(
     payId: number,
     employeeIds: number[],
-  ): Promise<Array<{ id: number; emp_code: string; emp_display_name: string }>> {
+  ): Promise<
+    Array<{ id: number; emp_code: string; emp_display_name: string }>
+  > {
     await this.getOne(payId); // 404 if the batch doesn't exist
     await this.assertEmployeesExist(employeeIds);
     // Capture the outgoing set BEFORE the transactional swap deletes it — the

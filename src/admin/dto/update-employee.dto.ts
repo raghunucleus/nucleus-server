@@ -11,7 +11,10 @@ const empCodeSchema = z
   .pipe(
     z
       .string()
-      .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+      .regex(
+        /^[A-Z0-9._-]+$/,
+        'Use letters, numbers, dot, underscore, or dash',
+      ),
   );
 
 // null/'' clears the date of birth; undefined leaves it untouched.
@@ -25,9 +28,7 @@ const dobSchema = z
     z.null(),
   ])
   .optional()
-  .transform((v): string | null | undefined =>
-    v === '' ? null : v,
-  );
+  .transform((v): string | null | undefined => (v === '' ? null : v));
 
 export const UpdateEmployeeSchema = z
   .object({

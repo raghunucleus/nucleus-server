@@ -16,7 +16,8 @@ export const CreateAcademicHolidaySchema = z
   })
   .strict()
   .refine(
-    (v) => v.end_date === null || v.end_date === undefined || v.end_date >= v.date,
+    (v) =>
+      v.end_date === null || v.end_date === undefined || v.end_date >= v.date,
     { message: 'end_date must not be before date', path: ['end_date'] },
   );
 

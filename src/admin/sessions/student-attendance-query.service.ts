@@ -66,8 +66,7 @@ export class StudentAttendanceQueryService {
     const student = await this.students.findOne({ where: { id: studentId } });
     if (!student) throw new NotFoundException('Student not found');
 
-    const psId =
-      programmeSemesterId ?? (await this.findCurrentPsId(student));
+    const psId = programmeSemesterId ?? (await this.findCurrentPsId(student));
 
     const rows = await this.dataSource.query<
       Array<{

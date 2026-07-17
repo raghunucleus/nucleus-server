@@ -20,10 +20,7 @@ import { ListEmployeesDto } from '../dto/list-employees.dto';
 import { SetEmployeePasswordDto } from '../dto/set-employee-password.dto';
 import { UpdateEmployeeDto } from '../dto/update-employee.dto';
 import { Employee } from '../entities/employee.entity';
-import {
-  EmployeesService,
-  ListEmployeesResult,
-} from './employees.service';
+import { EmployeesService, ListEmployeesResult } from './employees.service';
 
 @ApiTags('employees')
 @ApiBearerAuth('admin-access-token')
@@ -45,9 +42,7 @@ export class EmployeesController {
     summary: 'List every emp_code in the table — for bulk-upload validation.',
   })
   listEmpCodes(): Promise<{ codes: string[] }> {
-    return this.employees
-      .listEmpCodes()
-      .then((codes) => ({ codes }));
+    return this.employees.listEmpCodes().then((codes) => ({ codes }));
   }
 
   @Get(':id')

@@ -13,7 +13,10 @@ export const CreateProgrammeSchema = z
       .pipe(
         z
           .string()
-          .regex(/^[A-Z0-9._-]+$/, 'Use letters, numbers, dot, underscore, or dash'),
+          .regex(
+            /^[A-Z0-9._-]+$/,
+            'Use letters, numbers, dot, underscore, or dash',
+          ),
       ),
     display_name: z.string().trim().min(1).max(128),
     degree_id: z.coerce.number().int().positive(),

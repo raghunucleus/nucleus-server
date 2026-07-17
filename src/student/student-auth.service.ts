@@ -246,9 +246,12 @@ export class StudentAuthService {
   async refresh(refreshToken: string): Promise<StudentAuthTokens> {
     let payload: StudentRefreshPayload;
     try {
-      payload = await this.jwt.verifyAsync<StudentRefreshPayload>(refreshToken, {
-        secret: this.config.getOrThrow<string>('JWT_STUDENT_REFRESH_SECRET'),
-      });
+      payload = await this.jwt.verifyAsync<StudentRefreshPayload>(
+        refreshToken,
+        {
+          secret: this.config.getOrThrow<string>('JWT_STUDENT_REFRESH_SECRET'),
+        },
+      );
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -441,9 +444,7 @@ export class StudentAuthService {
    * first login. The password is only persisted once the email has been
    * accepted, so a delivery failure never strands the student.
    */
-  async adminResetPassword(
-    studentId: number,
-  ): Promise<{ email: string }> {
+  async adminResetPassword(studentId: number): Promise<{ email: string }> {
     const student = await this.students.findOne({ where: { id: studentId } });
     if (!student) throw new NotFoundException('Student not found');
 

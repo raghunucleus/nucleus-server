@@ -12,10 +12,7 @@ import { ProgrammeSemester } from './programme-semester.entity';
 import { Student } from './student.entity';
 import { Subject } from './subject.entity';
 
-export type AttendanceAdjustmentSource =
-  | 'od'
-  | 'medical'
-  | 'manual_correction';
+export type AttendanceAdjustmentSource = 'od' | 'medical' | 'manual_correction';
 
 // Ledger of direct attendance bumps applied outside the session-marking flow
 // (HOD adds OD for a student who missed classes for an event, medical leave,

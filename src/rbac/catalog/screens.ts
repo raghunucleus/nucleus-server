@@ -253,7 +253,8 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     role_type_keys: ['placement'],
     platforms: ['web'],
     label: 'Company Management',
-    description: 'Add, edit, activate/deactivate companies and assign employees.',
+    description:
+      'Add, edit, activate/deactivate companies and assign employees.',
     web_route: '/corporate-relations/company-management',
     actions: ['view', 'create', 'edit', 'activate', 'assign'],
     attributes: [],

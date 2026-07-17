@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * Adds `allowed_platforms` to `role_screens` so a role can grant a screen on
@@ -9,9 +9,7 @@ import { MigrationInterface, QueryRunner } from "typeorm";
  * screen declared. The runtime intersects this with the catalog so the
  * default is equivalent to the previous behaviour.
  */
-export class AddRoleScreenAllowedPlatforms1780200000000
-  implements MigrationInterface
-{
+export class AddRoleScreenAllowedPlatforms1780200000000 implements MigrationInterface {
   name = 'AddRoleScreenAllowedPlatforms1780200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
