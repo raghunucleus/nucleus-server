@@ -20,6 +20,15 @@ const dateStr = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
   .optional()
   .nullable();
+// `registration_end_date` is a precise instant — an ISO 8601 datetime with an
+// offset (the client sends the absolute moment, e.g. from a datetime-local
+// input converted via `toISOString()`).
+const dateTimeStr = z
+  .string()
+  .trim()
+  .datetime({ offset: true })
+  .optional()
+  .nullable();
 const idArray = z.array(z.coerce.number().int().positive()).optional();
 const optId = z.coerce.number().int().positive().optional().nullable();
 
@@ -105,7 +114,7 @@ export const CreateDriveSchema = z.object({
 
   spoc_email: z.email().max(255).optional().nullable(),
   spoc_contact: z.string().trim().max(32).optional().nullable(),
-  registration_end_date: dateStr,
+  registration_end_date: dateTimeStr,
   drive_date: dateStr,
 
   ...scopedFields,

@@ -29,7 +29,8 @@ export type StudentNotificationModuleKey =
   | 'id-card'
   | 'profile'
   | 'requests'
-  | 'announcements';
+  | 'announcements'
+  | 'placements';
 
 /**
  * The specific entity a notification points at, described semantically rather

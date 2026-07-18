@@ -24,6 +24,8 @@ import { HolidaysReadModule } from '../holidays/holidays-read.module';
 import { RequestsModule } from '../requests/requests.module';
 import { SecurityPassModule } from '../security-pass/security-pass.module';
 import { ChatModule } from './chat/chat.module';
+import { StudentApprovalsModule } from './approvals/student-approvals.module';
+import { StudentPlacementsModule } from './placements/student-placements.module';
 import { RequirePasswordChangedGuard } from './auth/require-password-changed.guard';
 import { StudentGoogleOidcService } from './auth/student-google-oidc.service';
 import { StudentJwtStrategy } from './auth/student-jwt.strategy';
@@ -84,6 +86,8 @@ import { StudentAuthService } from './student-auth.service';
     PassportModule.register({ defaultStrategy: 'student-jwt' }),
     JwtModule.register({}),
     ChatModule,
+    StudentPlacementsModule,
+    StudentApprovalsModule,
     HolidaysReadModule,
     SecurityPassModule,
     // The profile-update request type plugs into the approval-requests

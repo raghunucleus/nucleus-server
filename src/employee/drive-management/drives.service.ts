@@ -49,6 +49,16 @@ const chip = (r: { id: number; name: string }) => ({ id: r.id, name: r.name });
 const money = (v: number | null | undefined): string | null =>
   v === null || v === undefined ? null : String(v);
 
+/** Entry-type codes → labels, matching `students.entry_type` (fixed enum). */
+const ENTRY_TYPE_LABELS: Record<number, string> = { 1: 'Regular', 2: 'Lateral' };
+
+/** Gender codes → labels, matching `students.gender` (fixed enum). */
+const GENDER_LABELS: Record<string, string> = {
+  male: 'Male',
+  female: 'Female',
+  other: 'Other',
+};
+
 /**
  * The shape every scoped field set has, on either a drive or a profile. Used to
  * validate + copy without caring which side it came from.
@@ -645,6 +655,7 @@ export class DrivesService {
       company: {
         id: drive.company.id,
         name: drive.company.name,
+        website: drive.company.website ?? null,
         logo_url: drive.company.logo_key
           ? await this.storage.getCachedReadUrl(drive.company.logo_key)
           : null,
@@ -830,6 +841,52 @@ export class DrivesService {
         row?.min_twelfth_or_diploma_percentage ?? null,
       ),
       min_btech_cgpa: num(row?.min_btech_cgpa ?? null),
+    };
+  }
+
+  /**
+   * A drive's eligibility with ids/codes resolved to human labels, plus a
+   * `has_restrictions` flag. Consumed by the employee Overview and — since it
+   * carries only names, never the employee-only options endpoint — the student
+   * drive view. Empty arrays / null thresholds mean "no restriction on that
+   * axis"; `has_restrictions` is false only when every axis is open.
+   */
+  async eligibilitySummary(driveId: number) {
+    const raw = await this.getEligibility(driveId);
+
+    const programmeRows = raw.programme_ids.length
+      ? await this.programmes.find({
+          where: { id: In(raw.programme_ids) },
+          select: { id: true, display_name: true, name: true },
+          order: { name: 'ASC' },
+        })
+      : [];
+
+    // Backlog history defaults to false for an unconfigured drive, so it can't
+    // tell "saved with no backlogs allowed" from "never set" — it never flips
+    // this flag. Only positively-set axes count as a restriction; the backlog
+    // policy is still shown alongside the rest when other criteria exist.
+    const has_restrictions =
+      raw.programme_ids.length > 0 ||
+      raw.entry_types.length > 0 ||
+      raw.genders.length > 0 ||
+      raw.passout_years.length > 0 ||
+      raw.max_current_backlogs !== null ||
+      raw.min_tenth_percentage !== null ||
+      raw.min_twelfth_or_diploma_percentage !== null ||
+      raw.min_btech_cgpa !== null;
+
+    return {
+      programmes: programmeRows.map((p) => p.display_name || p.name),
+      entry_types: raw.entry_types.map((v) => ENTRY_TYPE_LABELS[v] ?? String(v)),
+      genders: raw.genders.map((g) => GENDER_LABELS[g] ?? g),
+      passout_years: raw.passout_years,
+      allow_backlog_history: raw.allow_backlog_history,
+      max_current_backlogs: raw.max_current_backlogs,
+      min_tenth_percentage: raw.min_tenth_percentage,
+      min_twelfth_or_diploma_percentage: raw.min_twelfth_or_diploma_percentage,
+      min_btech_cgpa: raw.min_btech_cgpa,
+      has_restrictions,
     };
   }
 

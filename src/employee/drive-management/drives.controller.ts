@@ -170,6 +170,15 @@ export class DrivesController {
     return this.svc.getEligibility(id);
   }
 
+  @Get(':id/eligibility/summary')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary: "A drive's eligibility with ids resolved to labels (read-only).",
+  })
+  eligibilitySummary(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.eligibilitySummary(id);
+  }
+
   @Put(':id/eligibility')
   @RequireScreen(KEY, 'edit')
   @ApiOperation({ summary: "Replace a drive's eligibility." })

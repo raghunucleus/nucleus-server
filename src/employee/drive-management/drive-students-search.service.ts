@@ -16,6 +16,7 @@ import {
 } from '../../student-query/export';
 import { StudentQueryService } from '../../student-query/student-query.service';
 import { DrivesService } from './drives.service';
+import { DriveStudentsService } from './drive-students.service';
 import { Drive } from './entities/drive.entity';
 
 /** Mirrors the engine's skip_pagination ceiling — checked up front so the
@@ -42,6 +43,7 @@ export class DriveStudentsSearchService {
     private readonly engine: StudentQueryService,
     private readonly jobs: ExportJobsService,
     private readonly drives: DrivesService,
+    private readonly members: DriveStudentsService,
     @InjectRepository(Drive)
     private readonly driveRepo: Repository<Drive>,
   ) {}
@@ -64,7 +66,17 @@ export class DriveStudentsSearchService {
       );
     }
     await this.assertDrive(driveId);
-    return this.engine.search(dto, { surface: 'employee' });
+    const result = await this.engine.search(dto, { surface: 'employee' });
+
+    // Annotate each row with drive membership so the Filter tab can badge and
+    // disable students already imported. `in_drive` is NOT added to
+    // `result.columns`, so the table never renders it as a column — it's
+    // metadata the row-action reads off the row.
+    const members = await this.members.memberIds(driveId);
+    for (const row of result.rows) {
+      row.in_drive = members.has(Number(row.id));
+    }
+    return result;
   }
 
   /**

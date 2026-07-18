@@ -163,7 +163,17 @@ export class Drive {
   @Column({ type: 'varchar', length: 32, nullable: true })
   spoc_contact: string | null;
 
-  @Column({ type: 'date', nullable: true })
+  // A precise instant (timestamptz), kept as an ISO string end-to-end via the
+  // transformer so reads/writes and both clients stay string-typed like the
+  // other passthrough fields. The registration window closes at this moment.
+  @Column({
+    type: 'timestamptz',
+    nullable: true,
+    transformer: {
+      to: (v: string | null) => v,
+      from: (v: Date | null) => (v ? v.toISOString() : null),
+    },
+  })
   registration_end_date: string | null;
 
   @Column({ type: 'date', nullable: true })
