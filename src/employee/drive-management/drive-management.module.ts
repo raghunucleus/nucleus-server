@@ -9,6 +9,8 @@ import { AdmissionYear } from '../../admin/entities/admission-year.entity';
 import { Programme } from '../../admin/entities/programme.entity';
 import { Company } from '../corporate-relations/entities/company.entity';
 import { CompanyCategory } from '../corporate-relations/entities/company-lookups.entity';
+import { DriveAnalyticsController } from './drive-analytics.controller';
+import { DriveAnalyticsService } from './drive-analytics.service';
 import { DriveAttributesController } from './drive-attributes.controller';
 import { DriveAttributesService } from './drive-attributes.service';
 import { DriveAutoRejectService } from './drive-auto-reject.service';
@@ -70,6 +72,7 @@ import {
     DrivesController,
     DriveStudentsSearchController,
     DriveStudentsController,
+    DriveAnalyticsController,
   ],
   providers: [
     DriveAttributesService,
@@ -77,6 +80,7 @@ import {
     DriveStudentsSearchService,
     DriveStudentsService,
     DriveAutoRejectService,
+    DriveAnalyticsService,
   ],
   // DrivesService is consumed by the student-facing StudentPlacementsModule
   // (drive detail for an invited student). Writes stay employee-side.
