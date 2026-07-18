@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Res,
   StreamableFile,
   UseGuards,
@@ -68,5 +69,15 @@ export class StudentsSearchController {
   })
   meta() {
     return this.engine.meta('admin');
+  }
+
+  @Get('search/options')
+  @ApiOperation({
+    summary:
+      'id/label options for one fk-kind attribute (`lookup` from meta), ' +
+      'optionally narrowed by `q`.',
+  })
+  options(@Query('lookup') lookup: string, @Query('q') q?: string) {
+    return this.engine.fkOptions(lookup, q);
   }
 }

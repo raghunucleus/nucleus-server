@@ -3,8 +3,6 @@ import {
   Controller,
   Get,
   HttpCode,
-  Param,
-  ParseIntPipe,
   Post,
   Query,
   UseGuards,
@@ -20,27 +18,27 @@ import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
 import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { GetEmployee } from '../auth/get-employee.decorator';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
-import { DriveStudentsSearchService } from './drive-students-search.service';
+import { EligibilityCheckService } from './eligibility-check.service';
 
-const KEY = 'drive_management.drives.manage';
+const KEY = 'drive_management.eligibility_check.view';
 
 /**
- * The drive detail page's "Filter" tab — the registry-driven student search
- * mounted under one drive. Everything here is a read over student data, so
- * every route requires only 'view' on the (unscoped) drives screen; the export
+ * The standalone "Eligibility check" screen — the drive Filter tab's student
+ * search without a drive. Everything here is a read over student data, so
+ * every route requires only 'view' on the (unscoped) screen; the export
  * endpoint hands off to the generic async export framework rather than
  * streaming a file inline.
  */
-@ApiTags('drive-management/drive-students')
+@ApiTags('drive-management/eligibility-check')
 @ApiBearerAuth('employee-access-token')
 @UseGuards(
   EmployeeJwtAuthGuard,
   RequireEmployeePasswordChangedGuard,
   ScreenAccessGuard,
 )
-@Controller('employee/drive-management/drives/:driveId/students')
-export class DriveStudentsSearchController {
-  constructor(private readonly svc: DriveStudentsSearchService) {}
+@Controller('employee/drive-management/eligibility-check/students')
+export class EligibilityCheckController {
+  constructor(private readonly svc: EligibilityCheckService) {}
 
   @Get('search/meta')
   @RequireScreen(KEY, 'view')
@@ -64,17 +62,6 @@ export class DriveStudentsSearchController {
     return this.svc.options(lookup, q);
   }
 
-  @Get('filter-prefill')
-  @RequireScreen(KEY, 'view')
-  @ApiOperation({
-    summary:
-      "The drive's eligibility criteria translated to filter conditions the " +
-      'tab pre-fills (editable by the user).',
-  })
-  prefill(@Param('driveId', ParseIntPipe) driveId: number) {
-    return this.svc.prefill(driveId);
-  }
-
   @Post('search/parse-nql')
   @HttpCode(200)
   @RequireScreen(KEY, 'view')
@@ -95,11 +82,8 @@ export class DriveStudentsSearchController {
       'Run the student search (JSON only — use .../export for files). POST ' +
       'because the filter AST is a body, but semantically a read.',
   })
-  search(
-    @Param('driveId', ParseIntPipe) driveId: number,
-    @Body() dto: StudentSearchDto,
-  ) {
-    return this.svc.search(driveId, dto);
+  search(@Body() dto: StudentSearchDto) {
+    return this.svc.search(dto);
   }
 
   @Post('export')
@@ -111,11 +95,7 @@ export class DriveStudentsSearchController {
       'id; completion arrives as an in-app notification and the file expires ' +
       'after 24 hours.',
   })
-  export(
-    @GetEmployee() e: AuthenticatedEmployee,
-    @Param('driveId', ParseIntPipe) driveId: number,
-    @Body() dto: StudentSearchDto,
-  ) {
-    return this.svc.export(e.id, driveId, dto);
+  export(@GetEmployee() e: AuthenticatedEmployee, @Body() dto: StudentSearchDto) {
+    return this.svc.export(e.id, dto);
   }
 }

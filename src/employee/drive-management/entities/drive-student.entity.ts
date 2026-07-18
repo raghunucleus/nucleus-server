@@ -29,7 +29,7 @@ import { Drive } from './drive.entity';
  */
 @Entity({ name: 'drive_students' })
 @Unique('UQ_drive_students_drive_id_student_id', ['drive_id', 'student_id'])
-@Index('IDX_drive_students_student_id', ['student_id'])
+@Index('IDX_drive_students_student_id_status', ['student_id', 'status'])
 @Index('IDX_drive_students_drive_id_status', ['drive_id', 'status'])
 export class DriveStudent {
   @PrimaryGeneratedColumn()

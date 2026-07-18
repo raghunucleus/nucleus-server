@@ -910,7 +910,12 @@ export class DrivesService {
     row.genders = dto.genders ?? [];
     row.passout_years = dto.passout_years ?? [];
     row.allow_backlog_history = dto.allow_backlog_history ?? false;
-    row.max_current_backlogs = dto.max_current_backlogs ?? null;
+    // A current-backlog cap is only meaningful when history is allowed — a
+    // student with any current backlog necessarily has backlog history. Force
+    // it null otherwise so it can't leak into the summary or filter auto-patch.
+    row.max_current_backlogs = row.allow_backlog_history
+      ? (dto.max_current_backlogs ?? null)
+      : null;
     row.min_tenth_percentage = money(dto.min_tenth_percentage);
     row.min_twelfth_or_diploma_percentage = money(
       dto.min_twelfth_or_diploma_percentage,

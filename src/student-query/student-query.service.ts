@@ -165,6 +165,32 @@ export class StudentQueryService {
   // Search
   // ---------------------------------------------------------------------
 
+  /**
+   * Compile an NQL string to the shared filter AST (plus any trailing ORDER BY),
+   * exactly as {@link search} does internally. Used by the clients' Filters/NQL
+   * sync so the visual builder can round-trip a query without a second grammar
+   * living in the frontend. Syntax errors surface as a 400; no semantic
+   * validation (unknown attribute, operator/kind mismatch) is done here — the
+   * real search call still validates.
+   */
+  parseNqlQuery(nql: string): {
+    filters?: SearchGroup;
+    sort?: { by: string; dir: 'asc' | 'desc' };
+  } {
+    try {
+      return parseNql(nql);
+    } catch (e) {
+      if (e instanceof NqlError) {
+        throw new BadRequestException({
+          message: `NQL: ${e.message}`,
+          position: e.position,
+          near: e.near,
+        });
+      }
+      throw e;
+    }
+  }
+
   async search(
     dto: StudentSearchDto,
     opts: StudentQueryOptions,
@@ -435,7 +461,7 @@ export class StudentQueryService {
         const p = this.param(ctx, (cond.args as Record<string, unknown>)[name]);
         return ` AND ${template!.replace(':ARG', `:${p}`)}`;
       });
-      const base = `SELECT 1 FROM ${ex.table} ${ex.alias} WHERE ${ex.correlation}${argClauses.join('')}`;
+      const base = `SELECT 1 FROM ${ex.table} ${ex.alias}${ex.join ? ` ${ex.join}` : ''} WHERE ${ex.correlation}${argClauses.join('')}`;
       switch (cond.op) {
         case 'not_in': {
           const p = this.param(ctx, cond.value);

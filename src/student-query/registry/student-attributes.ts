@@ -4,6 +4,7 @@ import {
   ENTRY_TYPE_LABELS,
   GENDERS,
 } from '../../admin/entities/student.entity';
+import { DRIVE_STUDENT_STATUS } from '../../employee/drive-management/drive-student-status';
 import { JOINS } from './joins';
 import {
   AttrKind,
@@ -24,6 +25,7 @@ export const ATTRIBUTE_GROUPS: readonly AttributeGroupDef[] = [
   { key: 'academic', label: 'Academic performance' },
   { key: 'certifications', label: 'Certifications' },
   { key: 'placement', label: 'Placement' },
+  { key: 'academic_internship', label: 'Academic Internship' },
   { key: 'parent', label: 'Parent & guardian' },
   { key: 'address', label: 'Address' },
   { key: 'entrance', label: 'Entrance exam' },
@@ -79,6 +81,92 @@ function fk(
     sort: { expr: labelExpr, joins: [join] },
     ...rest,
   };
+}
+
+// --- placement / internship probes -----------------------------------------
+
+const SELECTED = DRIVE_STUDENT_STATUS.SELECTED;
+
+/** Comparison-only operator set for derived numbers (counts, package figures)
+ *  where NULL / membership operators don't make sense. */
+const CMP_OPERATORS = [
+  'eq',
+  'neq',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'between',
+] as const;
+
+/**
+ * Correlated EXISTS over the student's drive selections
+ * (`drive_students.status = 60` — Selected). The value being filtered lives a
+ * hop past `drive_students`, so the probe joins inside the subquery; the outer
+ * query stays join-free.
+ *
+ * Every drive has >= 1 `drive_profiles` row and the drive's `*_scope` switches
+ * make drive-level vs designation-level values mutually exclusive, so
+ * `COALESCE(<profile col>, <drive col>)` is the effective value in both
+ * scopes. A selection does NOT record which designation the student was picked
+ * for, so a multi-designation drive matches when ANY of its designations
+ * matches (user-confirmed semantics).
+ *
+ * `p` prefixes every alias so each attribute's probe is self-contained:
+ * `<p>_ds` drive_students, `<p>_d` drives, `<p>_dp` drive_profiles,
+ * `<p>_ot` drive_offer_types.
+ */
+function selectionExists(opts: {
+  p: string;
+  valueExpr: string;
+  /** Join drive_profiles (drives is always joined). */
+  profiles?: boolean;
+  /** Gate on the effective offer type's is_internship flag (implies profiles). */
+  internship?: boolean;
+  /** Extra joins appended after the standard chain. */
+  extraJoin?: string;
+}): FilterFacet {
+  const { p } = opts;
+  const joins = [`JOIN drives ${p}_d ON ${p}_d.id = ${p}_ds.drive_id`];
+  if (opts.profiles || opts.internship) {
+    joins.push(`JOIN drive_profiles ${p}_dp ON ${p}_dp.drive_id = ${p}_d.id`);
+  }
+  if (opts.internship) {
+    joins.push(
+      `JOIN drive_offer_types ${p}_ot ON ${p}_ot.id = COALESCE(${p}_dp.offer_type_id, ${p}_d.offer_type_id)`,
+    );
+  }
+  if (opts.extraJoin) joins.push(opts.extraJoin);
+  return {
+    exists: {
+      table: 'drive_students',
+      alias: `${p}_ds`,
+      join: joins.join(' '),
+      correlation:
+        `${p}_ds.student_id = s.id AND ${p}_ds.status = ${SELECTED}` +
+        (opts.internship ? ` AND ${p}_ot.is_internship = TRUE` : ''),
+      valueExpr: opts.valueExpr,
+    },
+  };
+}
+
+/**
+ * Scalar count of the student's selections whose effective offer type carries
+ * `flag`. COUNT(DISTINCT ds.id) because the drive_profiles join can multiply a
+ * multi-designation drive.
+ */
+function selectionCountExpr(
+  p: string,
+  flag: 'is_full_time' | 'is_internship',
+): string {
+  return (
+    `(SELECT COUNT(DISTINCT ${p}_ds.id) FROM drive_students ${p}_ds` +
+    ` JOIN drives ${p}_d ON ${p}_d.id = ${p}_ds.drive_id` +
+    ` JOIN drive_profiles ${p}_dp ON ${p}_dp.drive_id = ${p}_d.id` +
+    ` JOIN drive_offer_types ${p}_ot ON ${p}_ot.id = COALESCE(${p}_dp.offer_type_id, ${p}_d.offer_type_id)` +
+    ` WHERE ${p}_ds.student_id = s.id AND ${p}_ds.status = ${SELECTED}` +
+    ` AND ${p}_ot.${flag} = TRUE)`
+  );
 }
 
 export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
@@ -220,6 +308,157 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     'placement', 'boolean'),
   col('interested_in_placements_self', 'Interested in placements',
     'placement', 'boolean'),
+  {
+    key: 'placed_company',
+    label: 'Placed company',
+    group: 'placement',
+    kind: 'fk',
+    fkLookup: 'companies',
+    filter: selectionExists({ p: 'f_plc', valueExpr: 'f_plc_d.company_id' }),
+  },
+  {
+    // The drive's own category snapshot, not the company's live CRM record —
+    // consistent with placement category, which is also drive-level.
+    key: 'placed_company_category',
+    label: 'Company category',
+    group: 'placement',
+    kind: 'fk',
+    fkLookup: 'company_categories',
+    filter: selectionExists({
+      p: 'f_pcc',
+      extraJoin:
+        'JOIN drive_company_categories_link f_pcc_l ON f_pcc_l.drive_id = f_pcc_d.id',
+      valueExpr: 'f_pcc_l.category_id',
+    }),
+  },
+  {
+    // Category links exist at both scopes (drive-level XOR per-designation);
+    // LEFT JOIN both and COALESCE — scope exclusivity keeps rows unambiguous.
+    key: 'placed_placement_category',
+    label: 'Placement category',
+    group: 'placement',
+    kind: 'fk',
+    fkLookup: 'drive_placement_categories',
+    filter: selectionExists({
+      p: 'f_ppc',
+      profiles: true,
+      extraJoin:
+        'LEFT JOIN drive_placement_categories_link f_ppc_dl ON f_ppc_dl.drive_id = f_ppc_d.id ' +
+        'LEFT JOIN drive_profile_placement_categories_link f_ppc_pl ON f_ppc_pl.drive_profile_id = f_ppc_dp.id',
+      valueExpr:
+        'COALESCE(f_ppc_dl.placement_category_id, f_ppc_pl.placement_category_id)',
+    }),
+  },
+  {
+    key: 'offer_type',
+    label: 'Offer type',
+    group: 'placement',
+    kind: 'fk',
+    fkLookup: 'drive_offer_types',
+    filter: selectionExists({
+      p: 'f_pot',
+      profiles: true,
+      valueExpr: 'COALESCE(f_pot_dp.offer_type_id, f_pot_d.offer_type_id)',
+    }),
+  },
+  {
+    // Full-time selections only — internships are counted separately below,
+    // so the two counts partition a student's selections (user-confirmed).
+    key: 'placed_count',
+    label: 'Placed count',
+    group: 'placement',
+    kind: 'number',
+    operators: CMP_OPERATORS,
+    filter: { expr: selectionCountExpr('f_pn', 'is_full_time') },
+    select: { expr: selectionCountExpr('f_pn', 'is_full_time') },
+    sort: { expr: selectionCountExpr('f_pn', 'is_full_time') },
+  },
+  {
+    // No per-student offer amount exists — compares the selected drive's
+    // headline figure: COALESCE(max, min) is the range max or the fixed value
+    // (fixed stores its amount in *_min), designation band first when scoped.
+    key: 'placed_ctc',
+    label: 'CTC',
+    group: 'placement',
+    kind: 'number',
+    operators: CMP_OPERATORS,
+    filter: selectionExists({
+      p: 'f_ctc',
+      profiles: true,
+      valueExpr:
+        'COALESCE(f_ctc_dp.ctc_max, f_ctc_dp.ctc_min, f_ctc_d.ctc_max, f_ctc_d.ctc_min)',
+    }),
+  },
+
+  // --- academic internship --------------------------------------------------
+  // Same probes gated on the effective offer type's is_internship flag; there
+  // is no separate internship entity — internships are drives.
+  {
+    key: 'internship_company',
+    label: 'Internship company',
+    group: 'academic_internship',
+    kind: 'fk',
+    fkLookup: 'companies',
+    filter: selectionExists({
+      p: 'f_inc',
+      internship: true,
+      valueExpr: 'f_inc_d.company_id',
+    }),
+  },
+  {
+    key: 'internship_company_category',
+    label: 'Internship company category',
+    group: 'academic_internship',
+    kind: 'fk',
+    fkLookup: 'company_categories',
+    filter: selectionExists({
+      p: 'f_icc',
+      internship: true,
+      extraJoin:
+        'JOIN drive_company_categories_link f_icc_l ON f_icc_l.drive_id = f_icc_d.id',
+      valueExpr: 'f_icc_l.category_id',
+    }),
+  },
+  {
+    key: 'internship_placement_category',
+    label: 'Internship placement category',
+    group: 'academic_internship',
+    kind: 'fk',
+    fkLookup: 'drive_placement_categories',
+    filter: selectionExists({
+      p: 'f_ipc',
+      internship: true,
+      extraJoin:
+        'LEFT JOIN drive_placement_categories_link f_ipc_dl ON f_ipc_dl.drive_id = f_ipc_d.id ' +
+        'LEFT JOIN drive_profile_placement_categories_link f_ipc_pl ON f_ipc_pl.drive_profile_id = f_ipc_dp.id',
+      valueExpr:
+        'COALESCE(f_ipc_dl.placement_category_id, f_ipc_pl.placement_category_id)',
+    }),
+  },
+  {
+    key: 'internship_count',
+    label: 'Internship count',
+    group: 'academic_internship',
+    kind: 'number',
+    operators: CMP_OPERATORS,
+    filter: { expr: selectionCountExpr('f_in', 'is_internship') },
+    select: { expr: selectionCountExpr('f_in', 'is_internship') },
+    sort: { expr: selectionCountExpr('f_in', 'is_internship') },
+  },
+  {
+    // Headline stipend of an internship selection — see placed_ctc.
+    key: 'internship_stipend',
+    label: 'Stipend',
+    group: 'academic_internship',
+    kind: 'number',
+    operators: CMP_OPERATORS,
+    filter: selectionExists({
+      p: 'f_stp',
+      internship: true,
+      valueExpr:
+        'COALESCE(f_stp_dp.stipend_max, f_stp_dp.stipend_min, f_stp_d.stipend_max, f_stp_d.stipend_min)',
+    }),
+  },
 
   // --- parent & guardian --------------------------------------------------
   col('parent_name', 'Parent name', 'parent', 'string'),
@@ -315,11 +554,17 @@ export const SEARCH_ATTRIBUTES = STUDENT_ATTRIBUTES.filter(
  */
 export function assertRegistryValid(): void {
   const seen = new Set<string>();
+  const groupKeys = new Set(ATTRIBUTE_GROUPS.map((g) => g.key));
   for (const def of STUDENT_ATTRIBUTES) {
     if (seen.has(def.key)) {
       throw new Error(`student-query registry: duplicate key '${def.key}'`);
     }
     seen.add(def.key);
+    if (!groupKeys.has(def.group)) {
+      throw new Error(
+        `student-query registry: '${def.key}' references unknown group '${def.group}'`,
+      );
+    }
     if ((IMPLICIT_COLUMNS as readonly string[]).includes(def.key) && def.key !== 'student_id' && def.key !== 'display_name') {
       throw new Error(
         `student-query registry: '${def.key}' collides with an implicit column`,

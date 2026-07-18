@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Res,
   StreamableFile,
   UseGuards,
@@ -83,5 +84,16 @@ export class EmployeeStudentsSearchController {
   })
   meta() {
     return this.svc.meta();
+  }
+
+  @Get('search/options')
+  @RequireScreen(STUDENT_DIRECTORY_SCREEN_KEY, 'view')
+  @ApiOperation({
+    summary:
+      'id/label options for one fk-kind attribute (`lookup` from meta), ' +
+      'optionally narrowed by `q`.',
+  })
+  options(@Query('lookup') lookup: string, @Query('q') q?: string) {
+    return this.svc.options(lookup, q);
   }
 }

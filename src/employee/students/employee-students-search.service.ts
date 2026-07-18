@@ -36,4 +36,8 @@ export class EmployeeStudentsSearchService {
   meta() {
     return this.engine.meta('employee');
   }
+
+  options(lookup: string, q?: string) {
+    return this.engine.fkOptions(lookup, q);
+  }
 }

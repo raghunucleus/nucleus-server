@@ -124,9 +124,14 @@ export interface SubqueryFacet {
 
 /**
  * Correlated EXISTS probe — membership and child-table attributes:
- *   `EXISTS (SELECT 1 FROM <table> <alias> WHERE <correlation> [AND argWhere] AND <valueExpr> <op> :p)`
+ *   `EXISTS (SELECT 1 FROM <table> <alias> [join] WHERE <correlation> [AND argWhere] AND <valueExpr> <op> :p)`
  * `not_in` flips to NOT EXISTS with IN inside; `is_null` means "no matching
  * child row" (NOT EXISTS with valueExpr IS NOT NULL).
+ *
+ * `join` is raw compile-time SQL appended after the FROM clause (e.g.
+ * `'JOIN drives f_d ON f_d.id = f_ds.drive_id'`) for attributes whose value
+ * lives a hop past the correlated child table. Joins INSIDE the probe keep
+ * the outer query join-free, so the invariant above holds.
  *
  * `argWhere` templates support future parameterized attributes (sgpa(semester)):
  * each entry is `argName -> 'ssg.semester = :ARG'` where :ARG is replaced with
@@ -136,6 +141,7 @@ export interface ExistsFacet {
   exists: {
     table: string;
     alias: string;
+    join?: string;
     correlation: string;
     valueExpr: string;
     argWhere?: Record<string, string>;
@@ -183,6 +189,13 @@ export const FK_LOOKUPS = {
   school_boards_xii: { table: 'school_boards_xii', label: 'name' },
   diploma_boards: { table: 'diploma_boards', label: 'name' },
   industry_certifications: { table: 'industry_certifications', label: 'name' },
+  companies: { table: 'companies', label: 'name' },
+  company_categories: { table: 'company_categories', label: 'name' },
+  drive_offer_types: { table: 'drive_offer_types', label: 'name' },
+  drive_placement_categories: {
+    table: 'drive_placement_categories',
+    label: 'name',
+  },
 } as const;
 export type FkLookup = keyof typeof FK_LOOKUPS;
 

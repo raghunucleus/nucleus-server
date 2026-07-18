@@ -56,6 +56,10 @@ export class DriveStudentsSearchService {
     return this.engine.fkOptions(lookup, q);
   }
 
+  parseNql(nql: string) {
+    return this.engine.parseNqlQuery(nql);
+  }
+
   async search(
     driveId: number,
     dto: StudentSearchDto,

@@ -135,6 +135,13 @@ export const StudentSearchSchema = z
 
 export class StudentSearchDto extends createZodDto(StudentSearchSchema) {}
 
+/** Body for the NQL -> filter-AST parse endpoint (the Filters/NQL sync). */
+export const ParseNqlSchema = z.object({
+  nql: z.string().trim().max(2000),
+});
+
+export class ParseNqlDto extends createZodDto(ParseNqlSchema) {}
+
 export interface StudentSearchResult {
   rows: Array<Record<string, unknown>>;
   total: number;

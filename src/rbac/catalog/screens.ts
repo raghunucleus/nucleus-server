@@ -362,6 +362,18 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     actions: ['view', 'create', 'edit', 'delete'],
     attributes: [],
   },
+  {
+    key: 'drive_management.eligibility_check.view',
+    module_key: 'drive_management',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Eligibility Check',
+    description:
+      'Institution-wide student search with the full drive filter set, for ad-hoc eligibility screening.',
+    web_route: '/drive-management/eligibility-check',
+    actions: ['view'],
+    attributes: [],
+  },
 
   // --- Requests ------------------------------------------------------------
   //

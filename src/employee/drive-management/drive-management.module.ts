@@ -20,6 +20,8 @@ import { DriveStudentsSearchController } from './drive-students-search.controlle
 import { DriveStudentsSearchService } from './drive-students-search.service';
 import { DrivesController } from './drives.controller';
 import { DrivesService } from './drives.service';
+import { EligibilityCheckController } from './eligibility-check.controller';
+import { EligibilityCheckService } from './eligibility-check.service';
 import { Drive } from './entities/drive.entity';
 import { DriveStudent } from './entities/drive-student.entity';
 import { DriveStudentEvent } from './entities/drive-student-event.entity';
@@ -73,6 +75,7 @@ import {
     DriveStudentsSearchController,
     DriveStudentsController,
     DriveAnalyticsController,
+    EligibilityCheckController,
   ],
   providers: [
     DriveAttributesService,
@@ -81,6 +84,7 @@ import {
     DriveStudentsService,
     DriveAutoRejectService,
     DriveAnalyticsService,
+    EligibilityCheckService,
   ],
   // DrivesService is consumed by the student-facing StudentPlacementsModule
   // (drive detail for an invited student). Writes stay employee-side.
