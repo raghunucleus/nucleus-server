@@ -165,18 +165,23 @@ export class DrivesController {
   @ApiOperation({
     summary: 'Update a drive. `profiles`, if sent, replaces the whole set.',
   })
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateDriveDto) {
-    return this.svc.update(id, dto);
+  update(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateDriveDto,
+  ) {
+    return this.svc.update(id, dto, emp.id);
   }
 
   @Patch(':id/status')
   @RequireScreen(KEY, 'edit')
   @ApiOperation({ summary: "Set a drive's lifecycle status." })
   updateStatus(
+    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: DriveStatusDto,
   ) {
-    return this.svc.updateStatus(id, dto.status);
+    return this.svc.updateStatus(id, dto.status, emp.id);
   }
 
   @Get(':id/eligibility')

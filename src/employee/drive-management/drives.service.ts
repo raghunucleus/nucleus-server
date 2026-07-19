@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AdmissionYear } from '../../admin/entities/admission-year.entity';
 import { Programme } from '../../admin/entities/programme.entity';
 import { StorageService } from '../../storage/storage.service';
@@ -23,6 +23,7 @@ import {
   DriveFieldScope,
   DriveStatus,
 } from './entities/drive.entity';
+import { DriveStatusEvent } from './entities/drive-status-event.entity';
 import { DriveEligibility } from './entities/drive-eligibility.entity';
 import { DriveProfile } from './entities/drive-profile.entity';
 import { DriveProfileAttachment } from './entities/drive-profile-attachment.entity';
@@ -125,6 +126,8 @@ export class DrivesService {
     private readonly companyCategories: Repository<CompanyCategory>,
     @InjectRepository(DriveEligibility)
     private readonly eligibility: Repository<DriveEligibility>,
+    @InjectRepository(DriveStatusEvent)
+    private readonly statusEvents: Repository<DriveStatusEvent>,
     @InjectRepository(Programme)
     private readonly programmes: Repository<Programme>,
     @InjectRepository(AdmissionYear)
@@ -685,11 +688,14 @@ export class DrivesService {
       filesByProfile.set(f.drive_profile_id, list);
     }
 
+    const status_history = await this.getStatusHistory(id);
+
     return {
       id: drive.id,
       drive_name: drive.drive_name,
       profile_type: drive.profile_type,
       status: drive.status,
+      status_history,
       company: {
         id: drive.company.id,
         name: drive.company.name,
@@ -841,10 +847,71 @@ export class DrivesService {
   // ---- Status -------------------------------------------------------------
 
   /** Set a drive's lifecycle status. Free transition — any value, any time. */
-  async updateStatus(id: number, status: DriveStatus): Promise<{ id: number }> {
-    const res = await this.drives.update(id, { status });
-    if (!res.affected) throw new NotFoundException('Drive not found.');
+  async updateStatus(
+    id: number,
+    status: DriveStatus,
+    actorId: number,
+  ): Promise<{ id: number }> {
+    const drive = await this.drives.findOne({
+      where: { id },
+      select: { id: true, status: true },
+    });
+    if (!drive) throw new NotFoundException('Drive not found.');
+    if (drive.status !== status) {
+      await this.drives.update(id, { status });
+      await this.logStatusChange(id, drive.status, status, actorId);
+    }
     return { id };
+  }
+
+  /**
+   * Append a status-transition row. No-op when the status is unchanged, so
+   * callers can invoke it unconditionally after a save.
+   */
+  private async logStatusChange(
+    driveId: number,
+    from: DriveStatus,
+    to: DriveStatus,
+    actorId: number | null,
+    em?: EntityManager,
+  ): Promise<void> {
+    if (from === to) return;
+    const repo = em ? em.getRepository(DriveStatusEvent) : this.statusEvents;
+    await repo.insert({
+      drive_id: driveId,
+      from_status: from,
+      to_status: to,
+      actor_employee_id: actorId,
+    });
+  }
+
+  /** A drive's status transitions, oldest first, with the acting employee's name. */
+  private async getStatusHistory(driveId: number) {
+    const rows = await this.statusEvents
+      .createQueryBuilder('ev')
+      .leftJoin('employees', 'e', 'e.id = ev.actor_employee_id')
+      .where('ev.drive_id = :driveId', { driveId })
+      .orderBy('ev.created_at', 'ASC')
+      .addOrderBy('ev.id', 'ASC')
+      .select('ev.id', 'id')
+      .addSelect('ev.from_status', 'from_status')
+      .addSelect('ev.to_status', 'to_status')
+      .addSelect('e.emp_display_name', 'actor_name')
+      .addSelect('ev.created_at', 'created_at')
+      .getRawMany<{
+        id: number;
+        from_status: DriveStatus | null;
+        to_status: DriveStatus;
+        actor_name: string | null;
+        created_at: Date;
+      }>();
+    return rows.map((r) => ({
+      id: Number(r.id),
+      from_status: r.from_status,
+      to_status: r.to_status,
+      actor_name: r.actor_name,
+      created_at: r.created_at,
+    }));
   }
 
   // ---- Eligibility --------------------------------------------------------
@@ -1093,7 +1160,11 @@ export class DrivesService {
    * rows are matched by id, missing ones are deleted (taking their attachments
    * with them via CASCADE), and new ones are inserted.
    */
-  async update(id: number, dto: UpdateDriveDto): Promise<{ id: number }> {
+  async update(
+    id: number,
+    dto: UpdateDriveDto,
+    actorId: number,
+  ): Promise<{ id: number }> {
     const existing = await this.drives.findOne({ where: { id } });
     if (!existing) throw new NotFoundException('Drive not found.');
 
@@ -1147,6 +1218,10 @@ export class DrivesService {
             )
           : [];
       await em.save(drive);
+
+      // Audit a status change made through the full-edit path (no-op when the
+      // status was left untouched).
+      await this.logStatusChange(id, existing.status, drive.status, actorId, em);
 
       // Reconcile the profile set.
       const stored = await em.find(DriveProfile, { where: { drive_id: id } });

@@ -23,6 +23,7 @@ import { DrivesService } from './drives.service';
 import { EligibilityCheckController } from './eligibility-check.controller';
 import { EligibilityCheckService } from './eligibility-check.service';
 import { Drive } from './entities/drive.entity';
+import { DriveStatusEvent } from './entities/drive-status-event.entity';
 import { DriveStudent } from './entities/drive-student.entity';
 import { DriveStudentEvent } from './entities/drive-student-event.entity';
 import { DriveEligibility } from './entities/drive-eligibility.entity';
@@ -53,6 +54,7 @@ import {
       DriveOfferType,
       DrivePlacementCategory,
       Drive,
+      DriveStatusEvent,
       DriveStudent,
       DriveStudentEvent,
       DriveEligibility,
