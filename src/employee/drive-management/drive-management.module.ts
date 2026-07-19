@@ -22,6 +22,8 @@ import { DrivesController } from './drives.controller';
 import { DrivesService } from './drives.service';
 import { EligibilityCheckController } from './eligibility-check.controller';
 import { EligibilityCheckService } from './eligibility-check.service';
+import { PlacementCoordinatorDrivesController } from './placement-coordinator-drives.controller';
+import { PlacementCoordinatorDrivesService } from './placement-coordinator-drives.service';
 import { Drive } from './entities/drive.entity';
 import { DriveStatusEvent } from './entities/drive-status-event.entity';
 import { DriveStudent } from './entities/drive-student.entity';
@@ -78,6 +80,7 @@ import {
     DriveStudentsController,
     DriveAnalyticsController,
     EligibilityCheckController,
+    PlacementCoordinatorDrivesController,
   ],
   providers: [
     DriveAttributesService,
@@ -87,6 +90,7 @@ import {
     DriveAutoRejectService,
     DriveAnalyticsService,
     EligibilityCheckService,
+    PlacementCoordinatorDrivesService,
   ],
   // DrivesService is consumed by the student-facing StudentPlacementsModule
   // (drive detail for an invited student). Writes stay employee-side.

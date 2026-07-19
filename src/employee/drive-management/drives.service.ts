@@ -4,7 +4,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
+import {
+  Brackets,
+  DataSource,
+  EntityManager,
+  In,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
+import { ACCESS_ALL, AccessibleIds } from '../../rbac/permissions.service';
 import { AdmissionYear } from '../../admin/entities/admission-year.entity';
 import { Programme } from '../../admin/entities/programme.entity';
 import { StorageService } from '../../storage/storage.service';
@@ -97,6 +105,19 @@ const DRIVE_STATUS_TRANSITIONS: Record<DriveStatus, DriveStatus[]> = {
  * The shape every scoped field set has, on either a drive or a profile. Used to
  * validate + copy without caring which side it came from.
  */
+/**
+ * The placement-coordinator visibility scope: the coordinator's accessible
+ * programmes and passout years (from the RBAC assignment). A drive is visible
+ * when its eligibility overlaps BOTH axes; an empty eligibility axis is "open
+ * to all" and matches anything, but a drive with no eligibility row at all is
+ * never visible. Per the RBAC contract, `'all'` on an axis drops that axis's
+ * filter — callers must short-circuit `[]` (no access) before getting here.
+ */
+export interface DriveEligibilityScope {
+  programmeIds: AccessibleIds;
+  passoutYears: AccessibleIds;
+}
+
 interface ScopedValues {
   offer_type_id?: number | null;
   job_location_ids?: number[];
@@ -537,11 +558,17 @@ export class DrivesService {
    * exactly as `listCompanies` does — we never `getManyAndCount()` off this
    * builder: we derive a distinct total plus a distinct ordered page of ids, then
    * hydrate those ids.
+   *
+   * `scope`, when given, restricts the list to drives whose eligibility
+   * overlaps the coordinator's programmes/passout years — the manage screen
+   * passes nothing and stays institution-wide.
    */
-  async list(query: DriveQueryDto) {
+  async list(query: DriveQueryDto, scope?: DriveEligibilityScope) {
     const qb = this.drives
       .createQueryBuilder('d')
       .innerJoin('d.company', 'company');
+
+    if (scope) this.applyEligibilityScope(qb, scope);
 
     if (query.company_id) {
       qb.andWhere('d.company_id = :cid', { cid: query.company_id });
@@ -685,6 +712,58 @@ export class DrivesService {
     );
 
     return { items, total, page: query.page, limit: query.limit };
+  }
+
+  /**
+   * Append the eligibility-overlap predicate for a coordinator scope: one
+   * correlated EXISTS through `drive_eligibility` (the programme link joins on
+   * `drive_eligibility_id`, not `drive_id`). An empty eligibility axis (blank
+   * `passout_years` / no programme links) is open and matches; a drive with no
+   * eligibility row fails the outer EXISTS and stays hidden. `'all'` on a
+   * scope axis drops that axis's sub-predicate only — the row-must-exist check
+   * remains.
+   */
+  private applyEligibilityScope(
+    qb: SelectQueryBuilder<Drive>,
+    scope: DriveEligibilityScope,
+  ): void {
+    const conds: string[] = ['de.drive_id = d.id'];
+    const params: Record<string, unknown> = {};
+
+    if (scope.passoutYears !== ACCESS_ALL) {
+      conds.push(
+        `(cardinality(de.passout_years) = 0
+          OR de.passout_years && ARRAY[:...scopeYears]::int[])`,
+      );
+      params.scopeYears = scope.passoutYears;
+    }
+    if (scope.programmeIds !== ACCESS_ALL) {
+      conds.push(
+        `(NOT EXISTS (SELECT 1 FROM drive_eligible_programmes_link pl
+                      WHERE pl.drive_eligibility_id = de.id)
+          OR EXISTS (SELECT 1 FROM drive_eligible_programmes_link pl
+                     WHERE pl.drive_eligibility_id = de.id
+                       AND pl.programme_id IN (:...scopeProgIds)))`,
+      );
+      params.scopeProgIds = scope.programmeIds;
+    }
+
+    qb.andWhere(
+      `EXISTS (SELECT 1 FROM drive_eligibility de WHERE ${conds.join(' AND ')})`,
+      params,
+    );
+  }
+
+  /** Whether one drive is visible under a coordinator scope (see above). */
+  async existsInEligibilityScope(
+    driveId: number,
+    scope: DriveEligibilityScope,
+  ): Promise<boolean> {
+    const qb = this.drives
+      .createQueryBuilder('d')
+      .where('d.id = :driveId', { driveId });
+    this.applyEligibilityScope(qb, scope);
+    return (await qb.getCount()) > 0;
   }
 
   /** One drive with everything needed to render or re-edit it. */

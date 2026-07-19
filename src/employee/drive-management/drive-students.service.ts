@@ -644,10 +644,27 @@ export class DriveStudentsService {
     return { updated: rows.length };
   }
 
-  /** The drive's shortlist for the Students tab. */
+  /**
+   * The drive's shortlist for the Students tab.
+   *
+   * `studentScope`, when given, restricts rows (and the count) to students
+   * within the caller's accessible programmes/passout years — the
+   * placement-coordinator surface passes its RBAC scope here; the manage
+   * screen passes nothing. `'all'` on an axis drops that filter; callers must
+   * short-circuit `[]` (no access) before calling.
+   */
   async list(
     driveId: number,
-    opts: { page: number; pageSize: number; search?: string; status?: number },
+    opts: {
+      page: number;
+      pageSize: number;
+      search?: string;
+      status?: number;
+      studentScope?: {
+        programmeIds: number[] | 'all';
+        passoutYears: number[] | 'all';
+      };
+    },
   ): Promise<DriveStudentsPage> {
     await this.assertDrive(driveId);
     const page = Math.max(1, opts.page);
@@ -665,6 +682,20 @@ export class DriveStudentsService {
       )
       .leftJoin('drive_designations', 'sdd', 'sdd.id = sdp.designation_id')
       .where('ds.drive_id = :driveId', { driveId });
+
+    if (opts.studentScope) {
+      const { programmeIds, passoutYears } = opts.studentScope;
+      if (programmeIds !== 'all') {
+        qb.andWhere('s.programme_id IN (:...scopeProgIds)', {
+          scopeProgIds: programmeIds,
+        });
+      }
+      if (passoutYears !== 'all') {
+        qb.andWhere('s.pass_out_year IN (:...scopeYears)', {
+          scopeYears: passoutYears,
+        });
+      }
+    }
 
     const search = opts.search?.trim();
     if (search) {

@@ -627,6 +627,18 @@ export class PermissionsService {
     );
   }
 
+  /**
+   * Passout-year scope. The values are bare graduating years (e.g. 2027) —
+   * matched against `students.pass_out_year` / `drive_eligibility.passout_years`
+   * — NOT row ids into a master table.
+   */
+  getAccessiblePassoutYears(
+    employeeId: number,
+    screenKey: string,
+  ): Promise<AccessibleIds> {
+    return this.getAttributeNumericIds(employeeId, screenKey, 'passout_years');
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------

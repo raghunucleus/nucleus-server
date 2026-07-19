@@ -55,6 +55,12 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     order: 65,
   },
   {
+    key: 'placement_coordinator',
+    label: 'Placement Coordinator',
+    icon: 'UserCheck',
+    order: 67,
+  },
+  {
     key: 'requests',
     label: 'Requests',
     icon: 'ClipboardList',

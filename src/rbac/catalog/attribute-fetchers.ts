@@ -139,4 +139,25 @@ export const ATTRIBUTE_FETCHERS: Record<string, AttributeFetcher> = {
       label: `${g.programme?.name ?? '—'} / ${g.admission_year?.display_year ?? '—'} / ${g.name}`,
     }));
   },
+
+  'ref:passout_year': async (ds) => {
+    // Value-based, not entity-backed: the option id IS the graduating year.
+    // Union of projected years from active admission years (+4, complete
+    // before students are loaded) and the years actually cached on students
+    // (covers lateral entry / non-4-year durations).
+    const admissionYears = await ds.getRepository(AdmissionYear).find({
+      where: { is_active: true },
+      select: { year: true },
+    });
+    const studentYears: { y: number }[] = await ds.query(
+      'SELECT DISTINCT pass_out_year AS y FROM students WHERE pass_out_year IS NOT NULL',
+    );
+    const years = [
+      ...new Set([
+        ...admissionYears.map((a) => a.year + 4),
+        ...studentYears.map((r) => Number(r.y)),
+      ]),
+    ].sort((a, b) => b - a);
+    return years.map((y) => ({ id: y, label: String(y) }));
+  },
 };

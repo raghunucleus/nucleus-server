@@ -191,7 +191,7 @@ const toIntArray = (v: unknown): number[] | undefined => {
 };
 
 /** A query-string id list — repeated keys or a comma list → number[]. */
-const queryIdArray = z.preprocess(
+export const queryIdArray = z.preprocess(
   toIntArray,
   z.array(z.number().int().positive()).optional(),
 );

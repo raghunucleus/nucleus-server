@@ -375,6 +375,44 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     attributes: [],
   },
 
+  // --- Placement Coordinator -------------------------------------------------
+  //
+  // Read-only drive visibility for department/batch placement coordinators.
+  // Scope = the assignment's programmes AND passout years intersected with
+  // each drive's eligibility (an empty eligibility axis is open = match; a
+  // drive with no eligibility row yet is hidden). View-only by design — the
+  // coordinator surface exposes no create/edit/status/invite actions, and the
+  // drive's student list is filtered to students within the same scope.
+  {
+    key: 'placement_coordinator.drives.view',
+    module_key: 'placement_coordinator',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Drives',
+    description:
+      'View placement drives open to your assigned programmes and passout years (read-only).',
+    web_route: '/placement-coordinator/drives',
+    actions: ['view'],
+    attributes: [
+      {
+        key: 'programme_ids',
+        type: 'ref:programme',
+        label: 'Programmes',
+        required: true,
+        multi: true,
+        allow_all: true,
+      },
+      {
+        key: 'passout_years',
+        type: 'ref:passout_year',
+        label: 'Passout years',
+        required: true,
+        multi: true,
+        allow_all: true,
+      },
+    ],
+  },
+
   // --- Requests ------------------------------------------------------------
   //
   // The generic approval-requests framework. BOTH screens are DERIVED, never

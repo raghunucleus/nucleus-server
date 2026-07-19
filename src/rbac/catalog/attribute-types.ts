@@ -49,4 +49,12 @@ export const ATTRIBUTE_TYPES: ReadonlyArray<AttributeTypeDef> = [
     label: 'Attendance group',
     source: 'attendance_groups',
   },
+  {
+    // Value-based (no backing master table): the stored value is the bare
+    // graduating year (e.g. 2027), matched against students.pass_out_year
+    // and drive_eligibility.passout_years.
+    key: 'ref:passout_year',
+    label: 'Passout year',
+    source: 'derived: admission_years.year + 4 ∪ distinct students.pass_out_year',
+  },
 ];
