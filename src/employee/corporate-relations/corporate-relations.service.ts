@@ -923,6 +923,14 @@ export class CorporateRelationsService {
     }
     if ('responsible_employee_id' in dto) {
       company.responsible_employee_id = dto.responsible_employee_id ?? null;
+      // updateCompany loads the entity WITH the responsible_employee relation
+      // populated. On save() TypeORM derives the FK from the loaded relation
+      // object, not the scalar — so setting only the scalar above is silently
+      // overwritten with the old officer. Reassign the relation as an id-ref
+      // (mirrors the classifier pattern) so the new officer actually persists.
+      company.responsible_employee = dto.responsible_employee_id
+        ? ({ id: dto.responsible_employee_id } as Employee)
+        : null;
     }
   }
 
