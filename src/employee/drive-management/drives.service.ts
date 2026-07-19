@@ -511,6 +511,44 @@ export class DrivesService {
     if (query.statuses?.length) {
       qb.andWhere('d.status IN (:...statuses)', { statuses: query.statuses });
     }
+    // Facet filters. Each is added ONLY when set, so an unfiltered list runs the
+    // same SQL as before. Classifiers use correlated EXISTS rather than M:N joins
+    // so the base query stays one-row-per-drive (no DISTINCT blow-up). Offer type
+    // and placement category are scope-switched, so they match a value on the
+    // drive OR on any of its designations (drive_profiles).
+    if (query.company_ids?.length) {
+      qb.andWhere('d.company_id IN (:...companyIds)', {
+        companyIds: query.company_ids,
+      });
+    }
+    if (query.company_category_ids?.length) {
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM drive_company_categories_link cc
+                 WHERE cc.drive_id = d.id AND cc.category_id IN (:...ccIds))`,
+        { ccIds: query.company_category_ids },
+      );
+    }
+    if (query.offer_type_ids?.length) {
+      qb.andWhere(
+        `(d.offer_type_id IN (:...otIds)
+          OR EXISTS (SELECT 1 FROM drive_profiles p
+                     WHERE p.drive_id = d.id AND p.offer_type_id IN (:...otIds)))`,
+        { otIds: query.offer_type_ids },
+      );
+    }
+    if (query.placement_category_ids?.length) {
+      qb.andWhere(
+        `(EXISTS (SELECT 1 FROM drive_placement_categories_link pl
+                  WHERE pl.drive_id = d.id
+                    AND pl.placement_category_id IN (:...pcIds))
+          OR EXISTS (SELECT 1 FROM drive_profiles p
+                     JOIN drive_profile_placement_categories_link ppl
+                       ON ppl.drive_profile_id = p.id
+                     WHERE p.drive_id = d.id
+                       AND ppl.placement_category_id IN (:...pcIds)))`,
+        { pcIds: query.placement_category_ids },
+      );
+    }
     if (query.search) {
       qb.andWhere(
         new Brackets((w) => {
@@ -753,6 +791,26 @@ export class DrivesService {
    */
   async companyCategoryOptions() {
     const rows = await this.companyCategories.find({
+      where: { is_active: true },
+      select: { id: true, name: true },
+      order: { sort_order: 'ASC', name: 'ASC' },
+    });
+    return rows.map(chip);
+  }
+
+  /** Active offer types, for the drive list's offer-type filter. */
+  async offerTypeOptions() {
+    const rows = await this.offerTypes.find({
+      where: { is_active: true },
+      select: { id: true, name: true },
+      order: { sort_order: 'ASC', name: 'ASC' },
+    });
+    return rows.map(chip);
+  }
+
+  /** Active placement categories, for the drive list's placement-category filter. */
+  async placementCategoryOptions() {
+    const rows = await this.placementCategories.find({
       where: { is_active: true },
       select: { id: true, name: true },
       order: { sort_order: 'ASC', name: 'ASC' },

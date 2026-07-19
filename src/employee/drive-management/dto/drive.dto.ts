@@ -181,6 +181,20 @@ const toStringArray = (v: unknown): string[] | undefined => {
   return cleaned.length ? cleaned : undefined;
 };
 
+/** Same as `toStringArray`, then coerced to a list of positive integer ids. */
+const toIntArray = (v: unknown): number[] | undefined => {
+  const arr = toStringArray(v);
+  if (!arr) return undefined;
+  const nums = arr.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  return nums.length ? nums : undefined;
+};
+
+/** A query-string id list — repeated keys or a comma list → number[]. */
+const queryIdArray = z.preprocess(
+  toIntArray,
+  z.array(z.number().int().positive()).optional(),
+);
+
 /** List filters. `search` matches the drive name or its company's name. */
 export const DriveQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
@@ -189,6 +203,12 @@ export const DriveQuerySchema = z.object({
     toStringArray,
     z.array(z.enum(DRIVE_STATUSES)).optional(),
   ),
+  // Multi-select facet filters. Each narrows the list only when non-empty; an
+  // absent filter adds no SQL (see DrivesService.list).
+  company_ids: queryIdArray,
+  offer_type_ids: queryIdArray,
+  placement_category_ids: queryIdArray,
+  company_category_ids: queryIdArray,
   sort_by: z.enum(DRIVE_SORT_FIELDS).default('drive_date'),
   sort_dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),

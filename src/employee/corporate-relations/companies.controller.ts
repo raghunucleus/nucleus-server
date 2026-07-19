@@ -209,6 +209,18 @@ export class CompaniesController {
     return this.svc.deleteMilestone(id, milestoneId, emp.id, emp.id);
   }
 
+  // ---- Drives --------------------------------------------------------------
+
+  @Get(':id/drives')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({ summary: 'Placement drives for one assigned company.' })
+  drives(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.svc.listCompanyDrives(id, emp.id);
+  }
+
   // ---- Activity log --------------------------------------------------------
 
   @Get(':id/activity')

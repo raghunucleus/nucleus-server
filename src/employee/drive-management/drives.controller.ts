@@ -100,6 +100,22 @@ export class DrivesController {
     return this.svc.companyCategoryOptions();
   }
 
+  /** Offer types for the drive list's offer-type filter. */
+  @Get('offer-type-options')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({ summary: 'Active offer types, for the drive list filter.' })
+  offerTypeOptions() {
+    return this.svc.offerTypeOptions();
+  }
+
+  /** Placement categories for the drive list's placement-category filter. */
+  @Get('placement-category-options')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({ summary: 'Active placement categories, for the drive list filter.' })
+  placementCategoryOptions() {
+    return this.svc.placementCategoryOptions();
+  }
+
   /**
    * Options for the Eligibility form — programmes + the graduating years students
    * belong to. Served from this screen so it needs only a drives grant. Declared

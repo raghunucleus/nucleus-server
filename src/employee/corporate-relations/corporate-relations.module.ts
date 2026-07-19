@@ -4,6 +4,7 @@ import { Department } from '../../admin/entities/department.entity';
 import { Employee } from '../../admin/entities/employee.entity';
 import { RbacModule } from '../../rbac/rbac.module';
 import { EmployeeAuthModule } from '../auth/employee-auth.module';
+import { DriveManagementModule } from '../drive-management/drive-management.module';
 import { CompaniesController } from './companies.controller';
 import { CompanyAttributesController } from './company-attributes.controller';
 import { CompanyAttributesService } from './company-attributes.service';
@@ -54,6 +55,7 @@ import { CompanyRelationshipMilestone } from './entities/company-relationship-mi
     ]),
     RbacModule,
     EmployeeAuthModule,
+    DriveManagementModule,
   ],
   controllers: [
     CompanyManagementController,

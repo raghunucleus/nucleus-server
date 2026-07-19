@@ -9,6 +9,8 @@ import { Department } from '../../admin/entities/department.entity';
 import { Employee } from '../../admin/entities/employee.entity';
 import { StorageService } from '../../storage/storage.service';
 import { storageKey } from '../../storage/storage.constants';
+import { DrivesService } from '../drive-management/drives.service';
+import { DriveQueryDto } from '../drive-management/dto/drive.dto';
 import { CompanyAttributesService } from './company-attributes.service';
 import {
   COMPANY_TIERS,
@@ -158,6 +160,7 @@ export class CorporateRelationsService {
     private readonly departments: Repository<Department>,
     private readonly attributes: CompanyAttributesService,
     private readonly storage: StorageService,
+    private readonly drives: DrivesService,
   ) {}
 
   // ---- Ownership -----------------------------------------------------------
@@ -240,6 +243,29 @@ export class CorporateRelationsService {
       page: query.page,
       limit: query.limit,
     };
+  }
+
+  // ---- Drives --------------------------------------------------------------
+
+  /**
+   * Placement drives raised against one company. Reuses the drive-management
+   * list under the corporate-relations grant so a user who can view the company
+   * sees its drives without needing the separate drives screen. The officer
+   * surface passes `ownerId`, scoping to companies assigned to them.
+   *
+   * `DrivesService.list` is invoked directly (not through the Nest validation
+   * pipe), so the query must carry explicit pagination/sort — the zod DTO's
+   * defaults only apply at the controller boundary.
+   */
+  async listCompanyDrives(companyId: number, ownerId?: number) {
+    await this.ensureAccess(companyId, ownerId);
+    return this.drives.list({
+      company_id: companyId,
+      page: 1,
+      limit: 100,
+      sort_by: 'drive_date',
+      sort_dir: 'desc',
+    } as DriveQueryDto);
   }
 
   // ---- Companies -----------------------------------------------------------
