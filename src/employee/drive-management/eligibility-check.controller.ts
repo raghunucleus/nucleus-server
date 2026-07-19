@@ -95,7 +95,10 @@ export class EligibilityCheckController {
       'id; completion arrives as an in-app notification and the file expires ' +
       'after 24 hours.',
   })
-  export(@GetEmployee() e: AuthenticatedEmployee, @Body() dto: StudentSearchDto) {
+  export(
+    @GetEmployee() e: AuthenticatedEmployee,
+    @Body() dto: StudentSearchDto,
+  ) {
     return this.svc.export(e.id, dto);
   }
 }

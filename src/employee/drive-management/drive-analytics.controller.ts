@@ -1,4 +1,10 @@
-import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequireScreen } from '../../rbac/require-screen.decorator';
 import { ScreenAccessGuard } from '../../rbac/screen-access.guard';

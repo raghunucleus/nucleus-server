@@ -241,6 +241,34 @@ export class DriveStudentsController {
     return this.svc.getTrack(driveId, studentId);
   }
 
+  @Get(':studentId/profile')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "A drive student's full profile — registry groups with resolved FK " +
+      'names, certifications and resume links. Government IDs are excluded.',
+  })
+  profile(
+    @Param('driveId', ParseIntPipe) driveId: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ) {
+    return this.svc.getStudentProfile(driveId, studentId);
+  }
+
+  @Get(':studentId/drive-activity')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "A drive student's lifecycle across every OTHER drive (including " +
+      'Imported-only rows), latest activity first.',
+  })
+  driveActivity(
+    @Param('driveId', ParseIntPipe) driveId: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ) {
+    return this.svc.driveActivity(driveId, studentId);
+  }
+
   @Delete(':studentId')
   @RequireScreen(KEY, 'edit')
   @ApiOperation({

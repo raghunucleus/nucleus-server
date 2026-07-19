@@ -265,7 +265,7 @@ export class CorporateRelationsService {
       limit: 100,
       sort_by: 'drive_date',
       sort_dir: 'desc',
-    } as DriveQueryDto);
+    });
   }
 
   // ---- Companies -----------------------------------------------------------

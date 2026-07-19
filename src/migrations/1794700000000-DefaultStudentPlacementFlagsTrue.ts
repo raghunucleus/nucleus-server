@@ -12,9 +12,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Columns stay nullable so an admin can still clear a value.
  */
-export class DefaultStudentPlacementFlagsTrue1794700000000
-  implements MigrationInterface
-{
+export class DefaultStudentPlacementFlagsTrue1794700000000 implements MigrationInterface {
   name = 'DefaultStudentPlacementFlagsTrue1794700000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

@@ -48,7 +48,11 @@ export class DriveAutoRejectService {
             AND d.registration_end_date IS NOT NULL
             AND d.registration_end_date < now()
         RETURNING ds.id, ds.student_id, ds.drive_id`,
-        [DRIVE_STUDENT_STATUS.DENIED, AUTO_REJECT_REASON, DRIVE_STUDENT_STATUS.INVITED],
+        [
+          DRIVE_STUDENT_STATUS.DENIED,
+          AUTO_REJECT_REASON,
+          DRIVE_STUDENT_STATUS.INVITED,
+        ],
       );
     if (swept.length === 0) return;
 

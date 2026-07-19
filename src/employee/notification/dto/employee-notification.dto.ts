@@ -30,9 +30,12 @@ export const UpdateNotificationPreferenceSchema = z
     email_enabled: z.boolean().optional(),
     push_enabled: z.boolean().optional(),
   })
-  .refine((v) => v.email_enabled !== undefined || v.push_enabled !== undefined, {
-    message: 'Provide at least one of email_enabled or push_enabled.',
-  });
+  .refine(
+    (v) => v.email_enabled !== undefined || v.push_enabled !== undefined,
+    {
+      message: 'Provide at least one of email_enabled or push_enabled.',
+    },
+  );
 export class UpdateNotificationPreferenceDto extends createZodDto(
   UpdateNotificationPreferenceSchema,
 ) {}

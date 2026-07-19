@@ -3,7 +3,9 @@ import { NqlError, parseNql } from './parser';
 describe('NQL parser', () => {
   it('parses a simple comparison', () => {
     expect(parseNql('ug_cgpa >= 7')).toEqual({
-      filters: { and: [{ attr: 'ug_cgpa', op: 'gte', value: 7, args: undefined }] },
+      filters: {
+        and: [{ attr: 'ug_cgpa', op: 'gte', value: 7, args: undefined }],
+      },
     });
   });
 
@@ -29,7 +31,12 @@ describe('NQL parser', () => {
   it('parses IN / NOT IN lists', () => {
     expect(parseNql('programme IN ("B.Tech CSE", 4)').filters).toEqual({
       and: [
-        { attr: 'programme', op: 'in', value: ['B.Tech CSE', 4], args: undefined },
+        {
+          attr: 'programme',
+          op: 'in',
+          value: ['B.Tech CSE', 4],
+          args: undefined,
+        },
       ],
     });
     expect(parseNql('x NOT IN (1, 2)').filters).toEqual({
@@ -38,7 +45,9 @@ describe('NQL parser', () => {
   });
 
   it('parses BETWEEN without stealing the outer AND', () => {
-    expect(parseNql('dob BETWEEN "2004-01-01" AND "2006-12-31" AND x = 1').filters).toEqual({
+    expect(
+      parseNql('dob BETWEEN "2004-01-01" AND "2006-12-31" AND x = 1').filters,
+    ).toEqual({
       and: [
         {
           attr: 'dob',
@@ -86,7 +95,9 @@ describe('NQL parser', () => {
   });
 
   it('parses booleans and keywords case-insensitively', () => {
-    expect(parseNql('is_active = true and backlog_history = FALSE').filters).toEqual({
+    expect(
+      parseNql('is_active = true and backlog_history = FALSE').filters,
+    ).toEqual({
       and: [
         { attr: 'is_active', op: 'eq', value: true, args: undefined },
         { attr: 'backlog_history', op: 'eq', value: false, args: undefined },
@@ -96,7 +107,9 @@ describe('NQL parser', () => {
 
   it('parses a trailing ORDER BY', () => {
     expect(parseNql('ug_cgpa >= 7 ORDER BY ug_cgpa DESC')).toEqual({
-      filters: { and: [{ attr: 'ug_cgpa', op: 'gte', value: 7, args: undefined }] },
+      filters: {
+        and: [{ attr: 'ug_cgpa', op: 'gte', value: 7, args: undefined }],
+      },
       sort: { by: 'ug_cgpa', dir: 'desc' },
     });
     expect(parseNql('ORDER BY display_name')).toEqual({

@@ -59,8 +59,7 @@ class Parser {
     if (!this.atKeyword('ORDER') && this.peek().type !== 'eof') {
       const root = this.parseOr();
       // Normalize a bare condition / OR group to the canonical {and:[...]} root.
-      out.filters =
-        'attr' in root ? { and: [root] } : (root as SearchGroup);
+      out.filters = 'attr' in root ? { and: [root] } : root;
     }
     if (this.atKeyword('ORDER')) {
       this.next();
@@ -220,7 +219,10 @@ class Parser {
   private expectKeyword(kw: string): void {
     if (!this.atKeyword(kw)) {
       const t = this.peek();
-      throw this.err(`Expected '${kw}', got '${t.value || 'end of query'}'.`, t);
+      throw this.err(
+        `Expected '${kw}', got '${t.value || 'end of query'}'.`,
+        t,
+      );
     }
     this.next();
   }
@@ -228,7 +230,10 @@ class Parser {
   private expect(type: Token['type'], what: string): Token {
     const t = this.peek();
     if (t.type !== type) {
-      throw this.err(`Expected ${what}, got '${t.value || 'end of query'}'.`, t);
+      throw this.err(
+        `Expected ${what}, got '${t.value || 'end of query'}'.`,
+        t,
+      );
     }
     return this.next();
   }

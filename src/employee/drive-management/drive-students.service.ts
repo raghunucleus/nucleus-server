@@ -4,11 +4,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Not, Repository, SelectQueryBuilder } from 'typeorm';
+import { StorageService } from '../../storage/storage.service';
 import { StudentNotificationService } from '../../student/notification/student-notification.service';
 import { StudentApprovalsSyncService } from '../../student/approvals/student-approvals-sync.service';
 import { StudentSearchDto } from '../../student-query/dto/student-search.dto';
 import { StudentQueryService } from '../../student-query/student-query.service';
+import {
+  DriveStudentProfile,
+  DriveStudentProfileService,
+} from './drive-student-profile.service';
 import {
   DRIVE_STUDENT_STATUS,
   DriveStudentAction,
@@ -117,6 +122,40 @@ export interface DriveStudentsPage {
 }
 
 /**
+ * The caller's accessible programmes/passout years — the placement-coordinator
+ * surface passes its RBAC scope; the manage screen passes nothing. `'all'` on
+ * an axis drops that filter; callers must short-circuit `[]` (no access)
+ * before calling.
+ */
+export interface DriveStudentScope {
+  programmeIds: number[] | 'all';
+  passoutYears: number[] | 'all';
+}
+
+/** One row of a student's lifecycle in ANOTHER drive (the Drive Activity tab). */
+export interface DriveStudentActivityRow {
+  drive_id: number;
+  drive_name: string;
+  drive_status: string;
+  drive_date: string | null;
+  company: { name: string; logo_url: string | null };
+  offer_type: string | null;
+  /** The student's status in that drive (drive-student-status.ts codes). */
+  status: number;
+  imported_at: Date;
+  invited_at: Date | null;
+  responded_at: Date | null;
+  outcome_marked_at: Date | null;
+  revoked_at: Date | null;
+  rejection_reason: string | null;
+  selected_designation: string | null;
+  ctc: string | null;
+  ctc_min: string | null;
+  stipend: string | null;
+  stipend_min: string | null;
+}
+
+/**
  * The drive's persisted shortlist (the "Students" tab) and its import from the
  * Filter tab. Membership is duplicate-safe: {@link import_} skips students
  * already in the drive and reports them as `already_existed` rather than erroring.
@@ -141,7 +180,48 @@ export class DriveStudentsService {
     private readonly engine: StudentQueryService,
     private readonly notifications: StudentNotificationService,
     private readonly approvalsSync: StudentApprovalsSyncService,
+    private readonly profiles: DriveStudentProfileService,
+    private readonly storage: StorageService,
   ) {}
+
+  /** Restrict a `students s`-joined query to the caller's RBAC scope. */
+  private applyStudentScope(
+    qb: SelectQueryBuilder<DriveStudent>,
+    scope: DriveStudentScope,
+  ): void {
+    if (scope.programmeIds !== 'all') {
+      qb.andWhere('s.programme_id IN (:...scopeProgIds)', {
+        scopeProgIds: scope.programmeIds,
+      });
+    }
+    if (scope.passoutYears !== 'all') {
+      qb.andWhere('s.pass_out_year IN (:...scopeYears)', {
+        scopeYears: scope.passoutYears,
+      });
+    }
+  }
+
+  /**
+   * 404 unless the student is a member of the drive AND (when a scope is
+   * given) within the caller's accessible programmes/passout years — a scope
+   * miss is indistinguishable from non-membership, so out-of-scope ids don't
+   * leak. The access gate for the per-student detail reads below.
+   */
+  private async assertMember(
+    driveId: number,
+    studentId: number,
+    studentScope?: DriveStudentScope,
+  ): Promise<void> {
+    const qb = this.repo
+      .createQueryBuilder('ds')
+      .innerJoin('students', 's', 's.id = ds.student_id')
+      .where('ds.drive_id = :driveId', { driveId })
+      .andWhere('ds.student_id = :studentId', { studentId });
+    if (studentScope) this.applyStudentScope(qb, studentScope);
+    if (!(await qb.getExists())) {
+      throw new NotFoundException('Student not found in this drive.');
+    }
+  }
 
   /** Append audit-trail rows — one per transitioned drive-student. */
   private async logEvents(
@@ -660,10 +740,7 @@ export class DriveStudentsService {
       pageSize: number;
       search?: string;
       status?: number;
-      studentScope?: {
-        programmeIds: number[] | 'all';
-        passoutYears: number[] | 'all';
-      };
+      studentScope?: DriveStudentScope;
     },
   ): Promise<DriveStudentsPage> {
     await this.assertDrive(driveId);
@@ -683,19 +760,7 @@ export class DriveStudentsService {
       .leftJoin('drive_designations', 'sdd', 'sdd.id = sdp.designation_id')
       .where('ds.drive_id = :driveId', { driveId });
 
-    if (opts.studentScope) {
-      const { programmeIds, passoutYears } = opts.studentScope;
-      if (programmeIds !== 'all') {
-        qb.andWhere('s.programme_id IN (:...scopeProgIds)', {
-          scopeProgIds: programmeIds,
-        });
-      }
-      if (passoutYears !== 'all') {
-        qb.andWhere('s.pass_out_year IN (:...scopeYears)', {
-          scopeYears: passoutYears,
-        });
-      }
-    }
+    if (opts.studentScope) this.applyStudentScope(qb, opts.studentScope);
 
     const search = opts.search?.trim();
     if (search) {
@@ -873,13 +938,16 @@ export class DriveStudentsService {
   async getTrack(
     driveId: number,
     studentId: number,
+    opts: { studentScope?: DriveStudentScope } = {},
   ): Promise<DriveStudentTrack> {
     await this.assertDrive(driveId);
-    const row = await this.repo
+    const qb = this.repo
       .createQueryBuilder('ds')
       .innerJoin('students', 's', 's.id = ds.student_id')
       .where('ds.drive_id = :driveId', { driveId })
-      .andWhere('ds.student_id = :studentId', { studentId })
+      .andWhere('ds.student_id = :studentId', { studentId });
+    if (opts.studentScope) this.applyStudentScope(qb, opts.studentScope);
+    const row = await qb
       .select('ds.id', 'id')
       .addSelect('ds.student_id', 'student_id')
       .addSelect('ds.status', 'status')
@@ -975,6 +1043,94 @@ export class DriveStudentsService {
 
     // No events → synthesise from the denormalised columns (pre-feature row).
     return { ...base, events: await this.synthesiseTrack(row, student) };
+  }
+
+  /**
+   * The full profile behind a Students-tab row. Membership in THIS drive (plus
+   * the caller's scope, when given) is the access gate — the profile itself is
+   * unscoped once the student is legitimately visible.
+   */
+  async getStudentProfile(
+    driveId: number,
+    studentId: number,
+    opts: { studentScope?: DriveStudentScope } = {},
+  ): Promise<DriveStudentProfile> {
+    await this.assertDrive(driveId);
+    await this.assertMember(driveId, studentId, opts.studentScope);
+    return this.profiles.getProfile(studentId);
+  }
+
+  /**
+   * The student's lifecycle in every OTHER drive, latest activity first.
+   * Includes Imported (10) rows — employees see the whole shortlist history,
+   * unlike the student-facing `myDrives` which hides never-invited rows.
+   */
+  async driveActivity(
+    driveId: number,
+    studentId: number,
+    opts: { studentScope?: DriveStudentScope } = {},
+  ): Promise<{ items: DriveStudentActivityRow[] }> {
+    await this.assertDrive(driveId);
+    await this.assertMember(driveId, studentId, opts.studentScope);
+
+    const rows = await this.repo.find({
+      where: { student_id: studentId, drive_id: Not(driveId) },
+      relations: {
+        drive: { company: true, offer_type: true },
+        selected_drive_profile: { designation: true },
+      },
+    });
+
+    const items = await Promise.all(
+      rows.map(async (r): Promise<DriveStudentActivityRow> => {
+        const d = r.drive;
+        return {
+          drive_id: d.id,
+          drive_name: d.drive_name,
+          drive_status: d.status,
+          drive_date: d.drive_date,
+          company: {
+            name: d.company.name,
+            logo_url: d.company.logo_key
+              ? await this.storage
+                  .getCachedReadUrl(d.company.logo_key)
+                  .catch(() => null)
+              : null,
+          },
+          offer_type: d.offer_type?.name ?? null,
+          status: r.status,
+          imported_at: r.imported_at,
+          invited_at: r.invited_at,
+          responded_at: r.responded_at,
+          outcome_marked_at: r.outcome_marked_at,
+          revoked_at: r.revoked_at,
+          rejection_reason: r.rejection_reason,
+          selected_designation:
+            r.selected_drive_profile?.designation?.name ?? null,
+          ctc: r.ctc,
+          ctc_min: r.ctc_min,
+          stipend: r.stipend,
+          stipend_min: r.stipend_min,
+        };
+      }),
+    );
+
+    // Most recent thing that happened to the row, whatever stage it is in.
+    const lastActivity = (r: DriveStudentActivityRow): number =>
+      Math.max(
+        ...[
+          r.outcome_marked_at,
+          r.revoked_at,
+          r.responded_at,
+          r.invited_at,
+          r.imported_at,
+        ]
+          .filter((t): t is Date => t != null)
+          .map((t) => t.getTime()),
+      );
+    items.sort((a, b) => lastActivity(b) - lastActivity(a));
+
+    return { items };
   }
 
   /** Best-effort track reconstruction from the row's timestamp columns. */

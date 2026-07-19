@@ -11,9 +11,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *   `company_activity_log`; `actor_employee_id` is nullable because students act
  *   too (accept/deny).
  */
-export class AddDriveStudentRevokeAndEvents1795000000000
-  implements MigrationInterface
-{
+export class AddDriveStudentRevokeAndEvents1795000000000 implements MigrationInterface {
   name = 'AddDriveStudentRevokeAndEvents1795000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

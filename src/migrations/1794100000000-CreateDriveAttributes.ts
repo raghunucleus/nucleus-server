@@ -93,7 +93,11 @@ export class CreateDriveAttributes1794100000000 implements MigrationInterface {
     { name: 'Internship', is_internship: true, is_full_time: false },
     { name: 'Full Time', is_internship: false, is_full_time: true },
     { name: 'Internship & Full Time', is_internship: true, is_full_time: true },
-    { name: 'Internship to Full Time', is_internship: true, is_full_time: true },
+    {
+      name: 'Internship to Full Time',
+      is_internship: true,
+      is_full_time: true,
+    },
   ];
 
   public async up(queryRunner: QueryRunner): Promise<void> {

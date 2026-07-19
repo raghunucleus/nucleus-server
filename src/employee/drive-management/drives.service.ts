@@ -65,7 +65,10 @@ const money = (v: number | null | undefined): string | null =>
   v === null || v === undefined ? null : String(v);
 
 /** Entry-type codes → labels, matching `students.entry_type` (fixed enum). */
-const ENTRY_TYPE_LABELS: Record<number, string> = { 1: 'Regular', 2: 'Lateral' };
+const ENTRY_TYPE_LABELS: Record<number, string> = {
+  1: 'Regular',
+  2: 'Lateral',
+};
 
 /** Gender codes → labels, matching `students.gender` (fixed enum). */
 const GENDER_LABELS: Record<string, string> = {
@@ -1000,7 +1003,8 @@ export class DrivesService {
           `"${DRIVE_STATUS_LABELS[to]}".`,
       );
     }
-    if (to === 'ready_to_publish') await this.assertEligibilityComplete(driveId);
+    if (to === 'ready_to_publish')
+      await this.assertEligibilityComplete(driveId);
     if (to === 'archived') await this.assertArchivable(driveId);
   }
 
@@ -1191,7 +1195,9 @@ export class DrivesService {
 
     return {
       programmes: programmeRows.map((p) => p.display_name || p.name),
-      entry_types: raw.entry_types.map((v) => ENTRY_TYPE_LABELS[v] ?? String(v)),
+      entry_types: raw.entry_types.map(
+        (v) => ENTRY_TYPE_LABELS[v] ?? String(v),
+      ),
       genders: raw.genders.map((g) => GENDER_LABELS[g] ?? g),
       passout_years: raw.passout_years,
       allow_backlog_history: raw.allow_backlog_history,
@@ -1212,7 +1218,11 @@ export class DrivesService {
     if (!drive) throw new NotFoundException('Drive not found.');
 
     if (dto.programme_ids?.length) {
-      await this.assertAllExist(this.programmes, dto.programme_ids, 'programme');
+      await this.assertAllExist(
+        this.programmes,
+        dto.programme_ids,
+        'programme',
+      );
     }
 
     const row =
@@ -1415,7 +1425,13 @@ export class DrivesService {
 
       // Audit a status change made through the full-edit path (no-op when the
       // status was left untouched).
-      await this.logStatusChange(id, existing.status, drive.status, actorId, em);
+      await this.logStatusChange(
+        id,
+        existing.status,
+        drive.status,
+        actorId,
+        em,
+      );
 
       // Reconcile the profile set.
       const stored = await em.find(DriveProfile, { where: { drive_id: id } });

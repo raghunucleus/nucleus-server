@@ -1,5 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { StudentSearchDto, StudentSearchSchema } from './dto/student-search.dto';
+import {
+  StudentSearchDto,
+  StudentSearchSchema,
+} from './dto/student-search.dto';
 import { assertRegistryValid } from './registry/student-attributes';
 import { StudentQueryService } from './student-query.service';
 
@@ -24,7 +27,7 @@ function makeService(): StudentQueryService {
 }
 
 function dto(body: Record<string, unknown>): StudentSearchDto {
-  return StudentSearchSchema.parse(body) as StudentSearchDto;
+  return StudentSearchSchema.parse(body);
 }
 
 async function expectBadRequest(
@@ -38,7 +41,9 @@ async function expectBadRequest(
     caught = e;
   }
   expect(caught).toBeInstanceOf(BadRequestException);
-  matcher((caught as BadRequestException).getResponse() as Record<string, unknown>);
+  matcher(
+    (caught as BadRequestException).getResponse() as Record<string, unknown>,
+  );
 }
 
 describe('student-query registry', () => {
@@ -63,8 +68,14 @@ describe('StudentQueryService.meta', () => {
     const byKey = new Map(svc.meta('admin').attributes.map((a) => [a.key, a]));
     expect(byKey.get('ug_cgpa')!.operators).toContain('between');
     expect(byKey.get('programme')!.fkLookup).toBe('programmes');
-    expect(byKey.get('entry_type')!.enumLabels).toEqual({ 1: 'Regular', 2: 'Lateral' });
-    expect(byKey.get('industry_certifications')!.operators).toEqual(['in', 'not_in']);
+    expect(byKey.get('entry_type')!.enumLabels).toEqual({
+      1: 'Regular',
+      2: 'Lateral',
+    });
+    expect(byKey.get('industry_certifications')!.operators).toEqual([
+      'in',
+      'not_in',
+    ]);
   });
 });
 
@@ -75,7 +86,10 @@ describe('StudentQueryService.search validation', () => {
 
   it('rejects an unknown attribute', async () => {
     await expectBadRequest(
-      svc.search(dto({ filters: { and: [{ attr: 'nope', op: 'eq', value: 1 }] } }), admin),
+      svc.search(
+        dto({ filters: { and: [{ attr: 'nope', op: 'eq', value: 1 }] } }),
+        admin,
+      ),
       (p) => {
         expect(p.errors).toEqual([
           { path: 'filters.and[0]', message: "Unknown attribute 'nope'." },
@@ -87,7 +101,9 @@ describe('StudentQueryService.search validation', () => {
   it('rejects an operator/kind mismatch', async () => {
     await expectBadRequest(
       svc.search(
-        dto({ filters: { and: [{ attr: 'ug_cgpa', op: 'contains', value: '7' }] } }),
+        dto({
+          filters: { and: [{ attr: 'ug_cgpa', op: 'contains', value: '7' }] },
+        }),
         admin,
       ),
       (p) => {
@@ -101,11 +117,15 @@ describe('StudentQueryService.search validation', () => {
   it('rejects a scalar for between and empty in-lists', async () => {
     await expectBadRequest(
       svc.search(
-        dto({ filters: { and: [{ attr: 'ug_cgpa', op: 'between', value: 7 }] } }),
+        dto({
+          filters: { and: [{ attr: 'ug_cgpa', op: 'between', value: 7 }] },
+        }),
         admin,
       ),
       (p) => {
-        expect((p.errors as Array<{ message: string }>)[0].message).toMatch(/two-element/);
+        expect((p.errors as Array<{ message: string }>)[0].message).toMatch(
+          /two-element/,
+        );
       },
     );
     await expectBadRequest(
@@ -114,7 +134,9 @@ describe('StudentQueryService.search validation', () => {
         admin,
       ),
       (p) => {
-        expect((p.errors as Array<{ message: string }>)[0].message).toMatch(/non-empty/);
+        expect((p.errors as Array<{ message: string }>)[0].message).toMatch(
+          /non-empty/,
+        );
       },
     );
   });
@@ -166,7 +188,10 @@ describe('StudentQueryService.search validation', () => {
   it('rejects double sort (NQL ORDER BY + sort field)', async () => {
     await expectBadRequest(
       svc.search(
-        dto({ nql: 'ug_cgpa >= 7 ORDER BY ug_cgpa', sort: { by: 'display_name', dir: 'asc' } }),
+        dto({
+          nql: 'ug_cgpa >= 7 ORDER BY ug_cgpa',
+          sort: { by: 'display_name', dir: 'asc' },
+        }),
         admin,
       ),
       (p) => {
@@ -205,7 +230,11 @@ describe('StudentQueryService.search validation', () => {
   });
 
   it('rejects filter groups nested beyond the depth cap at the schema layer', () => {
-    let node: Record<string, unknown> = { attr: 'ug_cgpa', op: 'gte', value: 7 };
+    let node: Record<string, unknown> = {
+      attr: 'ug_cgpa',
+      op: 'gte',
+      value: 7,
+    };
     for (let i = 0; i < 6; i += 1) node = { and: [node] };
     expect(() => dto({ filters: node })).toThrow();
   });

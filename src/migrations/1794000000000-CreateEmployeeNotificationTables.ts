@@ -11,9 +11,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * `employee_notification_preferences` stores OVERRIDES ONLY — no row means both
  * channels are on — so there is nothing to backfill for existing employees.
  */
-export class CreateEmployeeNotificationTables1794000000000
-  implements MigrationInterface
-{
+export class CreateEmployeeNotificationTables1794000000000 implements MigrationInterface {
   name = 'CreateEmployeeNotificationTables1794000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

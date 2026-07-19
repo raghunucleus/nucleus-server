@@ -105,7 +105,10 @@ export interface DriveAnalytics {
 const ALL_STATUSES: DriveStudentStatus[] = [10, 20, 30, 40, 50, 60, 70, 80];
 /** Ever reached "Accepted or beyond" — the funnel's accepted stage. */
 const ACCEPTED_OR_PAST = [30, 50, 60, 70];
-const ENTRY_TYPE_LABELS: Record<number, string> = { 1: 'Regular', 2: 'Lateral' };
+const ENTRY_TYPE_LABELS: Record<number, string> = {
+  1: 'Regular',
+  2: 'Lateral',
+};
 /** Fixed band order so the CGPA breakdown always renders low → high. */
 const CGPA_BAND_ORDER = ['< 6', '6 – 7', '7 – 8', '8 – 9', '9 – 10', 'No CGPA'];
 
@@ -146,7 +149,11 @@ export class DriveAnalyticsService {
       revokedReasons,
     ] = await Promise.all([
       this.statusCounts(driveId),
-      this.breakdown(driveId, 'p.display_name', 'LEFT JOIN programmes p ON p.id = s.programme_id'),
+      this.breakdown(
+        driveId,
+        'p.display_name',
+        'LEFT JOIN programmes p ON p.id = s.programme_id',
+      ),
       this.breakdown(driveId, 's.gender'),
       this.breakdown(driveId, 's.entry_type'),
       this.breakdown(driveId, 's.pass_out_year'),
@@ -380,10 +387,7 @@ export class DriveAnalyticsService {
     return row ?? { count: '0' };
   }
 
-  private async reasons(
-    driveId: number,
-    status: number,
-  ): Promise<ReasonRow[]> {
+  private async reasons(driveId: number, status: number): Promise<ReasonRow[]> {
     const rows: { reason: string; count: string }[] = await this.members.query(
       `SELECT rejection_reason AS reason, COUNT(*) AS count
          FROM drive_students

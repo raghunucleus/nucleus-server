@@ -43,7 +43,8 @@ export class PlacementCoordinatorDrivesController {
   @Get()
   @RequireScreen(KEY, 'view')
   @ApiOperation({
-    summary: "Paginated drive list, scoped to the coordinator's programmes/passout years.",
+    summary:
+      "Paginated drive list, scoped to the coordinator's programmes/passout years.",
   })
   list(
     @GetEmployee() emp: AuthenticatedEmployee,
@@ -73,7 +74,8 @@ export class PlacementCoordinatorDrivesController {
   @Get(':id')
   @RequireScreen(KEY, 'view')
   @ApiOperation({
-    summary: 'One in-scope drive with its designations and attachments (404 outside scope).',
+    summary:
+      'One in-scope drive with its designations and attachments (404 outside scope).',
   })
   get(
     @GetEmployee() emp: AuthenticatedEmployee,
@@ -97,7 +99,8 @@ export class PlacementCoordinatorDrivesController {
   @Get(':id/students')
   @RequireScreen(KEY, 'view')
   @ApiOperation({
-    summary: "The drive's shortlist, limited to students within the coordinator's scope.",
+    summary:
+      "The drive's shortlist, limited to students within the coordinator's scope.",
   })
   students(
     @GetEmployee() emp: AuthenticatedEmployee,
@@ -111,7 +114,53 @@ export class PlacementCoordinatorDrivesController {
       page: Number(page) || 1,
       pageSize: Number(pageSize) || 25,
       search: search || undefined,
-      status: status !== undefined && status !== '' ? Number(status) : undefined,
+      status:
+        status !== undefined && status !== '' ? Number(status) : undefined,
     });
+  }
+
+  @Get(':id/students/:studentId/track')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "An in-scope student's audit trail in this drive (404 when the drive " +
+      'or student is outside the coordinator scope).',
+  })
+  studentTrack(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ) {
+    return this.svc.studentTrack(emp.id, id, studentId);
+  }
+
+  @Get(':id/students/:studentId/profile')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "An in-scope student's full profile — registry groups, certifications " +
+      'and resume links; government IDs are excluded.',
+  })
+  studentProfile(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ) {
+    return this.svc.studentProfile(emp.id, id, studentId);
+  }
+
+  @Get(':id/students/:studentId/drive-activity')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "An in-scope student's lifecycle across every OTHER drive, latest " +
+      'activity first.',
+  })
+  studentDriveActivity(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ) {
+    return this.svc.studentDriveActivity(emp.id, id, studentId);
   }
 }

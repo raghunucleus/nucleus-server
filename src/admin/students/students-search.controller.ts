@@ -12,7 +12,11 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { exportFilename, rowsToCsv, rowsToXlsx } from '../../student-query/export';
+import {
+  exportFilename,
+  rowsToCsv,
+  rowsToXlsx,
+} from '../../student-query/export';
 import { StudentSearchDto } from '../../student-query/dto/student-search.dto';
 import { StudentQueryService } from '../../student-query/student-query.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -55,10 +59,7 @@ export class StudentsSearchController {
         ? 'text/csv; charset=utf-8'
         : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return new StreamableFile(buffer);
   }
 

@@ -13,9 +13,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * programmes, which reference the master table via `drive_eligible_programmes_link`
  * (RESTRICT on the programme, like every other lookup reference here).
  */
-export class AddDriveStatusAndEligibility1794400000000
-  implements MigrationInterface
-{
+export class AddDriveStatusAndEligibility1794400000000 implements MigrationInterface {
   name = 'AddDriveStatusAndEligibility1794400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -77,6 +75,8 @@ export class AddDriveStatusAndEligibility1794400000000
     );
     await queryRunner.query(`DROP TABLE IF EXISTS "drive_eligibility"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_drives_status"`);
-    await queryRunner.query(`ALTER TABLE "drives" DROP COLUMN IF EXISTS "status"`);
+    await queryRunner.query(
+      `ALTER TABLE "drives" DROP COLUMN IF EXISTS "status"`,
+    );
   }
 }

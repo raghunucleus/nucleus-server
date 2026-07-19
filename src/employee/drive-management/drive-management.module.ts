@@ -7,6 +7,7 @@ import { EmployeeAuthModule } from '../auth/employee-auth.module';
 import { ExportsModule } from '../exports/exports.module';
 import { AdmissionYear } from '../../admin/entities/admission-year.entity';
 import { Programme } from '../../admin/entities/programme.entity';
+import { Student } from '../../admin/entities/student.entity';
 import { Company } from '../corporate-relations/entities/company.entity';
 import { CompanyCategory } from '../corporate-relations/entities/company-lookups.entity';
 import { DriveAnalyticsController } from './drive-analytics.controller';
@@ -14,6 +15,7 @@ import { DriveAnalyticsService } from './drive-analytics.service';
 import { DriveAttributesController } from './drive-attributes.controller';
 import { DriveAttributesService } from './drive-attributes.service';
 import { DriveAutoRejectService } from './drive-auto-reject.service';
+import { DriveStudentProfileService } from './drive-student-profile.service';
 import { DriveStudentsController } from './drive-students.controller';
 import { DriveStudentsService } from './drive-students.service';
 import { DriveStudentsSearchController } from './drive-students-search.controller';
@@ -47,6 +49,8 @@ import {
  * writes to those tables stay in the corporate-relations module. `Programme` /
  * `AdmissionYear` are likewise read-only — the eligibility form offers programmes
  * and derives the passout-year options from admission years (year + 4).
+ * `Student` is read-only too — the Students tab's detail sheet reads the full
+ * profile; every student write lives in the admin/student modules.
  */
 @Module({
   imports: [
@@ -66,6 +70,7 @@ import {
       CompanyCategory,
       Programme,
       AdmissionYear,
+      Student,
     ]),
     RbacModule,
     EmployeeAuthModule,
@@ -86,6 +91,7 @@ import {
     DriveAttributesService,
     DrivesService,
     DriveStudentsSearchService,
+    DriveStudentProfileService,
     DriveStudentsService,
     DriveAutoRejectService,
     DriveAnalyticsService,

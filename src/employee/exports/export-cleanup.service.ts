@@ -56,7 +56,9 @@ export class ExportCleanupService {
         status: 'failed',
         error: 'Interrupted (server restart during export).',
       })
-      .where('status IN (:...statuses)', { statuses: ['pending', 'processing'] })
+      .where('status IN (:...statuses)', {
+        statuses: ['pending', 'processing'],
+      })
       .andWhere('updated_at < :cutoff', { cutoff: staleCutoff })
       .execute();
     if ((stale.affected ?? 0) > 0) {

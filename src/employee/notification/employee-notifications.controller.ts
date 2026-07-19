@@ -13,7 +13,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
 import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { GetEmployee } from '../auth/get-employee.decorator';

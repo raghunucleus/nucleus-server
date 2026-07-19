@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, Repository, WhereExpressionBuilder } from 'typeorm';
+import {
+  Brackets,
+  DataSource,
+  Repository,
+  WhereExpressionBuilder,
+} from 'typeorm';
 import { Student } from '../admin/entities/student.entity';
 import { ACCESS_ALL, AccessibleIds } from '../rbac/permissions.service';
 import {
@@ -149,9 +154,7 @@ export class StudentQueryService {
     if (!cfg) {
       throw new BadRequestException(`Unknown lookup "${lookup}".`);
     }
-    const where = q?.trim()
-      ? `WHERE ${cfg.label} ILIKE $1 ESCAPE '\\'`
-      : '';
+    const where = q?.trim() ? `WHERE ${cfg.label} ILIKE $1 ESCAPE '\\'` : '';
     const params = q?.trim() ? [`%${escapeLike(q.trim())}%`] : [];
     const rows: Array<{ id: number; label: string }> =
       await this.dataSource.query(
@@ -387,7 +390,9 @@ export class StudentQueryService {
     const ctx: BuildCtx = { n: 0, params: {} };
 
     if (scope?.programmeIds && scope.programmeIds !== ACCESS_ALL) {
-      qb.andWhere(`s.programme_id IN (:...${this.param(ctx, scope.programmeIds)})`);
+      qb.andWhere(
+        `s.programme_id IN (:...${this.param(ctx, scope.programmeIds)})`,
+      );
     }
     if (scope?.admissionYearIds && scope.admissionYearIds !== ACCESS_ALL) {
       qb.andWhere(
@@ -406,9 +411,7 @@ export class StudentQueryService {
     }
 
     if (filters) {
-      qb.andWhere(
-        new Brackets((w) => this.applyGroup(w, filters, ctx)),
-      );
+      qb.andWhere(new Brackets((w) => this.applyGroup(w, filters, ctx)));
     }
 
     if (dto.search) {
@@ -641,13 +644,18 @@ export class StudentQueryService {
     surface: Surface,
     issues: ValidationIssue[],
   ): AttributeDef[] {
-    const keys = requested?.length ? [...new Set(requested)] : [...DEFAULT_COLUMNS];
+    const keys = requested?.length
+      ? [...new Set(requested)]
+      : [...DEFAULT_COLUMNS];
     const out: AttributeDef[] = [];
     for (const key of keys) {
       if ((IMPLICIT_COLUMNS as readonly string[]).includes(key)) continue;
       const def = ATTRIBUTE_BY_KEY.get(key);
       if (!def || (def.surfaces && !def.surfaces.includes(surface))) {
-        issues.push({ path: `columns.${key}`, message: `Unknown column '${key}'.` });
+        issues.push({
+          path: `columns.${key}`,
+          message: `Unknown column '${key}'.`,
+        });
         continue;
       }
       if (!def.select) {
@@ -671,7 +679,10 @@ export class StudentQueryService {
     const dir = sort?.dir ?? DEFAULT_SORT.dir;
     const def = ATTRIBUTE_BY_KEY.get(by);
     if (!def || (def.surfaces && !def.surfaces.includes(surface))) {
-      issues.push({ path: 'sort.by', message: `Unknown sort attribute '${by}'.` });
+      issues.push({
+        path: 'sort.by',
+        message: `Unknown sort attribute '${by}'.`,
+      });
       return { def: ATTRIBUTE_BY_KEY.get(DEFAULT_SORT.by)!, dir };
     }
     if (!def.sort) {
@@ -692,7 +703,13 @@ export class StudentQueryService {
       const children = node.and ?? node.or ?? [];
       const label = node.and ? 'and' : 'or';
       children.forEach((child, i) =>
-        this.validateNode(child, surface, `${path}.${label}[${i}]`, depth + 1, issues),
+        this.validateNode(
+          child,
+          surface,
+          `${path}.${label}[${i}]`,
+          depth + 1,
+          issues,
+        ),
       );
       return;
     }
@@ -877,7 +894,8 @@ export class StudentQueryService {
     const wanted = new Map<string, Set<string>>(); // lookup -> lowercased labels
     const visit = (node: SearchNode): void => {
       if (isGroupNode(node)) {
-        for (const child of [...(node.and ?? []), ...(node.or ?? [])]) visit(child);
+        for (const child of [...(node.and ?? []), ...(node.or ?? [])])
+          visit(child);
         return;
       }
       const def = ATTRIBUTE_BY_KEY.get(node.attr);
@@ -915,7 +933,9 @@ export class StudentQueryService {
       if (isGroupNode(node)) {
         const children = node.and ?? node.or ?? [];
         const label = node.and ? 'and' : 'or';
-        children.forEach((child, i) => rewrite(child, `${path}.${label}[${i}]`));
+        children.forEach((child, i) =>
+          rewrite(child, `${path}.${label}[${i}]`),
+        );
         return;
       }
       const def = ATTRIBUTE_BY_KEY.get(node.attr);

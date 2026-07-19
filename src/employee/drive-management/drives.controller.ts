@@ -95,7 +95,9 @@ export class DrivesController {
    */
   @Get('company-category-options')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Active company categories a drive can be tagged with.' })
+  @ApiOperation({
+    summary: 'Active company categories a drive can be tagged with.',
+  })
   companyCategoryOptions() {
     return this.svc.companyCategoryOptions();
   }
@@ -111,7 +113,9 @@ export class DrivesController {
   /** Placement categories for the drive list's placement-category filter. */
   @Get('placement-category-options')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Active placement categories, for the drive list filter.' })
+  @ApiOperation({
+    summary: 'Active placement categories, for the drive list filter.',
+  })
   placementCategoryOptions() {
     return this.svc.placementCategoryOptions();
   }
@@ -123,7 +127,9 @@ export class DrivesController {
    */
   @Get('eligibility-options')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Programmes + passout years for the eligibility form.' })
+  @ApiOperation({
+    summary: 'Programmes + passout years for the eligibility form.',
+  })
   eligibilityOptions() {
     return this.svc.eligibilityOptions();
   }
@@ -189,7 +195,9 @@ export class DrivesController {
 
   @Get(':id/eligibility')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: "A drive's eligibility (all-empty defaults if unset)." })
+  @ApiOperation({
+    summary: "A drive's eligibility (all-empty defaults if unset).",
+  })
   getEligibility(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getEligibility(id);
   }

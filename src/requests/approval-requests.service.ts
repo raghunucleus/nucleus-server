@@ -427,7 +427,9 @@ export class ApprovalRequestsService {
     // The next-day bound is computed here to avoid a `::date` cast, which
     // TypeORM's parameter parser can mistake for a `:date` named parameter.
     if (q.to) {
-      qb.andWhere('r.created_at < :toExclusive', { toExclusive: nextDay(q.to) });
+      qb.andWhere('r.created_at < :toExclusive', {
+        toExclusive: nextDay(q.to),
+      });
     }
 
     const dir = q.sort === 'oldest' ? 'ASC' : 'DESC';

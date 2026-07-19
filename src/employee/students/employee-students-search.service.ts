@@ -29,7 +29,12 @@ export class EmployeeStudentsSearchService {
       ]);
     return this.engine.search(dto, {
       surface: 'employee',
-      scope: { departmentIds, programmeIds, admissionYearIds, attendanceGroupIds },
+      scope: {
+        departmentIds,
+        programmeIds,
+        admissionYearIds,
+        attendanceGroupIds,
+      },
     });
   }
 

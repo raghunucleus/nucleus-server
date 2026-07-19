@@ -200,9 +200,7 @@ export class ExportJobsService {
     if (job.status === 'failed') {
       throw new GoneException(job.error ?? 'This export failed.');
     }
-    const msLeft = job.expires_at
-      ? job.expires_at.getTime() - Date.now()
-      : 0;
+    const msLeft = job.expires_at ? job.expires_at.getTime() - Date.now() : 0;
     if (job.status === 'expired' || !job.storage_key || msLeft <= 0) {
       throw new GoneException(
         'This export has expired. Exports are kept for 24 hours — run it again.',

@@ -55,6 +55,7 @@ export const ATTRIBUTE_TYPES: ReadonlyArray<AttributeTypeDef> = [
     // and drive_eligibility.passout_years.
     key: 'ref:passout_year',
     label: 'Passout year',
-    source: 'derived: admission_years.year + 4 ∪ distinct students.pass_out_year',
+    source:
+      'derived: admission_years.year + 4 ∪ distinct students.pass_out_year',
   },
 ];

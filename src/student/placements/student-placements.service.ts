@@ -51,7 +51,13 @@ export interface PlacementDriveRecordRow extends PlacementDriveCard {
  * exposed to students.
  */
 export interface PlacementHistoryEvent {
-  action: 'invited' | 'reminded' | 'accepted' | 'denied' | 'outcome' | 'revoked';
+  action:
+    | 'invited'
+    | 'reminded'
+    | 'accepted'
+    | 'denied'
+    | 'outcome'
+    | 'revoked';
   to_status: number;
   by: 'you' | 'placement_cell';
   reason: string | null;
@@ -166,8 +172,11 @@ export class StudentPlacementsService {
 
     // Reuse the employee assembly, minus the SPOC contact details — students
     // route questions through the placement cell, not the company contact.
-    const { spoc_email: _e, spoc_contact: _c, ...drive } =
-      await this.drives.get(driveId);
+    const {
+      spoc_email: _e,
+      spoc_contact: _c,
+      ...drive
+    } = await this.drives.get(driveId);
 
     // Who the drive is open to — ids already resolved to labels server-side, so
     // the student never touches the employee-only eligibility-options endpoint.
@@ -202,7 +211,10 @@ export class StudentPlacementsService {
   }
 
   /** Accept a pending invite: 20 → 30 — but only before the deadline passes. */
-  async accept(studentId: number, driveId: number): Promise<{ status: number }> {
+  async accept(
+    studentId: number,
+    driveId: number,
+  ): Promise<{ status: number }> {
     const drive = await this.driveRepo.findOne({
       where: { id: driveId },
       select: { id: true, registration_end_date: true },
@@ -318,8 +330,7 @@ export class StudentPlacementsService {
 }
 
 function byDateDesc<T>(pick: (row: T) => Date | null) {
-  return (a: T, b: T) =>
-    (pick(b)?.getTime() ?? 0) - (pick(a)?.getTime() ?? 0);
+  return (a: T, b: T) => (pick(b)?.getTime() ?? 0) - (pick(a)?.getTime() ?? 0);
 }
 
 /** Most recent thing that happened to the row, whatever stage it is in. */

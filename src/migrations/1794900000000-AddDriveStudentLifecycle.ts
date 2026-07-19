@@ -12,9 +12,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * `imported_by_employee_id`. The (drive_id, status) index serves the employee
  * status-filtered roster and invite-all's "all status-10 rows" scan.
  */
-export class AddDriveStudentLifecycle1794900000000
-  implements MigrationInterface
-{
+export class AddDriveStudentLifecycle1794900000000 implements MigrationInterface {
   name = 'AddDriveStudentLifecycle1794900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

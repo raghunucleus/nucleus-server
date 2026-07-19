@@ -146,9 +146,17 @@ export const DriveEligibilitySchema = z.object({
   programme_ids: idArray,
   entry_types: z.array(z.coerce.number().int().min(1).max(2)).optional(),
   genders: z.array(z.enum(GENDERS)).optional(),
-  passout_years: z.array(z.coerce.number().int().min(1900).max(3000)).optional(),
+  passout_years: z
+    .array(z.coerce.number().int().min(1900).max(3000))
+    .optional(),
   allow_backlog_history: z.coerce.boolean().optional(),
-  max_current_backlogs: z.coerce.number().int().min(0).max(99).optional().nullable(),
+  max_current_backlogs: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(99)
+    .optional()
+    .nullable(),
   min_tenth_percentage: z.coerce.number().min(0).max(100).optional().nullable(),
   min_twelfth_or_diploma_percentage: z.coerce
     .number()

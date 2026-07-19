@@ -32,7 +32,9 @@ export class StudentApprovalsController {
     summary:
       "Count of the caller's approvals per common status — drives the status chips.",
   })
-  counts(@GetStudent() s: AuthenticatedStudent): Promise<StudentApprovalCounts> {
+  counts(
+    @GetStudent() s: AuthenticatedStudent,
+  ): Promise<StudentApprovalCounts> {
     return this.svc.counts(s.id);
   }
 

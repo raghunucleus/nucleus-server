@@ -45,7 +45,9 @@ const ConditionSchema = z.object({
   args: z.record(z.string(), z.unknown()).optional(),
 });
 
-type NodeInput = z.infer<typeof ConditionSchema> | { and?: NodeInput[]; or?: NodeInput[] };
+type NodeInput =
+  | z.infer<typeof ConditionSchema>
+  | { and?: NodeInput[]; or?: NodeInput[] };
 
 const NodeSchema: z.ZodType<NodeInput> = z.lazy(() =>
   z.union([ConditionSchema, GroupSchema]),
@@ -64,7 +66,12 @@ const GroupSchema: z.ZodType<NodeInput> = z.lazy(() =>
 );
 
 /** Structural depth/size guard — semantic checks live in the engine. */
-function measure(node: NodeInput, depth: number, ctx: z.RefinementCtx, state: { conditions: number }): void {
+function measure(
+  node: NodeInput,
+  depth: number,
+  ctx: z.RefinementCtx,
+  state: { conditions: number },
+): void {
   if (depth > MAX_FILTER_DEPTH) {
     ctx.addIssue({
       code: 'custom',
@@ -76,7 +83,10 @@ function measure(node: NodeInput, depth: number, ctx: z.RefinementCtx, state: { 
     state.conditions += 1;
     return;
   }
-  const children = [...((node as { and?: NodeInput[] }).and ?? []), ...((node as { or?: NodeInput[] }).or ?? [])];
+  const children = [
+    ...((node as { and?: NodeInput[] }).and ?? []),
+    ...((node as { or?: NodeInput[] }).or ?? []),
+  ];
   for (const child of children) measure(child, depth + 1, ctx, state);
 }
 
@@ -122,7 +132,7 @@ export const StudentSearchSchema = z
     }
     if (body.filters) {
       const state = { conditions: 0 };
-      measure(body.filters as NodeInput, 1, ctx, state);
+      measure(body.filters, 1, ctx, state);
       if (state.conditions > MAX_CONDITIONS) {
         ctx.addIssue({
           code: 'custom',

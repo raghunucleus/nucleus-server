@@ -30,8 +30,7 @@ export class StudentPlacementsController {
 
   @Get('invites')
   @ApiOperation({
-    summary:
-      'Pending drive invitations plus the denied history, newest first.',
+    summary: 'Pending drive invitations plus the denied history, newest first.',
   })
   invites(@GetStudent() s: AuthenticatedStudent) {
     return this.svc.invites(s.id);

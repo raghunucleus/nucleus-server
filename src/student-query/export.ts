@@ -43,9 +43,7 @@ export function rowsToCsv(
 ): Buffer {
   const lines = [columns.map((c) => csvCell(labelOf(c))).join(',')];
   for (const row of rows) {
-    lines.push(
-      columns.map((c) => csvCell(displayValue(c, row[c]))).join(','),
-    );
+    lines.push(columns.map((c) => csvCell(displayValue(c, row[c]))).join(','));
   }
   // UTF-8 BOM so Excel detects the encoding.
   return Buffer.concat([

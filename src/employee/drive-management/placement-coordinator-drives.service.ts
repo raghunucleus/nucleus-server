@@ -86,7 +86,10 @@ export class PlacementCoordinatorDrivesService {
     driveId: number,
     scope: DriveEligibilityScope | null,
   ): Promise<DriveEligibilityScope> {
-    if (!scope || !(await this.drives.existsInEligibilityScope(driveId, scope))) {
+    if (
+      !scope ||
+      !(await this.drives.existsInEligibilityScope(driveId, scope))
+    ) {
       throw new NotFoundException('Drive not found.');
     }
     return scope;
@@ -133,6 +136,46 @@ export class PlacementCoordinatorDrivesService {
         programmeIds: scope.programmeIds,
         passoutYears: scope.passoutYears,
       },
+    });
+  }
+
+  /**
+   * Per-student detail reads for the Students tab's sheet — the same data the
+   * manage screen serves, additionally gated on the drive being in scope AND
+   * the student being within the coordinator's programmes/passout years (a
+   * scope miss 404s exactly like a non-member).
+   */
+  async studentTrack(employeeId: number, driveId: number, studentId: number) {
+    const scope = await this.assertVisible(
+      driveId,
+      await this.resolveScope(employeeId),
+    );
+    return this.driveStudents.getTrack(driveId, studentId, {
+      studentScope: scope,
+    });
+  }
+
+  async studentProfile(employeeId: number, driveId: number, studentId: number) {
+    const scope = await this.assertVisible(
+      driveId,
+      await this.resolveScope(employeeId),
+    );
+    return this.driveStudents.getStudentProfile(driveId, studentId, {
+      studentScope: scope,
+    });
+  }
+
+  async studentDriveActivity(
+    employeeId: number,
+    driveId: number,
+    studentId: number,
+  ) {
+    const scope = await this.assertVisible(
+      driveId,
+      await this.resolveScope(employeeId),
+    );
+    return this.driveStudents.driveActivity(driveId, studentId, {
+      studentScope: scope,
     });
   }
 

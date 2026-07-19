@@ -346,7 +346,8 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     role_type_keys: ['placement'],
     platforms: ['web'],
     label: 'Drive Attributes',
-    description: 'Configure the classifiers placement drives can be tagged with.',
+    description:
+      'Configure the classifiers placement drives can be tagged with.',
     web_route: '/drive-management/drive-attributes',
     actions: ['view', 'create', 'edit', 'activate'],
     attributes: [],
