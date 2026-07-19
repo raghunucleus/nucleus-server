@@ -29,6 +29,15 @@ import {
  * Literal routes are declared before `:id` so those segments aren't swallowed
  * by the param route.
  */
+/** Parse a CSV of positive ints (`"3,7"`) — undefined when nothing valid. */
+const csvInts = (v?: string): number[] | undefined => {
+  const ids = (v ?? '')
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return ids.length ? ids : undefined;
+};
+
 @ApiTags('placement-coordinator/drives')
 @ApiBearerAuth('employee-access-token')
 @UseGuards(
@@ -109,6 +118,10 @@ export class PlacementCoordinatorDrivesController {
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('programme_ids') programmeIds?: string,
+    @Query('passout_years') passoutYears?: string,
+    @Query('entry_type') entryType?: string,
+    @Query('all') all?: string,
   ) {
     return this.svc.students(emp.id, id, {
       page: Number(page) || 1,
@@ -116,7 +129,26 @@ export class PlacementCoordinatorDrivesController {
       search: search || undefined,
       status:
         status !== undefined && status !== '' ? Number(status) : undefined,
+      programmeIds: csvInts(programmeIds),
+      passoutYears: csvInts(passoutYears),
+      entryType:
+        entryType === '1' || entryType === '2' ? Number(entryType) : undefined,
+      all: all === '1' || all === 'true',
     });
+  }
+
+  @Get(':id/students/filter-options')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      'Distinct programme / passout-year / entry-type values among the ' +
+      "drive's students within the coordinator's scope.",
+  })
+  studentFilterOptions(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.svc.studentFilterOptions(emp.id, id);
   }
 
   @Get(':id/students/:studentId/track')

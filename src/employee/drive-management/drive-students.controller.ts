@@ -28,6 +28,15 @@ import { UpdateDriveStudentSelectionDto } from './dto/update-drive-student-selec
 
 const KEY = 'drive_management.drives.manage';
 
+/** Parse a CSV of positive ints (`"3,7"`) — undefined when nothing valid. */
+const csvInts = (v?: string): number[] | undefined => {
+  const ids = (v ?? '')
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return ids.length ? ids : undefined;
+};
+
 /**
  * The drive's persisted shortlist — the "Students" tab and the import from the
  * Filter tab. Reads (the list) require `view`; every mutation (import, remove)
@@ -49,8 +58,9 @@ export class DriveStudentsController {
   @RequireScreen(KEY, 'view')
   @ApiOperation({
     summary:
-      "The drive's imported students (paginated), optionally filtered to one " +
-      'lifecycle status.',
+      "The drive's imported students (paginated), optionally filtered by " +
+      'lifecycle status, programmes, passout years and entry type. `all=1` ' +
+      'skips pagination (capped) for the grouped view.',
   })
   list(
     @Param('driveId', ParseIntPipe) driveId: number,
@@ -58,6 +68,10 @@ export class DriveStudentsController {
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('programme_ids') programmeIds?: string,
+    @Query('passout_years') passoutYears?: string,
+    @Query('entry_type') entryType?: string,
+    @Query('all') all?: string,
   ) {
     const parsedStatus = Number(status);
     return this.svc.list(driveId, {
@@ -68,7 +82,23 @@ export class DriveStudentsController {
         Number.isInteger(parsedStatus) && status !== undefined && status !== ''
           ? parsedStatus
           : undefined,
+      programmeIds: csvInts(programmeIds),
+      passoutYears: csvInts(passoutYears),
+      entryType:
+        entryType === '1' || entryType === '2' ? Number(entryType) : undefined,
+      all: all === '1' || all === 'true',
     });
+  }
+
+  @Get('filter-options')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      'Distinct programme / passout-year / entry-type values present among ' +
+      "the drive's students — the filter dropdown options.",
+  })
+  filterOptions(@Param('driveId', ParseIntPipe) driveId: number) {
+    return this.svc.filterOptions(driveId);
   }
 
   @Post('import')

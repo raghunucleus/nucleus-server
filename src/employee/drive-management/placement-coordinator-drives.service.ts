@@ -124,18 +124,41 @@ export class PlacementCoordinatorDrivesService {
   async students(
     employeeId: number,
     driveId: number,
-    opts: { page: number; pageSize: number; search?: string; status?: number },
+    opts: {
+      page: number;
+      pageSize: number;
+      search?: string;
+      status?: number;
+      programmeIds?: number[];
+      passoutYears?: number[];
+      entryType?: number;
+      all?: boolean;
+    },
   ) {
     const scope = await this.assertVisible(
       driveId,
       await this.resolveScope(employeeId),
     );
+    // The user filters ride along as additional AND predicates while the
+    // RBAC studentScope stays applied — intersection can only narrow.
     return this.driveStudents.list(driveId, {
       ...opts,
       studentScope: {
         programmeIds: scope.programmeIds,
         passoutYears: scope.passoutYears,
       },
+    });
+  }
+
+  /** Filter dropdown options for the Students tab, within the scope. */
+  async studentFilterOptions(employeeId: number, driveId: number) {
+    const scope = await this.assertVisible(
+      driveId,
+      await this.resolveScope(employeeId),
+    );
+    return this.driveStudents.filterOptions(driveId, {
+      programmeIds: scope.programmeIds,
+      passoutYears: scope.passoutYears,
     });
   }
 

@@ -32,6 +32,10 @@ import { SelectionPackageInput } from './dto/selection-package.schema';
  *  hundreds; over this the user is asked to narrow the filter instead. */
 const MAX_IMPORT_ALL = MAX_IMPORT_STUDENT_IDS;
 
+/** Hard cap on the `all=1` (load-all, used by the grouped view) list mode.
+ *  `total` stays exact, so clients can tell the result was truncated. */
+const DRIVE_STUDENTS_ALL_CAP = 2000;
+
 export interface DriveImportSummary {
   /** Newly added to the drive by this call. */
   imported: number;
@@ -96,6 +100,9 @@ export interface DriveStudentRow {
   roll_no: string;
   display_name: string;
   programme: string | null;
+  programme_id: number | null;
+  pass_out_year: number | null;
+  entry_type: number;
   imported_at: Date;
   imported_by: string | null;
   status: number;
@@ -119,6 +126,13 @@ export interface DriveStudentsPage {
   page: number;
   pageSize: number;
   pageCount: number;
+}
+
+/** Distinct filterable values actually present among a drive's students. */
+export interface DriveStudentFilterOptions {
+  programmes: { id: number; name: string }[];
+  passout_years: number[];
+  entry_types: number[];
 }
 
 /**
@@ -740,6 +754,12 @@ export class DriveStudentsService {
       pageSize: number;
       search?: string;
       status?: number;
+      programmeIds?: number[];
+      passoutYears?: number[];
+      entryType?: number;
+      /** Load-all mode (grouped view): ignore paging, capped at
+       *  {@link DRIVE_STUDENTS_ALL_CAP} rows. */
+      all?: boolean;
       studentScope?: DriveStudentScope;
     },
   ): Promise<DriveStudentsPage> {
@@ -771,6 +791,19 @@ export class DriveStudentsService {
     if (opts.status !== undefined) {
       qb.andWhere('ds.status = :status', { status: opts.status });
     }
+    if (opts.programmeIds?.length) {
+      qb.andWhere('s.programme_id IN (:...fProgIds)', {
+        fProgIds: opts.programmeIds,
+      });
+    }
+    if (opts.passoutYears?.length) {
+      qb.andWhere('s.pass_out_year IN (:...fYears)', {
+        fYears: opts.passoutYears,
+      });
+    }
+    if (opts.entryType !== undefined) {
+      qb.andWhere('s.entry_type = :fEntryType', { fEntryType: opts.entryType });
+    }
 
     const total = await qb.getCount();
 
@@ -779,6 +812,9 @@ export class DriveStudentsService {
       .addSelect('s.student_id', 'roll_no')
       .addSelect('s.display_name', 'display_name')
       .addSelect('p.display_name', 'programme')
+      .addSelect('s.programme_id', 'programme_id')
+      .addSelect('s.pass_out_year', 'pass_out_year')
+      .addSelect('s.entry_type', 'entry_type')
       .addSelect('ds.imported_at', 'imported_at')
       .addSelect('e.emp_display_name', 'imported_by')
       .addSelect('ds.status', 'status')
@@ -794,13 +830,16 @@ export class DriveStudentsService {
       .addSelect('ds.stipend_min', 'stipend_min')
       .orderBy('ds.imported_at', 'DESC')
       .addOrderBy('ds.student_id', 'DESC')
-      .offset((page - 1) * pageSize)
-      .limit(pageSize)
+      .offset(opts.all ? 0 : (page - 1) * pageSize)
+      .limit(opts.all ? DRIVE_STUDENTS_ALL_CAP : pageSize)
       .getRawMany<{
         id: number;
         roll_no: string;
         display_name: string;
         programme: string | null;
+        programme_id: number | null;
+        pass_out_year: number | null;
+        entry_type: number;
         imported_at: Date;
         imported_by: string | null;
         status: number;
@@ -822,6 +861,10 @@ export class DriveStudentsService {
         roll_no: r.roll_no,
         display_name: r.display_name,
         programme: r.programme,
+        programme_id: r.programme_id == null ? null : Number(r.programme_id),
+        pass_out_year:
+          r.pass_out_year == null ? null : Number(r.pass_out_year),
+        entry_type: Number(r.entry_type),
         imported_at: r.imported_at,
         imported_by: r.imported_by,
         status: Number(r.status),
@@ -840,9 +883,62 @@ export class DriveStudentsService {
         stipend_min: r.stipend_min,
       })),
       total,
-      page,
-      pageSize,
-      pageCount: Math.max(1, Math.ceil(total / pageSize)),
+      page: opts.all ? 1 : page,
+      pageSize: opts.all ? DRIVE_STUDENTS_ALL_CAP : pageSize,
+      pageCount: opts.all ? 1 : Math.max(1, Math.ceil(total / pageSize)),
+    };
+  }
+
+  /**
+   * The distinct programme / passout-year / entry-type values present among
+   * the drive's students — the source for the Students tab filter dropdowns.
+   * `studentScope`, when given, narrows the option pool exactly like
+   * {@link list}, so out-of-scope values are never offered.
+   */
+  async filterOptions(
+    driveId: number,
+    studentScope?: DriveStudentScope,
+  ): Promise<DriveStudentFilterOptions> {
+    await this.assertDrive(driveId);
+
+    const base = () => {
+      const qb = this.repo
+        .createQueryBuilder('ds')
+        .innerJoin('students', 's', 's.id = ds.student_id')
+        .where('ds.drive_id = :driveId', { driveId });
+      if (studentScope) this.applyStudentScope(qb, studentScope);
+      return qb;
+    };
+
+    const [progRaw, yearRaw, entryRaw] = await Promise.all([
+      base()
+        .leftJoin('programmes', 'p', 'p.id = s.programme_id')
+        .andWhere('s.programme_id IS NOT NULL')
+        .select('s.programme_id', 'id')
+        .addSelect('p.display_name', 'name')
+        .distinct(true)
+        .orderBy('p.display_name', 'ASC')
+        .getRawMany<{ id: number; name: string | null }>(),
+      base()
+        .andWhere('s.pass_out_year IS NOT NULL')
+        .select('s.pass_out_year', 'year')
+        .distinct(true)
+        .orderBy('s.pass_out_year', 'DESC')
+        .getRawMany<{ year: number }>(),
+      base()
+        .select('s.entry_type', 'entry_type')
+        .distinct(true)
+        .orderBy('s.entry_type', 'ASC')
+        .getRawMany<{ entry_type: number }>(),
+    ]);
+
+    return {
+      programmes: progRaw.map((r) => ({
+        id: Number(r.id),
+        name: r.name ?? `Programme #${r.id}`,
+      })),
+      passout_years: yearRaw.map((r) => Number(r.year)),
+      entry_types: entryRaw.map((r) => Number(r.entry_type)),
     };
   }
 
