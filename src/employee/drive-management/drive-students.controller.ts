@@ -6,6 +6,7 @@ import {
   HttpCode,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -23,6 +24,7 @@ import { ImportDriveStudentsDto } from './dto/import-drive-students.dto';
 import { InviteDriveStudentsDto } from './dto/invite-drive-students.dto';
 import { MarkDriveStudentOutcomeDto } from './dto/mark-drive-student-outcome.dto';
 import { RevokeDriveStudentsDto } from './dto/revoke-drive-students.dto';
+import { UpdateDriveStudentSelectionDto } from './dto/update-drive-student-selection.dto';
 
 const KEY = 'drive_management.drives.manage';
 
@@ -62,9 +64,10 @@ export class DriveStudentsController {
       page: Number(page) || 1,
       pageSize: Number(pageSize) || 25,
       search,
-      status: Number.isInteger(parsedStatus) && status !== undefined && status !== ''
-        ? parsedStatus
-        : undefined,
+      status:
+        Number.isInteger(parsedStatus) && status !== undefined && status !== ''
+          ? parsedStatus
+          : undefined,
     });
   }
 
@@ -154,14 +157,52 @@ export class DriveStudentsController {
   @ApiOperation({
     summary:
       'Record the drive-day outcome (50 Not Attended / 60 Selected / 70 Not ' +
-      'Selected) for Accepted students. Non-Accepted rows are `skipped`.',
+      'Selected) for Accepted students. Non-Accepted rows are `skipped`. ' +
+      'Selected additionally records the designation + package, one set ' +
+      'applied to the whole batch.',
   })
   markOutcome(
     @GetEmployee() e: AuthenticatedEmployee,
     @Param('driveId', ParseIntPipe) driveId: number,
     @Body() dto: MarkDriveStudentOutcomeDto,
   ) {
-    return this.svc.markOutcome(driveId, e.id, dto.student_ids, dto.status);
+    return this.svc.markOutcome(
+      driveId,
+      e.id,
+      dto.student_ids,
+      dto.status,
+      dto.status === 60
+        ? {
+            drive_profile_id: dto.drive_profile_id!,
+            ctc: dto.ctc ?? null,
+            ctc_min: dto.ctc_min ?? null,
+            stipend: dto.stipend ?? null,
+            stipend_min: dto.stipend_min ?? null,
+          }
+        : undefined,
+    );
+  }
+
+  @Patch(':studentId/selection')
+  @RequireScreen(KEY, 'edit')
+  @ApiOperation({
+    summary:
+      'Edit the designation/package recorded on a Selected (60) student. ' +
+      'Full replacement, re-validated against the offer type; audit-logged.',
+  })
+  updateSelection(
+    @GetEmployee() e: AuthenticatedEmployee,
+    @Param('driveId', ParseIntPipe) driveId: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+    @Body() dto: UpdateDriveStudentSelectionDto,
+  ) {
+    return this.svc.updateSelection(driveId, e.id, studentId, {
+      drive_profile_id: dto.drive_profile_id,
+      ctc: dto.ctc ?? null,
+      ctc_min: dto.ctc_min ?? null,
+      stipend: dto.stipend ?? null,
+      stipend_min: dto.stipend_min ?? null,
+    });
   }
 
   @Post('revoke')

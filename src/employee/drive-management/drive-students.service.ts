@@ -16,9 +16,12 @@ import {
   REVOCABLE_STATUSES,
 } from './drive-student-status';
 import { Drive } from './entities/drive.entity';
+import { DriveOfferType } from './entities/drive-lookups.entity';
+import { DriveProfile } from './entities/drive-profile.entity';
 import { DriveStudent } from './entities/drive-student.entity';
 import { DriveStudentEvent } from './entities/drive-student-event.entity';
 import { MAX_IMPORT_STUDENT_IDS } from './dto/import-drive-students.dto';
+import { SelectionPackageInput } from './dto/selection-package.schema';
 
 /** The ceiling on "import all matched" — a drive shortlist is realistically
  *  hundreds; over this the user is asked to narrow the filter instead. */
@@ -95,6 +98,14 @@ export interface DriveStudentRow {
   responded_at: Date | null;
   rejection_reason: string | null;
   outcome_marked_at: Date | null;
+  // Selection details — set only on Selected (60) rows marked after the
+  // designation/amount capture shipped; NULL on legacy selections.
+  selected_drive_profile_id: number | null;
+  selected_designation: string | null;
+  ctc: string | null;
+  ctc_min: string | null;
+  stipend: string | null;
+  stipend_min: string | null;
 }
 
 export interface DriveStudentsPage {
@@ -123,6 +134,10 @@ export class DriveStudentsService {
     private readonly eventsRepo: Repository<DriveStudentEvent>,
     @InjectRepository(Drive)
     private readonly driveRepo: Repository<Drive>,
+    @InjectRepository(DriveProfile)
+    private readonly profilesRepo: Repository<DriveProfile>,
+    @InjectRepository(DriveOfferType)
+    private readonly offerTypesRepo: Repository<DriveOfferType>,
     private readonly engine: StudentQueryService,
     private readonly notifications: StudentNotificationService,
     private readonly approvalsSync: StudentApprovalsSyncService,
@@ -169,7 +184,7 @@ export class DriveStudentsService {
     employeeId: number,
     studentIds: number[],
   ): Promise<DriveImportSummary> {
-    await this.assertDrive(driveId);
+    this.assertNotArchived(await this.assertDrive(driveId));
 
     // Distinct, in case the caller sent the same id twice.
     const wanted = [...new Set(studentIds)];
@@ -224,7 +239,7 @@ export class DriveStudentsService {
     employeeId: number,
     dto: StudentSearchDto,
   ): Promise<DriveImportSummary> {
-    await this.assertDrive(driveId);
+    this.assertNotArchived(await this.assertDrive(driveId));
 
     // Synchronous probe: re-validates the filters and bounds the set up front,
     // mirroring the export path.
@@ -305,6 +320,11 @@ export class DriveStudentsService {
         revoked_by_employee_id: null,
         outcome_marked_at: null,
         outcome_marked_by_employee_id: null,
+        selected_drive_profile_id: null,
+        ctc: null,
+        ctc_min: null,
+        stipend: null,
+        stipend_min: null,
       })
       .where('id IN (:...ids)', { ids: targets.map((t) => t.id) })
       .andWhere('status IN (:...from)', { from: invitable })
@@ -383,6 +403,7 @@ export class DriveStudentsService {
     studentIds: number[],
   ): Promise<DriveRemindSummary> {
     const drive = await this.assertDrive(driveId);
+    this.assertNotArchived(drive);
     const wanted = [...new Set(studentIds)];
     const targets = await this.repo.find({
       where: {
@@ -427,17 +448,106 @@ export class DriveStudentsService {
   }
 
   /**
+   * Validate a selection package against the drive: the profile must belong to
+   * it, and the effective offer type's flags decide which amounts are required
+   * and which are forbidden — the same bidirectional rule the drive form
+   * enforces (`DrivesService.assertPackageMatchesOfferType`). Returns a human
+   * summary for the audit trail's `reason`.
+   */
+  private async assertSelection(
+    drive: Drive,
+    sel: SelectionPackageInput,
+  ): Promise<{ summary: string }> {
+    const profile = await this.profilesRepo.findOne({
+      where: { id: sel.drive_profile_id, drive_id: drive.id },
+      relations: { designation: true },
+    });
+    if (!profile) {
+      throw new BadRequestException(
+        'That designation does not belong to this drive.',
+      );
+    }
+
+    const offerTypeId =
+      drive.offer_type_scope === 'designation'
+        ? profile.offer_type_id
+        : drive.offer_type_id;
+    if (offerTypeId == null) {
+      // Publishing validates the offer type is set wherever it's in scope, so
+      // this only guards drives that predate that rule.
+      throw new BadRequestException(
+        'This drive has no offer type, so a package cannot be recorded.',
+      );
+    }
+    const offer = await this.offerTypesRepo.findOne({
+      where: { id: offerTypeId },
+    });
+    if (!offer) throw new BadRequestException('Unknown offer type.');
+
+    if (sel.stipend != null && !offer.is_internship) {
+      throw new BadRequestException(
+        `"${offer.name}" isn't an internship, so the selection can't carry a stipend.`,
+      );
+    }
+    if (sel.ctc != null && !offer.is_full_time) {
+      throw new BadRequestException(
+        `"${offer.name}" isn't a full-time role, so the selection can't carry a CTC.`,
+      );
+    }
+    if (offer.is_internship && sel.stipend == null) {
+      throw new BadRequestException(
+        `"${offer.name}" is an internship, so the selection needs a stipend.`,
+      );
+    }
+    if (offer.is_full_time && sel.ctc == null) {
+      throw new BadRequestException(
+        `"${offer.name}" is a full-time role, so the selection needs a CTC.`,
+      );
+    }
+
+    const fmt = (v: number) => Number(v).toLocaleString('en-IN');
+    const band = (main: number, min: number | null | undefined) =>
+      min != null ? `${fmt(min)} – ${fmt(main)}` : fmt(main);
+    const parts = [`Selected for ${profile.designation.name}`];
+    if (sel.ctc != null) parts.push(`CTC ${band(sel.ctc, sel.ctc_min)} LPA`);
+    if (sel.stipend != null) {
+      parts.push(`Stipend ₹${band(sel.stipend, sel.stipend_min)}/month`);
+    }
+    return { summary: parts.join(' · ') };
+  }
+
+  /** The five selection columns as UPDATE values — nulls unless Selected. */
+  private selectionColumns(sel: SelectionPackageInput | undefined) {
+    return {
+      selected_drive_profile_id: sel ? sel.drive_profile_id : null,
+      ctc: sel?.ctc != null ? String(sel.ctc) : null,
+      ctc_min: sel?.ctc_min != null ? String(sel.ctc_min) : null,
+      stipend: sel?.stipend != null ? String(sel.stipend) : null,
+      stipend_min: sel?.stipend_min != null ? String(sel.stipend_min) : null,
+    };
+  }
+
+  /**
    * Record the drive-day outcome for ACCEPTED students: 30 → 50/60/70. Only
    * Selected notifies — a rejection shouldn't be broken via a push title; the
-   * others surface in-app.
+   * others surface in-app. A Selected outcome also records the selection
+   * details (designation + package), one set applied to the whole batch.
    */
   async markOutcome(
     driveId: number,
     employeeId: number,
     studentIds: number[],
     status: DriveStudentOutcome,
+    selection?: SelectionPackageInput,
   ): Promise<DriveOutcomeSummary> {
     const drive = await this.assertDrive(driveId);
+    this.assertNotArchived(drive);
+
+    // The DTO guarantees selection is present iff status is 60.
+    const summary =
+      status === DRIVE_STUDENT_STATUS.SELECTED && selection
+        ? (await this.assertSelection(drive, selection)).summary
+        : null;
 
     const wanted = [...new Set(studentIds)];
     const result = await this.repo
@@ -447,6 +557,9 @@ export class DriveStudentsService {
         status,
         outcome_marked_at: () => 'now()',
         outcome_marked_by_employee_id: employeeId,
+        ...this.selectionColumns(
+          status === DRIVE_STUDENT_STATUS.SELECTED ? selection : undefined,
+        ),
       })
       .where('drive_id = :driveId', { driveId })
       .andWhere('student_id IN (:...ids)', { ids: wanted })
@@ -464,7 +577,7 @@ export class DriveStudentsService {
       })),
       'outcome',
       'employee',
-      { actorEmployeeId: employeeId },
+      { actorEmployeeId: employeeId, reason: summary },
     );
     if (updatedIds.length > 0 && status === DRIVE_STUDENT_STATUS.SELECTED) {
       void this.notifications
@@ -485,6 +598,52 @@ export class DriveStudentsService {
     };
   }
 
+  /**
+   * Edit the selection details on a Selected (60) row — full replacement of
+   * designation + package, re-validated against the drive's offer-type rules.
+   * The status guard doubles as the "only Selected rows" check.
+   */
+  async updateSelection(
+    driveId: number,
+    employeeId: number,
+    studentId: number,
+    sel: SelectionPackageInput,
+  ): Promise<{ updated: number }> {
+    const drive = await this.assertDrive(driveId);
+    this.assertNotArchived(drive);
+    const { summary } = await this.assertSelection(drive, sel);
+
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(DriveStudent)
+      .set(this.selectionColumns(sel))
+      .where('drive_id = :driveId', { driveId })
+      .andWhere('student_id = :studentId', { studentId })
+      .andWhere('status = :status', { status: DRIVE_STUDENT_STATUS.SELECTED })
+      .returning(['id'])
+      .execute();
+
+    const rows = result.raw as { id: number }[];
+    if (rows.length === 0) {
+      throw new BadRequestException(
+        'Selection details can only be edited on a Selected student.',
+      );
+    }
+    await this.logEvents(
+      [
+        {
+          drive_student_id: rows[0].id,
+          from_status: DRIVE_STUDENT_STATUS.SELECTED,
+          to_status: DRIVE_STUDENT_STATUS.SELECTED,
+        },
+      ],
+      'selection_updated',
+      'employee',
+      { actorEmployeeId: employeeId, reason: summary },
+    );
+    return { updated: rows.length };
+  }
+
   /** The drive's shortlist for the Students tab. */
   async list(
     driveId: number,
@@ -499,6 +658,12 @@ export class DriveStudentsService {
       .innerJoin('students', 's', 's.id = ds.student_id')
       .leftJoin('programmes', 'p', 'p.id = s.programme_id')
       .leftJoin('employees', 'e', 'e.id = ds.imported_by_employee_id')
+      .leftJoin(
+        'drive_profiles',
+        'sdp',
+        'sdp.id = ds.selected_drive_profile_id',
+      )
+      .leftJoin('drive_designations', 'sdd', 'sdd.id = sdp.designation_id')
       .where('ds.drive_id = :driveId', { driveId });
 
     const search = opts.search?.trim();
@@ -525,6 +690,12 @@ export class DriveStudentsService {
       .addSelect('ds.responded_at', 'responded_at')
       .addSelect('ds.rejection_reason', 'rejection_reason')
       .addSelect('ds.outcome_marked_at', 'outcome_marked_at')
+      .addSelect('ds.selected_drive_profile_id', 'selected_drive_profile_id')
+      .addSelect('sdd.name', 'selected_designation')
+      .addSelect('ds.ctc', 'ctc')
+      .addSelect('ds.ctc_min', 'ctc_min')
+      .addSelect('ds.stipend', 'stipend')
+      .addSelect('ds.stipend_min', 'stipend_min')
       .orderBy('ds.imported_at', 'DESC')
       .addOrderBy('ds.student_id', 'DESC')
       .offset((page - 1) * pageSize)
@@ -541,6 +712,12 @@ export class DriveStudentsService {
         responded_at: Date | null;
         rejection_reason: string | null;
         outcome_marked_at: Date | null;
+        selected_drive_profile_id: number | null;
+        selected_designation: string | null;
+        ctc: string | null;
+        ctc_min: string | null;
+        stipend: string | null;
+        stipend_min: string | null;
       }>();
 
     return {
@@ -556,6 +733,15 @@ export class DriveStudentsService {
         responded_at: r.responded_at,
         rejection_reason: r.rejection_reason,
         outcome_marked_at: r.outcome_marked_at,
+        selected_drive_profile_id:
+          r.selected_drive_profile_id == null
+            ? null
+            : Number(r.selected_drive_profile_id),
+        selected_designation: r.selected_designation,
+        ctc: r.ctc,
+        ctc_min: r.ctc_min,
+        stipend: r.stipend,
+        stipend_min: r.stipend_min,
       })),
       total,
       page,
@@ -577,6 +763,7 @@ export class DriveStudentsService {
     notify: boolean,
   ): Promise<DriveRevokeSummary> {
     const drive = await this.assertDrive(driveId);
+    this.assertNotArchived(drive);
     const wanted = [...new Set(studentIds)];
 
     const targets = await this.repo.find({
@@ -652,7 +839,10 @@ export class DriveStudentsService {
    * rows that predate the audit feature (no events) it synthesises the track
    * from the denormalised timestamp columns so the timeline is never empty.
    */
-  async getTrack(driveId: number, studentId: number): Promise<DriveStudentTrack> {
+  async getTrack(
+    driveId: number,
+    studentId: number,
+  ): Promise<DriveStudentTrack> {
     await this.assertDrive(driveId);
     const row = await this.repo
       .createQueryBuilder('ds')
@@ -671,7 +861,10 @@ export class DriveStudentsService {
       .addSelect('ds.responded_at', 'responded_at')
       .addSelect('ds.rejection_reason', 'rejection_reason')
       .addSelect('ds.outcome_marked_at', 'outcome_marked_at')
-      .addSelect('ds.outcome_marked_by_employee_id', 'outcome_marked_by_employee_id')
+      .addSelect(
+        'ds.outcome_marked_by_employee_id',
+        'outcome_marked_by_employee_id',
+      )
       .addSelect('ds.revoked_at', 'revoked_at')
       .addSelect('ds.revoked_by_employee_id', 'revoked_by_employee_id')
       .getRawOne<{
@@ -788,7 +981,8 @@ export class DriveStudentsService {
         .getRawMany<{ id: number; name: string }>();
       for (const e of emps) names.set(Number(e.id), e.name);
     }
-    const empName = (id: number | null) => (id != null ? names.get(id) ?? null : null);
+    const empName = (id: number | null) =>
+      id != null ? (names.get(id) ?? null) : null;
 
     const out: DriveStudentTrackEvent[] = [];
     let seq = -1;
@@ -814,21 +1008,65 @@ export class DriveStudentsService {
       });
     };
 
-    push(row.imported_at, 'imported', null, 10, 'employee', empName(row.imported_by_employee_id));
-    push(row.invited_at, 'invited', 10, 20, 'employee', empName(row.invited_by_employee_id));
+    push(
+      row.imported_at,
+      'imported',
+      null,
+      10,
+      'employee',
+      empName(row.imported_by_employee_id),
+    );
+    push(
+      row.invited_at,
+      'invited',
+      10,
+      20,
+      'employee',
+      empName(row.invited_by_employee_id),
+    );
     if (row.responded_at) {
       const denied = row.status === DRIVE_STUDENT_STATUS.DENIED;
       // responded_at is shared by accept/deny; if the row later moved on
       // (outcome/revoke) it was accepted first.
       const accepted = !denied;
       if (accepted) {
-        push(row.responded_at, 'accepted', 20, 30, 'student', student.display_name);
+        push(
+          row.responded_at,
+          'accepted',
+          20,
+          30,
+          'student',
+          student.display_name,
+        );
       } else {
-        push(row.responded_at, 'denied', 20, 40, 'student', student.display_name, row.rejection_reason);
+        push(
+          row.responded_at,
+          'denied',
+          20,
+          40,
+          'student',
+          student.display_name,
+          row.rejection_reason,
+        );
       }
     }
-    push(row.outcome_marked_at, 'outcome', 30, row.status, 'employee', empName(row.outcome_marked_by_employee_id));
-    push(row.revoked_at, 'revoked', null, 80, 'employee', empName(row.revoked_by_employee_id), row.rejection_reason);
+    push(
+      row.outcome_marked_at,
+      'outcome',
+      30,
+      row.status,
+      'employee',
+      empName(row.outcome_marked_by_employee_id),
+    );
+    push(
+      row.revoked_at,
+      'revoked',
+      null,
+      80,
+      'employee',
+      empName(row.revoked_by_employee_id),
+      row.rejection_reason,
+    );
 
     return out;
   }
@@ -851,5 +1089,17 @@ export class DriveStudentsService {
     const drive = await this.driveRepo.findOne({ where: { id: driveId } });
     if (!drive) throw new NotFoundException('Drive not found.');
     return drive;
+  }
+
+  /**
+   * An archived drive is closed: no imports, invites, reminders, outcomes,
+   * selection edits or revokes. Terminal student states are left frozen.
+   */
+  private assertNotArchived(drive: Drive): void {
+    if (drive.status === 'archived') {
+      throw new BadRequestException(
+        'This drive is archived; no further student actions are allowed.',
+      );
+    }
   }
 }

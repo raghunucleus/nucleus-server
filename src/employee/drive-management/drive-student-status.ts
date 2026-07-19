@@ -70,6 +70,7 @@ export const DRIVE_STUDENT_ACTIONS = [
   'denied',
   'outcome',
   'revoked',
+  'selection_updated',
 ] as const;
 
 export type DriveStudentAction = (typeof DRIVE_STUDENT_ACTIONS)[number];

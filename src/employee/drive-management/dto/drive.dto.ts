@@ -102,7 +102,8 @@ export const CreateDriveSchema = z.object({
   company_id: z.coerce.number().int().positive(),
   drive_name: z.string().trim().min(1).max(255),
   profile_type: z.enum(DRIVE_PROFILE_TYPES),
-  // Lifecycle state — free set; defaults to 'draft' in the service on create.
+  // Lifecycle state — defaults to 'draft' on create. Transitions past 'draft'
+  // are guarded in the service (see DRIVE_STATUS_TRANSITIONS).
   status: z.enum(DRIVE_STATUSES).optional(),
 
   offer_type_scope: z.enum(DRIVE_FIELD_SCOPES),
@@ -131,7 +132,7 @@ export class CreateDriveDto extends createZodDto(CreateDriveSchema) {}
 export const UpdateDriveSchema = CreateDriveSchema.partial();
 export class UpdateDriveDto extends createZodDto(UpdateDriveSchema) {}
 
-/** Set a drive's lifecycle status (free transition). */
+/** Move a drive's lifecycle status (transition guarded in DrivesService). */
 export const DriveStatusSchema = z.object({ status: z.enum(DRIVE_STATUSES) });
 export class DriveStatusDto extends createZodDto(DriveStatusSchema) {}
 

@@ -46,9 +46,11 @@ export const DRIVE_AMOUNT_MODES = ['fixed', 'range'] as const;
 export type DriveAmountMode = (typeof DRIVE_AMOUNT_MODES)[number];
 
 /**
- * The drive's lifecycle state. A free set (any value at any time, membership
- * enforced at the DTO layer) rather than a guarded transition machine — the
- * placement team moves a drive through these as they see fit.
+ * The drive's lifecycle state. Membership is enforced at the DTO layer, but the
+ * transitions between these are a guarded machine in `DrivesService`
+ * (`DRIVE_STATUS_TRANSITIONS`): draft → ready_to_publish → published → archived,
+ * with ready_to_publish reversible to draft. Reaching ready_to_publish requires
+ * complete eligibility; archiving requires every student in a final state.
  */
 export const DRIVE_STATUSES = [
   'draft',
@@ -99,7 +101,7 @@ export class Drive {
   @Column({ type: 'varchar', length: 16, default: 'single' })
   profile_type: DriveProfileType;
 
-  // Lifecycle state — see DRIVE_STATUSES. Free-set from the drive detail screen.
+  // Lifecycle state — see DRIVE_STATUSES; transitions guarded in DrivesService.
   @Column({ type: 'varchar', length: 16, default: 'draft' })
   status: DriveStatus;
 

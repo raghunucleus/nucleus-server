@@ -24,6 +24,12 @@ import {
   DriveStatus,
 } from './entities/drive.entity';
 import { DriveStatusEvent } from './entities/drive-status-event.entity';
+import { DriveStudent } from './entities/drive-student.entity';
+import {
+  DRIVE_STUDENT_STATUS,
+  DRIVE_STUDENT_STATUS_LABELS,
+  DriveStudentStatus,
+} from './drive-student-status';
 import { DriveEligibility } from './entities/drive-eligibility.entity';
 import { DriveProfile } from './entities/drive-profile.entity';
 import { DriveProfileAttachment } from './entities/drive-profile-attachment.entity';
@@ -58,6 +64,33 @@ const GENDER_LABELS: Record<string, string> = {
   male: 'Male',
   female: 'Female',
   other: 'Other',
+};
+
+/** Human labels for the drive lifecycle statuses (used in error messages). */
+const DRIVE_STATUS_LABELS: Record<DriveStatus, string> = {
+  draft: 'Draft',
+  ready_to_publish: 'Ready to publish',
+  published: 'Published',
+  archived: 'Archived',
+};
+
+/**
+ * The lifecycle transition machine. A drive moves forward `draft →
+ * ready_to_publish → published → archived`; `ready_to_publish` is reversible
+ * back to `draft` (to reopen and fix eligibility). Publishing is reachable ONLY
+ * from `ready_to_publish` and archiving ONLY from `published` — both guarded
+ * here rather than by the free-set enum. `archived` is terminal.
+ *
+ * The move to `ready_to_publish` additionally requires a complete eligibility
+ * (passout years + programmes), and the move to `archived` requires every
+ * student to be in a final state — see `assertEligibilityComplete` /
+ * `assertArchivable`.
+ */
+const DRIVE_STATUS_TRANSITIONS: Record<DriveStatus, DriveStatus[]> = {
+  draft: ['ready_to_publish'],
+  ready_to_publish: ['draft', 'published'],
+  published: ['archived'],
+  archived: [],
 };
 
 /**
@@ -128,6 +161,8 @@ export class DrivesService {
     private readonly eligibility: Repository<DriveEligibility>,
     @InjectRepository(DriveStatusEvent)
     private readonly statusEvents: Repository<DriveStatusEvent>,
+    @InjectRepository(DriveStudent)
+    private readonly driveStudents: Repository<DriveStudent>,
     @InjectRepository(Programme)
     private readonly programmes: Repository<Programme>,
     @InjectRepository(AdmissionYear)
@@ -846,7 +881,11 @@ export class DrivesService {
 
   // ---- Status -------------------------------------------------------------
 
-  /** Set a drive's lifecycle status. Free transition — any value, any time. */
+  /**
+   * Set a drive's lifecycle status, enforcing the transition machine and its
+   * preconditions (complete eligibility to reach `ready_to_publish`, all
+   * students in a final state to reach `archived`). See `DRIVE_STATUS_TRANSITIONS`.
+   */
   async updateStatus(
     id: number,
     status: DriveStatus,
@@ -857,11 +896,81 @@ export class DrivesService {
       select: { id: true, status: true },
     });
     if (!drive) throw new NotFoundException('Drive not found.');
-    if (drive.status !== status) {
-      await this.drives.update(id, { status });
-      await this.logStatusChange(id, drive.status, status, actorId);
-    }
+    if (drive.status === status) return { id };
+
+    await this.assertStatusTransition(id, drive.status, status);
+
+    await this.drives.update(id, { status });
+    await this.logStatusChange(id, drive.status, status, actorId);
     return { id };
+  }
+
+  /**
+   * Validate a status transition and its preconditions. Shared by `updateStatus`
+   * and the full-edit path so the machine can't be bypassed via `PATCH :id`.
+   * Callers must already have skipped the no-op (`from === to`) case.
+   */
+  private async assertStatusTransition(
+    driveId: number,
+    from: DriveStatus,
+    to: DriveStatus,
+  ): Promise<void> {
+    if (!DRIVE_STATUS_TRANSITIONS[from].includes(to)) {
+      throw new BadRequestException(
+        `A drive cannot move from "${DRIVE_STATUS_LABELS[from]}" to ` +
+          `"${DRIVE_STATUS_LABELS[to]}".`,
+      );
+    }
+    if (to === 'ready_to_publish') await this.assertEligibilityComplete(driveId);
+    if (to === 'archived') await this.assertArchivable(driveId);
+  }
+
+  /**
+   * Guard for `→ ready_to_publish`: the drive must have at least one passout
+   * year and one programme in its eligibility. Other axes stay optional.
+   */
+  private async assertEligibilityComplete(driveId: number): Promise<void> {
+    const e = await this.getEligibility(driveId);
+    if (e.passout_years.length === 0 || e.programme_ids.length === 0) {
+      throw new BadRequestException(
+        'Set at least one passout year and one programme in Eligibility ' +
+          'before marking the drive Ready to publish.',
+      );
+    }
+  }
+
+  /**
+   * Guard for `→ archived`: every student must be in a final state. Rows still
+   * Imported (10) / Invited (20) / Accepted (30) block the archive; the message
+   * reports the per-status counts so the placement cell knows what to resolve.
+   */
+  private async assertArchivable(driveId: number): Promise<void> {
+    const active = [
+      DRIVE_STUDENT_STATUS.IMPORTED,
+      DRIVE_STUDENT_STATUS.INVITED,
+      DRIVE_STUDENT_STATUS.ACCEPTED,
+    ];
+    const rows = await this.driveStudents
+      .createQueryBuilder('ds')
+      .select('ds.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('ds.drive_id = :driveId', { driveId })
+      .andWhere('ds.status IN (:...active)', { active })
+      .groupBy('ds.status')
+      .getRawMany<{ status: number; count: string }>();
+    if (rows.length === 0) return;
+
+    const parts = rows
+      .map((r) => ({ status: Number(r.status), count: Number(r.count) }))
+      .sort((a, b) => a.status - b.status)
+      .map(
+        (r) =>
+          `${r.count} ${DRIVE_STUDENT_STATUS_LABELS[r.status as DriveStudentStatus]}`,
+      );
+    throw new BadRequestException(
+      `Cannot archive: ${parts.join(', ')} student(s) are not in a final ` +
+        'state. Record their outcomes or revoke them first.',
+    );
   }
 
   /**
@@ -1188,7 +1297,13 @@ export class DrivesService {
       drive.company_id = merged.company_id;
       drive.drive_name = merged.drive_name;
       drive.profile_type = merged.profile_type;
-      if (merged.status) drive.status = merged.status;
+      // Status through the full-edit path is subject to the same transition
+      // machine as PATCH :id/status (the edit form doesn't send `status` today,
+      // so this is defensive — but the rules must hold either way).
+      if (merged.status && merged.status !== existing.status) {
+        await this.assertStatusTransition(id, existing.status, merged.status);
+        drive.status = merged.status;
+      }
       drive.offer_type_scope = merged.offer_type_scope;
       drive.job_location_scope = merged.job_location_scope;
       drive.placement_category_scope = merged.placement_category_scope;

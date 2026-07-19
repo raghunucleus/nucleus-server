@@ -108,9 +108,12 @@ const CMP_OPERATORS = [
  * Every drive has >= 1 `drive_profiles` row and the drive's `*_scope` switches
  * make drive-level vs designation-level values mutually exclusive, so
  * `COALESCE(<profile col>, <drive col>)` is the effective value in both
- * scopes. A selection does NOT record which designation the student was picked
- * for, so a multi-designation drive matches when ANY of its designations
- * matches (user-confirmed semantics).
+ * scopes. The company/category/offer-type probes join ALL of the drive's
+ * profiles — they predate designation capture, so a multi-designation drive
+ * matches when ANY of its designations matches (user-confirmed semantics,
+ * kept so legacy Selected rows keep matching). The amount probes (placed_ctc,
+ * internship_stipend) instead read the package recorded ON the selection
+ * (`drive_students.ctc` / `.stipend`).
  *
  * `p` prefixes every alias so each attribute's probe is self-contained:
  * `<p>_ds` drive_students, `<p>_d` drives, `<p>_dp` drive_profiles,
@@ -192,8 +195,15 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
   }),
 
   // --- admission & batch --------------------------------------------------
-  fk('programme', 'Programme', 'admission', 'programmes', 'programme',
-    'programme.name', { column: 'programme_id' }),
+  fk(
+    'programme',
+    'Programme',
+    'admission',
+    'programmes',
+    'programme',
+    'programme.name',
+    { column: 'programme_id' },
+  ),
   {
     // One FK hop behind programme — join-free filter via IN-subquery.
     key: 'department',
@@ -233,10 +243,17 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     select: { expr: 'degree.name', joins: ['degree'] },
     sort: { expr: 'degree.name', joins: ['degree'] },
   },
-  fk('admission_year', 'Admission year', 'admission', 'admission_years',
-    'admission_year', 'admission_year.display_year', {
+  fk(
+    'admission_year',
+    'Admission year',
+    'admission',
+    'admission_years',
+    'admission_year',
+    'admission_year.display_year',
+    {
       column: 'admission_year_id',
-    }),
+    },
+  ),
   {
     // Section membership lives on student_groups (UNIQUE per student) —
     // filtered with an EXISTS probe so the main query stays join-free.
@@ -279,8 +296,12 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     group: 'academic',
     kind: 'boolean',
     operators: ['eq'],
-    filter: { expr: '(s.resume_key IS NOT NULL OR s.resume_external_url IS NOT NULL)' },
-    select: { expr: '(s.resume_key IS NOT NULL OR s.resume_external_url IS NOT NULL)' },
+    filter: {
+      expr: '(s.resume_key IS NOT NULL OR s.resume_external_url IS NOT NULL)',
+    },
+    select: {
+      expr: '(s.resume_key IS NOT NULL OR s.resume_external_url IS NOT NULL)',
+    },
   },
   col('resume_uploaded_at', 'Resume uploaded at', 'academic', 'date'),
 
@@ -304,10 +325,18 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
   },
 
   // --- placement ----------------------------------------------------------
-  col('allowed_by_dept_for_placements', 'Allowed by dept for placements',
-    'placement', 'boolean'),
-  col('interested_in_placements_self', 'Interested in placements',
-    'placement', 'boolean'),
+  col(
+    'allowed_by_dept_for_placements',
+    'Allowed by dept for placements',
+    'placement',
+    'boolean',
+  ),
+  col(
+    'interested_in_placements_self',
+    'Interested in placements',
+    'placement',
+    'boolean',
+  ),
   {
     key: 'placed_company',
     label: 'Placed company',
@@ -374,9 +403,10 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     sort: { expr: selectionCountExpr('f_pn', 'is_full_time') },
   },
   {
-    // No per-student offer amount exists — compares the selected drive's
-    // headline figure: COALESCE(max, min) is the range max or the fixed value
-    // (fixed stores its amount in *_min), designation band first when scoped.
+    // The CTC (LPA) recorded on the selection itself — the fixed value or the
+    // range MAX captured when the student was marked Selected. Non-NULL only
+    // for full-time offer types, so no offer-type gate is needed. Selections
+    // recorded before designation/amount capture are NULL and never match.
     key: 'placed_ctc',
     label: 'CTC',
     group: 'placement',
@@ -384,9 +414,7 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     operators: CMP_OPERATORS,
     filter: selectionExists({
       p: 'f_ctc',
-      profiles: true,
-      valueExpr:
-        'COALESCE(f_ctc_dp.ctc_max, f_ctc_dp.ctc_min, f_ctc_d.ctc_max, f_ctc_d.ctc_min)',
+      valueExpr: 'f_ctc_ds.ctc',
     }),
   },
 
@@ -446,7 +474,8 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     sort: { expr: selectionCountExpr('f_in', 'is_internship') },
   },
   {
-    // Headline stipend of an internship selection — see placed_ctc.
+    // The stipend (₹/month) recorded on the selection itself — see placed_ctc.
+    // Non-NULL only for internship offer types, so no is_internship gate.
     key: 'internship_stipend',
     label: 'Stipend',
     group: 'academic_internship',
@@ -454,9 +483,7 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     operators: CMP_OPERATORS,
     filter: selectionExists({
       p: 'f_stp',
-      internship: true,
-      valueExpr:
-        'COALESCE(f_stp_dp.stipend_max, f_stp_dp.stipend_min, f_stp_d.stipend_max, f_stp_d.stipend_min)',
+      valueExpr: 'f_stp_ds.stipend',
     }),
   },
 
@@ -471,44 +498,104 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
   // --- address ------------------------------------------------------------
   col('home_address', 'Home address', 'address', 'string'),
   col('home_pincode', 'Home pincode', 'address', 'string'),
-  fk('home_district', 'Home district', 'address', 'districts', 'home_district',
-    'home_district.name'),
-  fk('home_state', 'Home state', 'address', 'states', 'home_state',
-    'home_state.name'),
-  fk('home_country', 'Home country', 'address', 'countries', 'home_country',
-    'home_country.name'),
+  fk(
+    'home_district',
+    'Home district',
+    'address',
+    'districts',
+    'home_district',
+    'home_district.name',
+  ),
+  fk(
+    'home_state',
+    'Home state',
+    'address',
+    'states',
+    'home_state',
+    'home_state.name',
+  ),
+  fk(
+    'home_country',
+    'Home country',
+    'address',
+    'countries',
+    'home_country',
+    'home_country.name',
+  ),
 
   // --- entrance exam ------------------------------------------------------
   col('entrance_exam_na', 'Entrance exam N/A', 'entrance', 'boolean'),
-  fk('entrance_exam', 'Entrance exam', 'entrance', 'entrance_exams',
-    'entrance_exam', 'entrance_exam.name'),
+  fk(
+    'entrance_exam',
+    'Entrance exam',
+    'entrance',
+    'entrance_exams',
+    'entrance_exam',
+    'entrance_exam.name',
+  ),
   col('entrance_exam_rank', 'Entrance exam rank', 'entrance', 'number'),
   col('entrance_exam_year', 'Entrance exam year', 'entrance', 'number'),
 
   // --- 10th ---------------------------------------------------------------
-  fk('tenth_board', '10th board', 'tenth', 'school_boards_x', 'tenth_board',
-    'tenth_board.name'),
+  fk(
+    'tenth_board',
+    '10th board',
+    'tenth',
+    'school_boards_x',
+    'tenth_board',
+    'tenth_board.name',
+  ),
   col('tenth_institution', '10th institution', 'tenth', 'string'),
   col('tenth_year_of_pass', '10th year of pass', 'tenth', 'number'),
-  fk('tenth_state', '10th state', 'tenth', 'states', 'tenth_state',
-    'tenth_state.name'),
+  fk(
+    'tenth_state',
+    '10th state',
+    'tenth',
+    'states',
+    'tenth_state',
+    'tenth_state.name',
+  ),
 
   // --- 12th ---------------------------------------------------------------
-  fk('twelfth_board', '12th board', 'twelfth', 'school_boards_xii',
-    'twelfth_board', 'twelfth_board.name'),
+  fk(
+    'twelfth_board',
+    '12th board',
+    'twelfth',
+    'school_boards_xii',
+    'twelfth_board',
+    'twelfth_board.name',
+  ),
   col('twelfth_institution', '12th institution', 'twelfth', 'string'),
   col('twelfth_year_of_pass', '12th year of pass', 'twelfth', 'number'),
-  fk('twelfth_state', '12th state', 'twelfth', 'states', 'twelfth_state',
-    'twelfth_state.name'),
+  fk(
+    'twelfth_state',
+    '12th state',
+    'twelfth',
+    'states',
+    'twelfth_state',
+    'twelfth_state.name',
+  ),
 
   // --- diploma ------------------------------------------------------------
-  fk('diploma_board', 'Diploma board', 'diploma', 'diploma_boards',
-    'diploma_board', 'diploma_board.name'),
+  fk(
+    'diploma_board',
+    'Diploma board',
+    'diploma',
+    'diploma_boards',
+    'diploma_board',
+    'diploma_board.name',
+  ),
   col('diploma_institution', 'Diploma institution', 'diploma', 'string'),
   col('diploma_year_of_pass', 'Diploma year of pass', 'diploma', 'number'),
   col('diploma_specialization', 'Diploma specialization', 'diploma', 'string'),
-  fk('diploma_state', 'Diploma state', 'diploma', 'states', 'diploma_state',
-    'diploma_state.name'),
+  fk(
+    'diploma_state',
+    'Diploma state',
+    'diploma',
+    'states',
+    'diploma_state',
+    'diploma_state.name',
+  ),
 
   // --- government IDs (admin surface only) --------------------------------
   col('aadhaar_number', 'Aadhaar number', 'gov_ids', 'string', {
@@ -565,7 +652,11 @@ export function assertRegistryValid(): void {
         `student-query registry: '${def.key}' references unknown group '${def.group}'`,
       );
     }
-    if ((IMPLICIT_COLUMNS as readonly string[]).includes(def.key) && def.key !== 'student_id' && def.key !== 'display_name') {
+    if (
+      (IMPLICIT_COLUMNS as readonly string[]).includes(def.key) &&
+      def.key !== 'student_id' &&
+      def.key !== 'display_name'
+    ) {
       throw new Error(
         `student-query registry: '${def.key}' collides with an implicit column`,
       );
@@ -584,7 +675,12 @@ export function assertRegistryValid(): void {
     }
     if (def.searchable) {
       const f = def.filter;
-      if (!f || !isSqlFacet(f) || !f.expr.startsWith('s.') || def.kind !== 'string') {
+      if (
+        !f ||
+        !isSqlFacet(f) ||
+        !f.expr.startsWith('s.') ||
+        def.kind !== 'string'
+      ) {
         throw new Error(
           `student-query registry: searchable '${def.key}' must be a flat s.* string column`,
         );
@@ -603,7 +699,9 @@ export function assertRegistryValid(): void {
   }
   for (const key of [...DEFAULT_COLUMNS, DEFAULT_SORT.by]) {
     if (!ATTRIBUTE_BY_KEY.has(key)) {
-      throw new Error(`student-query registry: default refers to unknown '${key}'`);
+      throw new Error(
+        `student-query registry: default refers to unknown '${key}'`,
+      );
     }
   }
 }

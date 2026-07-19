@@ -175,7 +175,10 @@ export class DrivesController {
 
   @Patch(':id/status')
   @RequireScreen(KEY, 'edit')
-  @ApiOperation({ summary: "Set a drive's lifecycle status." })
+  @ApiOperation({
+    summary:
+      "Move a drive's lifecycle status (guarded transitions; see DrivesService).",
+  })
   updateStatus(
     @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
