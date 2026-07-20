@@ -414,6 +414,27 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     ],
   },
 
+  // Placement readiness for a coordinator's own cohort. Unlike the drives
+  // screen this is ASSIGNED but carries NO attributes: row scope comes from
+  // `programme_admission_year_profile_verifiers` — the batches the employee
+  // already verifies profiles for — exactly as the requests screens below do.
+  // The grant and the scope are separate concerns here: an admin assigns the
+  // screen, the verifier table decides which students it shows, and an
+  // assignee with no verifier rows simply sees an empty batch selector.
+  // Do not "fix" the empty attributes list by adding programme/year refs.
+  {
+    key: 'placement_coordinator.students.view',
+    module_key: 'placement_coordinator',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Students',
+    description:
+      'View placement readiness for students in the batches you verify, and set department placement approval.',
+    web_route: '/placement-coordinator/students',
+    actions: ['view', 'edit'],
+    attributes: [],
+  },
+
   // --- Requests ------------------------------------------------------------
   //
   // The generic approval-requests framework. BOTH screens are DERIVED, never

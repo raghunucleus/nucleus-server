@@ -46,6 +46,14 @@ export interface StudentQueryScope {
   programmeIds?: AccessibleIds;
   admissionYearIds?: AccessibleIds;
   attendanceGroupIds?: AccessibleIds;
+  /**
+   * Restrict to students the department has (or has not) allowed for
+   * placements. A surface-level bucket switch rather than an RBAC axis — it
+   * rides on scope so it stays orthogonal to `filters` / `nql`, which are
+   * mutually exclusive and leave nowhere safe to AND an extra condition.
+   * Omit for both buckets.
+   */
+  placementAllowed?: boolean;
 }
 
 export interface StudentQueryOptions {
@@ -407,6 +415,16 @@ export class StudentQueryService {
     if (scope?.attendanceGroupIds && scope.attendanceGroupIds !== ACCESS_ALL) {
       qb.andWhere(
         `EXISTS (SELECT 1 FROM student_groups sc_sg WHERE sc_sg.student_id = s.id AND sc_sg.attendance_group_id IN (:...${this.param(ctx, scope.attendanceGroupIds)}))`,
+      );
+    }
+    if (scope?.placementAllowed !== undefined) {
+      // IS NOT TRUE rather than = FALSE, so the two buckets partition the set
+      // exactly: a student whose flag was cleared to NULL is "not allowed"
+      // instead of falling out of both views.
+      qb.andWhere(
+        scope.placementAllowed
+          ? 's.allowed_by_dept_for_placements IS TRUE'
+          : 's.allowed_by_dept_for_placements IS NOT TRUE',
       );
     }
 

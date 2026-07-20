@@ -18,6 +18,7 @@ import { StudentIndustryCertification } from '../../admin/entities/student-indus
 import { displayedAdmissionYear } from '../../common/admission-year';
 import { ApprovalRequestsService } from '../../requests/approval-requests.service';
 import { StorageService } from '../../storage/storage.service';
+import { computeCompleteness } from './profile-completeness';
 import {
   FieldPolicy,
   LookupTable,
@@ -215,34 +216,12 @@ export class StudentFullProfileService {
       }))
       .filter((g) => g.fields.length > 0);
 
-    // Completeness over mandatory-for-this-entry-type fields. The entrance
-    // unit counts as filled when marked N/A; gap counts once a year (even 0)
-    // is recorded; reason only when a gap exists. backlog_history always has
-    // a value (boolean default) and auto fields count when computed.
-    const allFields = groups.flatMap((g) => g.fields);
-    const missing: string[] = [];
-    let required = 0;
-    for (const f of allFields) {
-      if (!f.mandatory) continue;
-      // The repeatable certifications pseudo-field is never mandatory; resume
-      // "value" is a boolean has-file flag.
-      required += 1;
-      let filled: boolean;
-      if (f.key === 'entrance_exam' || f.key === 'entrance_exam_rank') {
-        filled = s.entrance_exam_na || f.value !== null;
-      } else if (f.key === 'entrance_exam_year') {
-        filled = s.entrance_exam_na || f.value !== null;
-      } else if (f.key === 'reason_of_gap') {
-        filled = (s.year_of_gap ?? 0) === 0 || f.value !== null;
-      } else if (f.key === 'backlog_history') {
-        filled = true;
-      } else if (f.key === 'resume') {
-        filled = f.value === true;
-      } else {
-        filled = f.value !== null && f.value !== '';
-      }
-      if (!filled) missing.push(f.key);
-    }
+    // Completeness rules live in the pure helper so the employee-facing
+    // surfaces can reuse them without importing this module.
+    const completeness = computeCompleteness(
+      s,
+      s.resume_key !== null || s.resume_external_url !== null,
+    );
 
     const certifications = await Promise.all(
       held.map(async (h) => ({
@@ -277,11 +256,7 @@ export class StudentFullProfileService {
         value: s.personal_email,
         pending_email: s.personal_email_pending,
       },
-      completeness: {
-        required,
-        filled: required - missing.length,
-        missing,
-      },
+      completeness,
     };
   }
 }

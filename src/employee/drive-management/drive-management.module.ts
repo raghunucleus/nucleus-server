@@ -26,6 +26,11 @@ import { EligibilityCheckController } from './eligibility-check.controller';
 import { EligibilityCheckService } from './eligibility-check.service';
 import { PlacementCoordinatorDrivesController } from './placement-coordinator-drives.controller';
 import { PlacementCoordinatorDrivesService } from './placement-coordinator-drives.service';
+import { PlacementCoordinatorStudentsController } from './placement-coordinator-students.controller';
+import { PlacementCoordinatorStudentsService } from './placement-coordinator-students.service';
+import { PlacementCoordinatorStudentsAnalyticsService } from './placement-coordinator-students-analytics.service';
+import { PlacementCoordinatorStudentsSearchService } from './placement-coordinator-students-search.service';
+import { ProgrammeAdmissionYearProfileVerifier } from '../../admin/entities/programme-admission-year-profile-verifier.entity';
 import { Drive } from './entities/drive.entity';
 import { DriveStatusEvent } from './entities/drive-status-event.entity';
 import { DriveStudent } from './entities/drive-student.entity';
@@ -71,6 +76,9 @@ import {
       Programme,
       AdmissionYear,
       Student,
+      // Read-only: the placement-coordinator students screen derives its row
+      // scope from the employee's verifier rows. Assignment stays admin-side.
+      ProgrammeAdmissionYearProfileVerifier,
     ]),
     RbacModule,
     EmployeeAuthModule,
@@ -86,6 +94,7 @@ import {
     DriveAnalyticsController,
     EligibilityCheckController,
     PlacementCoordinatorDrivesController,
+    PlacementCoordinatorStudentsController,
   ],
   providers: [
     DriveAttributesService,
@@ -97,6 +106,9 @@ import {
     DriveAnalyticsService,
     EligibilityCheckService,
     PlacementCoordinatorDrivesService,
+    PlacementCoordinatorStudentsService,
+    PlacementCoordinatorStudentsSearchService,
+    PlacementCoordinatorStudentsAnalyticsService,
   ],
   // DrivesService is consumed by the student-facing StudentPlacementsModule
   // (drive detail for an invited student). Writes stay employee-side.
