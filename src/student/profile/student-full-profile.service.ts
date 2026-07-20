@@ -74,7 +74,7 @@ export interface StudentFullProfile {
     certificate_file_url: string | null;
     created_at: Date;
   }>;
-  /** Both links (each nullable) + the download counters. Never null itself. */
+  /** The resume link (nullable). Never null itself. */
   resume: ResumeView;
   personal_email: {
     value: string | null;
@@ -173,9 +173,6 @@ export class StudentFullProfileService {
           : col
             ? s[col]
             : null;
-      // Either source counts — a hosted file or an external link.
-      if (def.key === 'resume')
-        value = s.resume_key !== null || s.resume_external_url !== null;
       if (def.key === 'industry_certifications') value = held.length;
 
       let display: string | null = null;
@@ -218,10 +215,7 @@ export class StudentFullProfileService {
 
     // Completeness rules live in the pure helper so the employee-facing
     // surfaces can reuse them without importing this module.
-    const completeness = computeCompleteness(
-      s,
-      s.resume_key !== null || s.resume_external_url !== null,
-    );
+    const completeness = computeCompleteness(s);
 
     const certifications = await Promise.all(
       held.map(async (h) => ({
@@ -251,7 +245,7 @@ export class StudentFullProfileService {
       pass_out_year: s.pass_out_year,
       groups,
       certifications,
-      resume: await this.resumes.viewFor(s),
+      resume: this.resumes.viewFor(s),
       personal_email: {
         value: s.personal_email,
         pending_email: s.personal_email_pending,

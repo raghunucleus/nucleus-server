@@ -19,7 +19,7 @@ export interface Completeness {
  *
  * Special cases: the entrance unit counts as filled when marked N/A; the gap
  * reason only counts once a gap actually exists; backlog_history always has a
- * value (boolean, defaulted); resume is a has-file flag rather than a column.
+ * value (boolean, defaulted).
  *
  * Deliberately pure — no repositories, no Nest DI — so the employee-facing
  * surfaces can compute it without importing `StudentModule` (which would close
@@ -27,10 +27,7 @@ export interface Completeness {
  * `StudentFullProfileService` and the placement-coordinator students screen
  * both call this; there must never be a second copy of these rules.
  */
-export function computeCompleteness(
-  s: Student,
-  hasResume: boolean,
-): Completeness {
+export function computeCompleteness(s: Student): Completeness {
   const visibleGroups = new Set(
     PROFILE_GROUPS.filter((g) => appliesTo(g.visible, s.entry_type)).map(
       (g) => g.key,
@@ -49,13 +46,11 @@ export function computeCompleteness(
 
     const col = columnOf(def);
     const value: unknown =
-      def.key === 'resume'
-        ? hasResume
-        : def.key === 'admission_year'
-          ? s.admission_year?.year
-          : col
-            ? s[col]
-            : null;
+      def.key === 'admission_year'
+        ? s.admission_year?.year
+        : col
+          ? s[col]
+          : null;
 
     let filled: boolean;
     if (
@@ -68,8 +63,6 @@ export function computeCompleteness(
       filled = (s.year_of_gap ?? 0) === 0 || (value !== null && value !== '');
     } else if (def.key === 'backlog_history') {
       filled = true;
-    } else if (def.key === 'resume') {
-      filled = value === true;
     } else {
       filled = value !== null && value !== undefined && value !== '';
     }

@@ -335,7 +335,7 @@ export class StudentsService {
     };
   }
 
-  async getOne(id: number): Promise<Student & { resume_url: string | null }> {
+  async getOne(id: number): Promise<Student> {
     const student = await this.students.findOne({
       where: { id },
       // The extended-profile lookups are non-eager (they'd bloat every student
@@ -354,10 +354,8 @@ export class StudentsService {
       },
     });
     if (!student) throw new NotFoundException('Student not found');
-    // The permanent tokenized share link (viewFor also heals pre-token rows).
-    // The external link and the download counters ride along as plain columns.
-    const resumeView = await this.resumes.viewFor(student);
-    return Object.assign(student, { resume_url: resumeView.hosted_url });
+    // The resume link rides along as a plain column (resume_external_url).
+    return student;
   }
 
   async create(input: CreateStudentInput): Promise<Student> {
@@ -954,17 +952,6 @@ export class StudentsService {
     if (!row) throw new NotFoundException('Certification entry not found');
     await repo.remove(row);
     await this.storage.deleteObject(row.certificate_file_key);
-  }
-
-  async setResume(
-    id: number,
-    file: { buffer: Buffer; mimetype: string; size: number },
-  ): Promise<ResumeView> {
-    return this.resumes.setResume(id, file);
-  }
-
-  async removeResume(id: number): Promise<void> {
-    return this.resumes.removeResume(id);
   }
 
   async setResumeExternalUrl(

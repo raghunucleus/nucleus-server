@@ -1129,17 +1129,11 @@ export class DriveStudentsService {
     });
 
     const meta = driveColumnMeta();
-    // Give the two resume columns their short click-through labels — the URL
-    // itself never appears in the cell.
-    meta.set('resume_nucleus_url', {
-      label: 'Resume (Nucleus)',
+    // Short click-through label — the URL itself never appears in the cell.
+    meta.set('resume_external_url', {
+      label: 'Resume',
       kind: 'link',
       linkText: 'Resume',
-    });
-    meta.set('resume_external_url', {
-      label: 'Resume (external link)',
-      kind: 'link',
-      linkText: 'Link',
     });
 
     const buffer =

@@ -53,7 +53,6 @@ export const ENTRY_TYPE_LABELS: Record<EntryType, string> = {
   'programme_id',
   'aadhaar_number',
 ])
-@Unique('UQ_students_resume_public_token', ['resume_public_token'])
 @Index('IDX_students_programme_id', ['programme_id'])
 @Index('IDX_students_admission_year_id', ['admission_year_id'])
 @Index('IDX_students_mobile_number', ['mobile_number'])
@@ -183,43 +182,11 @@ export class Student {
   @Column({ type: 'boolean', default: false })
   backlog_history: boolean;
 
-  // Object key under the PRIVATE `resumes/` prefix (uuid — unguessable; never
-  // the roll number). Like photo_key, bytes are served via presigned URLs; HRs
-  // reach them through the PERMANENT public route
-  // `GET /public/resumes/<resume_public_token>` which resolves this key at
-  // request time. Replaced key = new uuid + old deleted (the public link is
-  // unaffected — the token never rotates).
-  @Column({ type: 'text', nullable: true })
-  resume_key: string | null;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  resume_uploaded_at: Date | null;
-
-  // The permanent share token behind the public resume route. Minted once on
-  // first upload (crypto-random base64url) and NEVER regenerated — students
-  // put the link on job applications, so it must survive re-uploads and even
-  // remove+re-upload cycles. Kept on removeResume for the same reason.
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  resume_public_token: string | null;
-
-  // The SECOND, independent resume source (Drive, personal site, …). Both
-  // links are handed to recruiters and both stay live — neither masks the
-  // other, so one failing (our storage down, or Drive permissions revoked)
-  // still leaves a working copy. Given out raw, never proxied: an external
-  // link routed through us would die with our API, defeating the redundancy.
+  // The student's resume: an externally-hosted link (Drive, personal site, …)
+  // they supply and maintain. Handed to recruiters raw, never proxied — we
+  // deliberately don't host resume files, so hosting/availability is theirs.
   @Column({ type: 'varchar', length: 512, nullable: true })
   resume_external_url: string | null;
-
-  // Hits on the permanent public route, cumulative per person — never reset by
-  // a re-upload or removal, so unusual activity stays visible. Counts Nucleus
-  // link OPENS (the route 302s to a cached presigned URL), not bytes served,
-  // and link-preview bots inflate it; external-link traffic is invisible by
-  // design. Bumped by StudentResumeService.resolvePublicDownload.
-  @Column({ type: 'int', default: 0 })
-  resume_download_count: number;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  resume_last_downloaded_at: Date | null;
 
   // Flat parent/guardian contacts (profile truth). Mirrored on every write into
   // the two FIXED student_guardians rows — (student_id,'parent') and

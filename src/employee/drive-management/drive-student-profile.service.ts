@@ -63,9 +63,7 @@ export interface DriveStudentProfile {
     created_at: Date;
   }>;
   resume: {
-    url: string | null;
     external_url: string | null;
-    uploaded_at: Date | null;
   };
 }
 
@@ -237,13 +235,7 @@ export class DriveStudentProfileService {
       },
       groups,
       certifications,
-      resume: {
-        url: s.resume_key
-          ? await this.storage.getCachedReadUrl(s.resume_key).catch(() => null)
-          : null,
-        external_url: s.resume_external_url,
-        uploaded_at: s.resume_uploaded_at,
-      },
+      resume: { external_url: s.resume_external_url },
     };
   }
 }

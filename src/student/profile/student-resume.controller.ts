@@ -4,37 +4,21 @@ import {
   Delete,
   HttpCode,
   HttpStatus,
-  MaxFileSizeValidator,
-  ParseFilePipe,
   Put,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { GetStudent } from '../auth/get-student.decorator';
 import { RequirePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { StudentJwtAuthGuard } from '../auth/student-jwt-auth.guard';
 import type { AuthenticatedStudent } from '../auth/student-jwt.strategy';
 import { SetResumeExternalUrlDto } from './dto/set-resume-external-url.dto';
-import {
-  RESUME_MAX_BYTES,
-  ResumeView,
-  StudentResumeService,
-} from './student-resume.service';
+import { ResumeView, StudentResumeService } from './student-resume.service';
 
 /**
- * The acting student's own resume (NO_APPROVAL — saved directly). Student id
- * from the JWT only. Two INDEPENDENT sources, both live at once: the hosted
- * PDF (shared via the permanent tokenized public link) and an external URL —
- * recruiters get both, so one failing still leaves a working copy.
+ * The acting student's own resume link (NO_APPROVAL — saved directly). Student
+ * id from the JWT only. The resume is a single externally-hosted link; we never
+ * host the file ourselves.
  */
 @ApiTags('student-profile')
 @ApiBearerAuth('student-access-token')
@@ -43,51 +27,12 @@ import {
 export class StudentResumeController {
   constructor(private readonly resumes: StudentResumeService) {}
 
-  @Put()
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: { file: { type: 'string', format: 'binary' } },
-    },
-  })
-  @ApiOperation({
-    summary:
-      "Upload (or replace) the caller's resume. PDF only, < 2 MB. The " +
-      'permanent share link stays the same across replaces.',
-  })
-  setResume(
-    @GetStudent() s: AuthenticatedStudent,
-    @UploadedFile(
-      new ParseFilePipe({
-        validators: [new MaxFileSizeValidator({ maxSize: RESUME_MAX_BYTES })],
-      }),
-    )
-    file: Express.Multer.File,
-  ): Promise<ResumeView> {
-    return this.resumes.setResume(s.id, file);
-  }
-
-  @Delete()
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({
-    summary:
-      "Remove the caller's hosted resume file. The permanent share link 404s " +
-      'until a new file is uploaded (the same link then works again).',
-  })
-  removeResume(@GetStudent() s: AuthenticatedStudent): Promise<void> {
-    return this.resumes.removeResume(s.id);
-  }
-
   @Put('external-url')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Set a second, independent resume link (Drive, personal site, …). It ' +
-      'does not replace the hosted PDF — both links stay live so one failing ' +
-      'still leaves recruiters a working copy.',
+      "Set the caller's resume link (Drive, personal site, …). Must be a " +
+      'publicly reachable https URL — recruiters open it directly.',
   })
   setExternalUrl(
     @GetStudent() s: AuthenticatedStudent,
@@ -98,11 +43,7 @@ export class StudentResumeController {
 
   @Delete('external-url')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary:
-      'Clear the external resume link. The hosted PDF (if any) keeps working — ' +
-      'it was never masked by the external link.',
-  })
+  @ApiOperation({ summary: 'Clear the resume link.' })
   clearExternalUrl(@GetStudent() s: AuthenticatedStudent): Promise<ResumeView> {
     return this.resumes.setExternalUrl(s.id, null);
   }

@@ -35,10 +35,7 @@ import { UpdateStudentDto } from '../dto/update-student.dto';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { SetResumeExternalUrlDto } from '../../student/profile/dto/set-resume-external-url.dto';
-import {
-  RESUME_MAX_BYTES,
-  ResumeView,
-} from '../../student/profile/student-resume.service';
+import { ResumeView } from '../../student/profile/student-resume.service';
 import { Student } from '../entities/student.entity';
 import {
   AdminStudentCertification,
@@ -233,46 +230,12 @@ export class StudentsController {
     return this.students.removeCertification(id, certRowId);
   }
 
-  @Post(':id/resume')
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: { file: { type: 'string', format: 'binary' } },
-    },
-  })
-  @ApiOperation({
-    summary:
-      "Upload (or replace) the student's resume (PDF, < 2 MB). Returns the " +
-      'stable public URL.',
-  })
-  setResume(
-    @Param('id', ParseIntPipe) id: number,
-    @UploadedFile(
-      new ParseFilePipe({
-        validators: [new MaxFileSizeValidator({ maxSize: RESUME_MAX_BYTES })],
-      }),
-    )
-    file: Express.Multer.File,
-  ): Promise<ResumeView> {
-    return this.students.setResume(id, file);
-  }
-
-  @Delete(':id/resume')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: "Remove the student's hosted resume file." })
-  removeResume(@Param('id', ParseIntPipe) id: number): Promise<void> {
-    return this.students.removeResume(id);
-  }
-
   @Put(':id/resume/external-url')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "Set the student's second, independent resume link. Both links stay " +
-      'live — this does not replace the hosted PDF.',
+      "Set the student's resume link (Drive, personal site, …). Must be a " +
+      'publicly reachable https URL.',
   })
   setResumeExternalUrl(
     @Param('id', ParseIntPipe) id: number,
@@ -283,9 +246,7 @@ export class StudentsController {
 
   @Delete(':id/resume/external-url')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Clear the external resume link (the hosted PDF keeps working).',
-  })
+  @ApiOperation({ summary: "Clear the student's resume link." })
   clearResumeExternalUrl(
     @Param('id', ParseIntPipe) id: number,
   ): Promise<ResumeView> {

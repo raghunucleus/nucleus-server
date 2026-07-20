@@ -126,14 +126,13 @@ export class PlacementCoordinatorStudentsService {
     return student;
   }
 
-  /** Either source counts — a hosted file or an external link. */
   hasResume(s: Student): boolean {
-    return s.resume_key !== null || s.resume_external_url !== null;
+    return s.resume_external_url !== null;
   }
 
   /** The placement + completion facts the list row and the toggle need. */
   rowView(s: Student) {
-    const completeness = computeCompleteness(s, this.hasResume(s));
+    const completeness = computeCompleteness(s);
     return {
       id: s.id,
       roll_no: s.student_id,
@@ -162,7 +161,7 @@ export class PlacementCoordinatorStudentsService {
     const profile = await this.profiles.getProfile(studentId, {
       includeGovIds: true,
     });
-    const completeness = computeCompleteness(s, this.hasResume(s));
+    const completeness = computeCompleteness(s);
     return {
       ...profile,
       completion: {

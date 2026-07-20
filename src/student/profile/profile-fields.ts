@@ -131,8 +131,7 @@ export type FieldKind =
   | 'year'
   | 'boolean'
   | 'enum'
-  | 'fk'
-  | 'file';
+  | 'fk';
 
 export interface ProfileFieldDef {
   /** Wire key used in payloads, metadata, and client forms. */
@@ -393,8 +392,8 @@ export const PROFILE_FIELD_DEFS: ProfileFieldDef[] = [
     policy: 'NO_APPROVAL',
     mandatory: 'both',
     visible: 'both',
-    column: 'resume_key',
-    kind: 'file',
+    column: 'resume_external_url',
+    kind: 'text',
   },
 
   // --- Industry certifications (repeatable group; handled structurally) ------

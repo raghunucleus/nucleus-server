@@ -34,14 +34,6 @@ export const STORAGE_PREFIX = {
    */
   studentCertificates: 'student-certificates',
   /**
-   * Resumes: `resumes/<uuid>.pdf`. PRIVATE like everything else (presigned
-   * reads only). The shareable link is the PERMANENT tokenized route
-   * `GET /public/resumes/<Student.resume_public_token>`, which resolves the
-   * current key at request time and 302s to a presigned URL — so a replace
-   * mints a fresh key without ever changing the link HRs were given.
-   */
-  studentResumes: 'resumes',
-  /**
    * Drive JD attachments: `drives/<driveId>/jd/<profileId>/<uuid>.<ext>`.
    * PRIVATE (presigned reads only). The drive id leads so every file for a drive
    * shares a prefix, and the profile id nests under it so a designation's JDs
@@ -74,9 +66,6 @@ export const storageKey = {
   /** `student-certificates/<studentId>/<uuid>.<ext>` */
   studentCertificate: (studentId: number, ext: string): string =>
     `${STORAGE_PREFIX.studentCertificates}/${studentId}/${randomUUID()}.${ext}`,
-  /** `resumes/<uuid>.pdf` */
-  studentResume: (): string =>
-    `${STORAGE_PREFIX.studentResumes}/${randomUUID()}.pdf`,
   /** `drives/<driveId>/jd/<profileId>/<uuid>.<ext>` */
   driveJdAttachment: (
     driveId: number,

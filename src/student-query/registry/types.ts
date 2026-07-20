@@ -186,10 +186,9 @@ export function isExistsFacet(f: FilterFacet): f is ExistsFacet {
 /**
  * Named page-level hydrators — one extra query per page, never a
  * row-multiplying join. Used for multi-value output (`certifications`) and for
- * values that need post-processing the SQL select can't do (`resume_link`
- * mints missing share tokens and builds the public URL).
+ * any value that needs post-processing the SQL select can't do.
  */
-export const HYDRATORS = ['certifications', 'resume_link'] as const;
+export const HYDRATORS = ['certifications'] as const;
 export type HydratorId = (typeof HYDRATORS)[number];
 
 /**

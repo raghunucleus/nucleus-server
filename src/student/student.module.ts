@@ -42,7 +42,6 @@ import { StudentLookupsService } from './lookups/student-lookups.service';
 import { StudentEmailOtp } from './profile/entities/student-email-otp.entity';
 import { PersonalEmailController } from './profile/personal-email.controller';
 import { PersonalEmailService } from './profile/personal-email.service';
-import { PublicResumeController } from './profile/public-resume.controller';
 import { ProfileUpdateRequestController } from './profile/profile-update-request.controller';
 import { ProfileUpdateRequestService } from './profile/profile-update-request.service';
 import { StudentCertificateFileController } from './profile/student-certificate-file.controller';
@@ -109,7 +108,6 @@ import { StudentAuthService } from './student-auth.service';
     StudentFullProfileController,
     StudentPhotoController,
     StudentResumeController,
-    PublicResumeController,
     StudentCertificateFileController,
     PersonalEmailController,
     StudentLookupsController,
@@ -138,7 +136,7 @@ import { StudentAuthService } from './student-auth.service';
     // student-scoped read logic, gated by its own guardian↔student link check.
     StudentPortalService,
     StudentExamResultsService,
-    // Reused by the admin students module (admin resume upload/remove).
+    // Reused by the admin students module (admin edits the resume link).
     StudentResumeService,
   ],
 })

@@ -96,8 +96,8 @@ export const DRIVE_EXPORT_COLUMN_BY_KEY = new Map(
 export const DRIVE_EXPORT_KEY_PREFIX = 'drive.';
 
 /**
- * What the picker starts with — the on-screen table's columns plus both resume
- * links, which are the whole point of exporting a shortlist.
+ * What the picker starts with — the on-screen table's columns plus the resume
+ * link, which is the whole point of exporting a shortlist.
  */
 export const DEFAULT_DRIVE_EXPORT_COLUMNS: readonly string[] = [
   'student_id',
@@ -105,7 +105,6 @@ export const DEFAULT_DRIVE_EXPORT_COLUMNS: readonly string[] = [
   'programme',
   'pass_out_year',
   'drive.status',
-  'resume_nucleus_url',
   'resume_external_url',
 ];
 

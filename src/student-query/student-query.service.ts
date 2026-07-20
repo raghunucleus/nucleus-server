@@ -31,11 +31,6 @@ import {
   operatorsFor,
 } from './registry/student-attributes';
 import {
-  buildResumeHostedUrl,
-  mintResumeToken,
-  resumeApiBase,
-} from '../student/profile/resume-link';
-import {
   AttributeDef,
   FK_LOOKUPS,
   HydratorId,
@@ -679,7 +674,6 @@ export class StudentQueryService {
       if (c.select && isHydrateFacet(c.select)) wanted.add(c.select.hydrate);
     }
     if (wanted.has('certifications')) await this.hydrateCerts(ids, rows);
-    if (wanted.has('resume_link')) await this.hydrateResumeLinks(ids, rows);
   }
 
   private async hydrateCerts(
@@ -703,58 +697,6 @@ export class StudentQueryService {
     }
     for (const row of rows) {
       row.industry_certifications = byStudent.get(Number(row.id)) ?? [];
-    }
-  }
-
-  /**
-   * Build the permanent public resume URL, minting share tokens for students
-   * who never had one.
-   *
-   * Tokens are normally minted lazily when a profile is read
-   * ({@link StudentResumeService}), so without this backfill a bulk export's
-   * resume column would silently depend on who happened to have been viewed
-   * before — half the rows blank for no visible reason. Students with no
-   * uploaded file get null; that's a genuine "no resume", not a missing token.
-   */
-  private async hydrateResumeLinks(
-    ids: number[],
-    rows: Array<Record<string, unknown>>,
-  ): Promise<void> {
-    const students: Array<{
-      id: number;
-      resume_key: string | null;
-      resume_public_token: string | null;
-    }> = await this.dataSource.query(
-      `SELECT id, resume_key, resume_public_token
-         FROM students
-        WHERE id = ANY($1) AND resume_key IS NOT NULL`,
-      [ids],
-    );
-
-    const base = resumeApiBase(this.config);
-    const urlByStudent = new Map<number, string>();
-    const minted: Array<[number, string]> = [];
-    for (const s of students) {
-      const token = s.resume_public_token ?? mintResumeToken();
-      if (!s.resume_public_token) minted.push([Number(s.id), token]);
-      urlByStudent.set(Number(s.id), buildResumeHostedUrl(base, token));
-    }
-
-    // Persist the fresh tokens so the exported links keep resolving. Single
-    // statement; this only ever touches the never-viewed backlog and drains
-    // to zero.
-    if (minted.length > 0) {
-      await this.dataSource.query(
-        `UPDATE students AS s
-            SET resume_public_token = v.token
-           FROM (SELECT UNNEST($1::int[]) AS id, UNNEST($2::text[]) AS token) v
-          WHERE s.id = v.id AND s.resume_public_token IS NULL`,
-        [minted.map(([id]) => id), minted.map(([, t]) => t)],
-      );
-    }
-
-    for (const row of rows) {
-      row.resume_nucleus_url = urlByStudent.get(Number(row.id)) ?? null;
     }
   }
 
