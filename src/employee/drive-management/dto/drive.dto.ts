@@ -158,7 +158,13 @@ export const DriveEligibilitySchema = z.object({
     .optional()
     .nullable(),
   min_tenth_percentage: z.coerce.number().min(0).max(100).optional().nullable(),
-  min_twelfth_or_diploma_percentage: z.coerce
+  min_twelfth_percentage: z.coerce
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .nullable(),
+  min_diploma_percentage: z.coerce
     .number()
     .min(0)
     .max(100)

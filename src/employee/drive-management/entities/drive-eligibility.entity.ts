@@ -59,13 +59,18 @@ export class DriveEligibility {
   @Column({ type: 'int', nullable: true })
   max_current_backlogs: number | null;
 
-  // Academic minimums. Xth / 12th-or-Diploma are percentages; Btech is a
-  // 10-point CGPA. NULL = no minimum on that stage.
+  // Academic minimums. Xth / 12th / Diploma are percentages; Btech is a
+  // 10-point CGPA. NULL = no minimum on that stage. 12th and Diploma are
+  // independent thresholds, matched per entry type (regular entrants carry a
+  // 12th percentage, lateral entrants a diploma percentage).
   @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
   min_tenth_percentage: string | null;
 
   @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
-  min_twelfth_or_diploma_percentage: string | null;
+  min_twelfth_percentage: string | null;
+
+  @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
+  min_diploma_percentage: string | null;
 
   @Column({ type: 'numeric', precision: 4, scale: 2, nullable: true })
   min_btech_cgpa: string | null;

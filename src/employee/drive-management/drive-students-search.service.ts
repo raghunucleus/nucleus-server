@@ -113,18 +113,36 @@ export class DriveStudentsSearchService {
       cond('current_backlogs', 'lte', e.max_current_backlogs);
     if (e.min_tenth_percentage !== null)
       cond('tenth_percentage', 'gte', e.min_tenth_percentage);
-    if (e.min_twelfth_or_diploma_percentage !== null) {
+    // 12th and Diploma are independent thresholds, each screening only its own
+    // cohort: regular entrants (1) carry a 12th percentage, lateral entrants (2)
+    // a diploma one. Written as "not that cohort, OR clears its bar" rather than
+    // the equivalent "(regular AND 12th >= X) OR (lateral AND diploma >= Y)" —
+    // the Filters builder models a row as a single-level OR of plain conditions
+    // (see the client's `decomposeFilters`), so a group nested inside an OR
+    // would make it discard the whole prefill. This form also leaves each cohort
+    // rule as its own editable row.
+    // (`entry_type != 1` is NULL-false, so a student with no entry type would
+    // have to clear both bars — same NULL caveat as the thresholds above.)
+    if (e.min_twelfth_percentage !== null) {
       conds.push({
         or: [
+          { attr: 'entry_type', op: 'neq', value: 1 },
           {
             attr: 'twelfth_percentage',
             op: 'gte',
-            value: e.min_twelfth_or_diploma_percentage,
+            value: e.min_twelfth_percentage,
           },
+        ],
+      });
+    }
+    if (e.min_diploma_percentage !== null) {
+      conds.push({
+        or: [
+          { attr: 'entry_type', op: 'neq', value: 2 },
           {
             attr: 'diploma_percentage',
             op: 'gte',
-            value: e.min_twelfth_or_diploma_percentage,
+            value: e.min_diploma_percentage,
           },
         ],
       });

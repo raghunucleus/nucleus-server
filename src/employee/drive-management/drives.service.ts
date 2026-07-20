@@ -1154,9 +1154,8 @@ export class DrivesService {
       allow_backlog_history: row?.allow_backlog_history ?? false,
       max_current_backlogs: row?.max_current_backlogs ?? null,
       min_tenth_percentage: num(row?.min_tenth_percentage ?? null),
-      min_twelfth_or_diploma_percentage: num(
-        row?.min_twelfth_or_diploma_percentage ?? null,
-      ),
+      min_twelfth_percentage: num(row?.min_twelfth_percentage ?? null),
+      min_diploma_percentage: num(row?.min_diploma_percentage ?? null),
       min_btech_cgpa: num(row?.min_btech_cgpa ?? null),
     };
   }
@@ -1190,7 +1189,8 @@ export class DrivesService {
       raw.passout_years.length > 0 ||
       raw.max_current_backlogs !== null ||
       raw.min_tenth_percentage !== null ||
-      raw.min_twelfth_or_diploma_percentage !== null ||
+      raw.min_twelfth_percentage !== null ||
+      raw.min_diploma_percentage !== null ||
       raw.min_btech_cgpa !== null;
 
     return {
@@ -1203,7 +1203,8 @@ export class DrivesService {
       allow_backlog_history: raw.allow_backlog_history,
       max_current_backlogs: raw.max_current_backlogs,
       min_tenth_percentage: raw.min_tenth_percentage,
-      min_twelfth_or_diploma_percentage: raw.min_twelfth_or_diploma_percentage,
+      min_twelfth_percentage: raw.min_twelfth_percentage,
+      min_diploma_percentage: raw.min_diploma_percentage,
       min_btech_cgpa: raw.min_btech_cgpa,
       has_restrictions,
     };
@@ -1233,16 +1234,12 @@ export class DrivesService {
     row.genders = dto.genders ?? [];
     row.passout_years = dto.passout_years ?? [];
     row.allow_backlog_history = dto.allow_backlog_history ?? false;
-    // A current-backlog cap is only meaningful when history is allowed — a
-    // student with any current backlog necessarily has backlog history. Force
-    // it null otherwise so it can't leak into the summary or filter auto-patch.
-    row.max_current_backlogs = row.allow_backlog_history
-      ? (dto.max_current_backlogs ?? null)
-      : null;
+    // Independent of the history flag — staff set the two separately and any
+    // combination is theirs to make.
+    row.max_current_backlogs = dto.max_current_backlogs ?? null;
     row.min_tenth_percentage = money(dto.min_tenth_percentage);
-    row.min_twelfth_or_diploma_percentage = money(
-      dto.min_twelfth_or_diploma_percentage,
-    );
+    row.min_twelfth_percentage = money(dto.min_twelfth_percentage);
+    row.min_diploma_percentage = money(dto.min_diploma_percentage);
     row.min_btech_cgpa = money(dto.min_btech_cgpa);
     row.eligible_programmes = (dto.programme_ids ?? []).map(
       (id) => ({ id }) as Programme,
