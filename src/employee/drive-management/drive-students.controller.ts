@@ -22,7 +22,10 @@ import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-ch
 import { DriveStudentsService } from './drive-students.service';
 import { ExportDriveStudentsDto } from './dto/export-drive-students.dto';
 import { ImportDriveStudentsDto } from './dto/import-drive-students.dto';
-import { InviteDriveStudentsDto } from './dto/invite-drive-students.dto';
+import {
+  InviteAllDriveStudentsDto,
+  InviteDriveStudentsDto,
+} from './dto/invite-drive-students.dto';
 import { MarkDriveStudentOutcomeDto } from './dto/mark-drive-student-outcome.dto';
 import { RevokeDriveStudentsDto } from './dto/revoke-drive-students.dto';
 import { UpdateDriveStudentSelectionDto } from './dto/update-drive-student-selection.dto';
@@ -190,7 +193,7 @@ export class DriveStudentsController {
     @Param('driveId', ParseIntPipe) driveId: number,
     @Body() dto: InviteDriveStudentsDto,
   ) {
-    return this.svc.invite(driveId, e.id, dto.student_ids);
+    return this.svc.invite(driveId, e.id, dto.student_ids, dto.channels);
   }
 
   @Post('invite-all')
@@ -204,8 +207,9 @@ export class DriveStudentsController {
   inviteAll(
     @GetEmployee() e: AuthenticatedEmployee,
     @Param('driveId', ParseIntPipe) driveId: number,
+    @Body() dto: InviteAllDriveStudentsDto,
   ) {
-    return this.svc.inviteAll(driveId, e.id);
+    return this.svc.inviteAll(driveId, e.id, dto.channels);
   }
 
   @Post('remind')
@@ -221,7 +225,7 @@ export class DriveStudentsController {
     @Param('driveId', ParseIntPipe) driveId: number,
     @Body() dto: InviteDriveStudentsDto,
   ) {
-    return this.svc.remind(driveId, e.id, dto.student_ids);
+    return this.svc.remind(driveId, e.id, dto.student_ids, dto.channels);
   }
 
   @Post('outcome')

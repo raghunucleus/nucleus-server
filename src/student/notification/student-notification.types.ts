@@ -56,6 +56,48 @@ export interface SendStudentNotificationInput {
   title: string;
   body: string;
   target?: NotificationTarget | null;
+  /**
+   * Optional per-send email shaping, used only when the `email` channel is on.
+   * Everything here is optional and falls back to the in-app text, so a module
+   * that just wants "mail the same thing" passes nothing.
+   *
+   * `url` is the one place a client route reaches the server, and it stays the
+   * CALLER's responsibility: the notification service knows no routes, so a
+   * module that wants its mail to deep-link builds the absolute URL itself.
+   * Omitted, the mail links to the notifications inbox, which can resolve any
+   * `target` via the client registry.
+   */
+  email?: SendStudentNotificationEmail;
+}
+
+/** Email-only presentation overrides for {@link SendStudentNotificationInput}. */
+export interface SendStudentNotificationEmail {
+  /** Subject line; defaults to the notification `title`. */
+  subject?: string;
+  /** Absolute deep link for the CTA; defaults to the notifications inbox. */
+  url?: string;
+  /** Lead paragraph; defaults to the notification `body`. */
+  intro?: string;
+  /** Rendered as a label/value table under the intro. */
+  details?: { label: string; value: string }[];
+  /** CTA button text; defaults to 'Open in Nucleus'. */
+  ctaLabel?: string;
+}
+
+/**
+ * Which delivery channels one `send` call should use. Omitting the option
+ * entirely keeps the historical default — in-app row + socket event, plus OS
+ * push — so existing callers are unaffected.
+ *
+ * `in_app` is what makes the notification durable (a `student_notifications`
+ * row and the bell badge); `push` and `email` are transient deliveries fired
+ * detached. Unlike employees, students have no per-module preference table:
+ * the sending module decides the channels, per send.
+ */
+export interface StudentNotificationChannels {
+  in_app?: boolean;
+  push?: boolean;
+  email?: boolean;
 }
 
 /** One notification as returned to the client (REST list + socket events). */

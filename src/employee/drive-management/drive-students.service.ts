@@ -7,6 +7,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository, SelectQueryBuilder } from 'typeorm';
 import { StorageService } from '../../storage/storage.service';
 import { StudentNotificationService } from '../../student/notification/student-notification.service';
+import type {
+  SendStudentNotificationEmail,
+  StudentNotificationChannels,
+} from '../../student/notification/student-notification.types';
 import { StudentApprovalsSyncService } from '../../student/approvals/student-approvals-sync.service';
 import { StudentSearchDto } from '../../student-query/dto/student-search.dto';
 import {
@@ -42,6 +46,36 @@ import { DriveStudent } from './entities/drive-student.entity';
 import { DriveStudentEvent } from './entities/drive-student-event.entity';
 import { MAX_IMPORT_STUDENT_IDS } from './dto/import-drive-students.dto';
 import { SelectionPackageInput } from './dto/selection-package.schema';
+
+/** Campus-local time zone — the only one every recipient reads dates in. */
+const DISPLAY_TZ = 'Asia/Kolkata';
+
+/** A `date` column (no time) as `21 Jul 2026`. */
+function formatDay(value: string): string {
+  const d = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** A timestamptz as `21 Jul 2026, 05:00 pm` in campus time. */
+function formatMoment(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: DISPLAY_TZ,
+  });
+}
 
 /** The ceiling on "import all matched" — a drive shortlist is realistically
  *  hundreds; over this the user is asked to narrow the filter instead. */
@@ -436,6 +470,7 @@ export class DriveStudentsService {
     driveId: number,
     employeeId: number,
     studentIds: number[],
+    channels?: StudentNotificationChannels,
   ): Promise<DriveInviteSummary> {
     const drive = await this.assertDrive(driveId);
     if (drive.status !== 'published') {
@@ -512,14 +547,20 @@ export class DriveStudentsService {
     if (invitedIds.length > 0) {
       // One send() call — the service fans out per recipient itself. Failures
       // must not fail the invite (the rows are already at 20).
+      const email = await this.inviteEmail(drive, channels, false);
       void this.notifications
-        .send(invitedIds, {
-          module: 'placements',
-          type: 'drive-invite',
-          title: 'Placement drive invitation',
-          body: `You are invited to ${drive.drive_name}. Accept or deny it in Placements.`,
-          target: { type: 'drive-invite', id: driveId },
-        })
+        .send(
+          invitedIds,
+          {
+            module: 'placements',
+            type: 'drive-invite',
+            title: 'Placement drive invitation',
+            body: `You are invited to ${drive.drive_name}. Accept or deny it in Placements.`,
+            target: { type: 'drive-invite', id: driveId },
+            email,
+          },
+          { channels },
+        )
         .catch(() => undefined);
     }
 
@@ -534,6 +575,7 @@ export class DriveStudentsService {
   async inviteAll(
     driveId: number,
     employeeId: number,
+    channels?: StudentNotificationChannels,
   ): Promise<DriveInviteSummary> {
     const rows = await this.repo.find({
       where: { drive_id: driveId, status: DRIVE_STUDENT_STATUS.IMPORTED },
@@ -547,6 +589,7 @@ export class DriveStudentsService {
       driveId,
       employeeId,
       rows.map((r) => r.student_id),
+      channels,
     );
   }
 
@@ -558,6 +601,7 @@ export class DriveStudentsService {
     driveId: number,
     employeeId: number,
     studentIds: number[],
+    channels?: StudentNotificationChannels,
   ): Promise<DriveRemindSummary> {
     const drive = await this.assertDrive(driveId);
     this.assertNotArchived(drive);
@@ -584,6 +628,7 @@ export class DriveStudentsService {
       'employee',
       { actorEmployeeId: employeeId },
     );
+    const email = await this.inviteEmail(drive, channels, true);
     void this.notifications
       .send(
         targets.map((t) => t.student_id),
@@ -593,7 +638,9 @@ export class DriveStudentsService {
           title: 'Reminder: placement drive invitation',
           body: `Reminder — you're invited to ${drive.drive_name}. Accept or deny it in Placements.`,
           target: { type: 'drive-invite', id: driveId },
+          email,
         },
+        { channels },
       )
       .catch(() => undefined);
 
@@ -1579,6 +1626,73 @@ export class DriveStudentsService {
       student_id: studentId,
       status: DRIVE_STUDENT_STATUS.IMPORTED,
     });
+  }
+
+  /**
+   * The email presentation for an invite or reminder: company, drive, date and
+   * the response deadline as a details table, plus a CTA that deep-links to this
+   * drive in the student app.
+   *
+   * Returns `undefined` when the email channel is off, so the company lookup
+   * (the only extra query the mail needs) is skipped for the common in-app-only
+   * send. `assertDrive` deliberately stays relation-free for the same reason —
+   * it runs on every student action.
+   */
+  private async inviteEmail(
+    drive: Drive,
+    channels: StudentNotificationChannels | undefined,
+    isReminder: boolean,
+  ): Promise<SendStudentNotificationEmail | undefined> {
+    if (!channels?.email) return undefined;
+
+    const company = await this.driveRepo
+      .findOne({
+        where: { id: drive.id },
+        relations: { company: true },
+        select: { id: true, company: { id: true, name: true } },
+      })
+      .then((d) => d?.company?.name ?? null)
+      .catch(() => null);
+
+    const details: { label: string; value: string }[] = [];
+    if (company) details.push({ label: 'Company', value: company });
+    details.push({ label: 'Drive', value: drive.drive_name });
+    if (drive.drive_date) {
+      details.push({ label: 'Drive date', value: formatDay(drive.drive_date) });
+    }
+    if (drive.registration_end_date) {
+      details.push({
+        label: 'Respond before',
+        value: formatMoment(drive.registration_end_date),
+      });
+    }
+
+    return {
+      subject: isReminder
+        ? `Reminder: placement drive invitation — ${company ?? drive.drive_name}`
+        : `Placement drive invitation — ${company ?? drive.drive_name}`,
+      intro: isReminder
+        ? 'You have not yet responded to this placement drive invitation. Accept or deny it before the registration window closes.'
+        : 'You have been invited to a placement drive. Review the details below and accept or deny the invitation before the registration window closes.',
+      details,
+      url: this.driveUrl(drive.id),
+      ctaLabel: 'View drive & respond',
+    };
+  }
+
+  /**
+   * Absolute student-app link to this drive's invitation. Built with `URL` so a
+   * STUDENT_APP_URL carrying a baked-in query string (the shared dev port does)
+   * survives, and mirrors the client's own target registry, which resolves a
+   * `drive-invite` target to `/placements?tab=invites&drive=<id>`.
+   */
+  private driveUrl(driveId: number): string {
+    const base = process.env.STUDENT_APP_URL || 'http://localhost:5000';
+    const url = new URL(base);
+    url.pathname = '/placements';
+    url.searchParams.set('tab', 'invites');
+    url.searchParams.set('drive', String(driveId));
+    return url.toString();
   }
 
   private async assertDrive(driveId: number): Promise<Drive> {

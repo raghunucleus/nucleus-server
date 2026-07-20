@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { Student } from '../../admin/entities/student.entity';
 import { StudentNotification } from './entities/student-notification.entity';
 import { StudentPushToken } from './entities/student-push-token.entity';
 import { StudentNotificationsController } from './student-notifications.controller';
@@ -17,7 +18,9 @@ import { StudentNotificationService } from './student-notification.service';
 @Global()
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StudentNotification, StudentPushToken]),
+    // `Student` is read-only here — resolving a recipient's email address for
+    // the email channel.
+    TypeOrmModule.forFeature([StudentNotification, StudentPushToken, Student]),
     ConfigModule,
     // Verify-only: the gateway passes the student access secret explicitly per
     // call, mirroring the HTTP `student-jwt` strategy and the chat gateway.

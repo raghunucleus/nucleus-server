@@ -156,14 +156,14 @@ export class MailService {
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>A login has been created for your Nucleus student account.</p>
          <table cellpadding="0" cellspacing="0" style="margin:16px 0">
-           <tr><td style="padding:4px 0;color:#555">Student ID</td>
+           <tr><td style="padding:4px 0;color:#6c757d">Student ID</td>
                <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.studentId)}</td></tr>
-           <tr><td style="padding:4px 0;color:#555">Temporary password</td>
+           <tr><td style="padding:4px 0;color:#6c757d">Temporary password</td>
                <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.tempPassword)}</td></tr>
          </table>
-         <p><a href="${escapeAttr(params.loginUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Sign in to Nucleus</a></p>
-         <p style="color:#555">For your security you will be asked to set a new password the first time you sign in. Do not share these credentials with anyone.</p>
-         <p style="color:#999;font-size:12px">If you did not expect this email, contact your institution immediately.</p>`,
+         <p><a href="${escapeAttr(params.loginUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Sign in to Nucleus</a></p>
+         <p style="color:#6c757d">For your security you will be asked to set a new password the first time you sign in. Do not share these credentials with anyone.</p>
+         <p style="color:#6c757d;font-size:12px">If you did not expect this email, contact your institution immediately.</p>`,
       ),
     });
   }
@@ -210,14 +210,14 @@ export class MailService {
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>A login has been created for your Nucleus employee account.</p>
          <table cellpadding="0" cellspacing="0" style="margin:16px 0">
-           <tr><td style="padding:4px 0;color:#555">Employee code</td>
+           <tr><td style="padding:4px 0;color:#6c757d">Employee code</td>
                <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.empCode)}</td></tr>
-           <tr><td style="padding:4px 0;color:#555">Temporary password</td>
+           <tr><td style="padding:4px 0;color:#6c757d">Temporary password</td>
                <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.tempPassword)}</td></tr>
          </table>
-         <p><a href="${escapeAttr(params.loginUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Sign in to Nucleus</a></p>
-         <p style="color:#555">For your security you will be asked to set a new password the first time you sign in. Do not share these credentials with anyone.</p>
-         <p style="color:#999;font-size:12px">If you did not expect this email, contact your institution immediately.</p>`,
+         <p><a href="${escapeAttr(params.loginUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Sign in to Nucleus</a></p>
+         <p style="color:#6c757d">For your security you will be asked to set a new password the first time you sign in. Do not share these credentials with anyone.</p>
+         <p style="color:#6c757d;font-size:12px">If you did not expect this email, contact your institution immediately.</p>`,
       ),
     });
   }
@@ -251,9 +251,9 @@ export class MailService {
       html: wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>We received a request to reset the password for your Nucleus employee account.</p>
-         <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Choose a new password</a></p>
-         <p style="color:#555">This link expires in ${params.expiresInMinutes} minutes and can be used once.</p>
-         <p style="color:#999;font-size:12px">If you did not request this, you can safely ignore this email — your password will not change.</p>`,
+         <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Choose a new password</a></p>
+         <p style="color:#6c757d">This link expires in ${params.expiresInMinutes} minutes and can be used once.</p>
+         <p style="color:#6c757d;font-size:12px">If you did not request this, you can safely ignore this email — your password will not change.</p>`,
       ),
     });
   }
@@ -297,8 +297,77 @@ export class MailService {
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p style="font-weight:600;font-size:15px;margin:16px 0 4px">${escapeHtml(params.title)}</p>
          <p style="margin:0 0 16px">${escapeHtml(params.body)}</p>
-         <p><a href="${escapeAttr(params.url)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Open in Nucleus</a></p>
-         <p style="color:#999;font-size:12px">You are receiving this because notifications are on for this module. You can turn email off per module under Profile → Notifications.</p>`,
+         <p><a href="${escapeAttr(params.url)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Open in Nucleus</a></p>
+         <p style="color:#6c757d;font-size:12px">You are receiving this because notifications are on for this module. You can turn email off per module under Profile → Notifications.</p>`,
+      ),
+    });
+  }
+
+  /**
+   * The student mirror of {@link sendEmployeeNotification}. Same generic
+   * title/body template, but no "turn this off under Profile → Notifications"
+   * footer: students have no per-module notification preferences, and email is
+   * opt-in per send by the module rather than by the recipient.
+   *
+   * `body` may be multi-line (a composed message plus a list); newlines are
+   * preserved in the HTML with `white-space:pre-line` rather than by splitting
+   * into paragraphs, so the plain-text and HTML parts read identically.
+   *
+   * `details` renders a label/value table under the body for notifications that
+   * carry structured facts (a drive's company, date and deadline). Everything is
+   * styled inline on a `<table>` on purpose: mail clients strip `<style>` blocks
+   * and external stylesheets, so a CSS framework would arrive as unstyled text.
+   */
+  async sendStudentNotification(params: {
+    to: string;
+    displayName: string;
+    title: string;
+    body: string;
+    url: string;
+    subject?: string;
+    details?: { label: string; value: string }[];
+    ctaLabel?: string;
+  }): Promise<void> {
+    const details = params.details ?? [];
+    const cta = params.ctaLabel ?? 'Open in Nucleus';
+    const text = [
+      `Hello ${params.displayName},`,
+      '',
+      params.title,
+      '',
+      params.body,
+      ...(details.length > 0
+        ? ['', ...details.map((d) => `${d.label}: ${d.value}`)]
+        : []),
+      '',
+      `${cta}: ${params.url}`,
+    ].join('\n');
+
+    const detailsHtml =
+      details.length === 0
+        ? ''
+        : `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e5e7eb;border-radius:6px;border-collapse:separate;margin:0 0 16px">
+           ${details
+             .map(
+               (d, i) =>
+                 `<tr>
+                    <td style="padding:8px 12px;color:#6b7280;font-size:13px;white-space:nowrap;vertical-align:top${i > 0 ? ';border-top:1px solid #e5e7eb' : ''}">${escapeHtml(d.label)}</td>
+                    <td style="padding:8px 12px;font-size:13px;font-weight:600;vertical-align:top${i > 0 ? ';border-top:1px solid #e5e7eb' : ''}">${escapeHtml(d.value)}</td>
+                  </tr>`,
+             )
+             .join('')}
+         </table>`;
+
+    await this.send({
+      to: params.to,
+      subject: params.subject ?? params.title,
+      text,
+      html: wrapHtml(
+        `<p>Hello ${escapeHtml(params.displayName)},</p>
+         <p style="font-weight:600;font-size:15px;margin:16px 0 4px">${escapeHtml(params.title)}</p>
+         <p style="margin:0 0 16px;white-space:pre-line">${escapeHtml(params.body)}</p>
+         ${detailsHtml}
+         <p><a href="${escapeAttr(params.url)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">${escapeHtml(cta)}</a></p>`,
       ),
     });
   }
@@ -335,9 +404,9 @@ export class MailService {
       html: wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>Use this one-time code to set your Nucleus parent account password:</p>
-         <p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:16px 0">${escapeHtml(params.otp)}</p>
-         <p style="color:#555">This code expires in ${params.expiresInMinutes} minutes and can be used once.</p>
-         <p style="color:#999;font-size:12px">If you did not request this, you can safely ignore this email.</p>`,
+         <p style="background-color:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:14px;margin:16px 0;text-align:center;font-family:Consolas,Menlo,Monaco,monospace;font-size:28px;font-weight:700;letter-spacing:6px;color:#212529">${escapeHtml(params.otp)}</p>
+         <p style="color:#6c757d">This code expires in ${params.expiresInMinutes} minutes and can be used once.</p>
+         <p style="color:#6c757d;font-size:12px">If you did not request this, you can safely ignore this email.</p>`,
       ),
     });
   }
@@ -370,9 +439,9 @@ export class MailService {
       html: wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>Use this one-time code to verify this address as the personal email on your Nucleus student profile:</p>
-         <p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:16px 0">${escapeHtml(params.otp)}</p>
-         <p style="color:#555">This code expires in ${params.expiresInMinutes} minutes and can be used once.</p>
-         <p style="color:#999;font-size:12px">If you did not request this, you can safely ignore this email — your profile will not change.</p>`,
+         <p style="background-color:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:14px;margin:16px 0;text-align:center;font-family:Consolas,Menlo,Monaco,monospace;font-size:28px;font-weight:700;letter-spacing:6px;color:#212529">${escapeHtml(params.otp)}</p>
+         <p style="color:#6c757d">This code expires in ${params.expiresInMinutes} minutes and can be used once.</p>
+         <p style="color:#6c757d;font-size:12px">If you did not request this, you can safely ignore this email — your profile will not change.</p>`,
       ),
     });
   }
@@ -405,19 +474,77 @@ export class MailService {
       html: wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>We received a request to reset the password for your Nucleus student account.</p>
-         <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Choose a new password</a></p>
-         <p style="color:#555">This link expires in ${params.expiresInMinutes} minutes and can be used once.</p>
-         <p style="color:#999;font-size:12px">If you did not request this, you can safely ignore this email — your password will not change.</p>`,
+         <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Choose a new password</a></p>
+         <p style="color:#6c757d">This link expires in ${params.expiresInMinutes} minutes and can be used once.</p>
+         <p style="color:#6c757d;font-size:12px">If you did not request this, you can safely ignore this email — your password will not change.</p>`,
       ),
     });
   }
 }
 
+/**
+ * Bootstrap 5's design tokens, with its `$primary` (#0d6efd) swapped for the
+ * Nucleus brand blue so mail matches the app. Kept as constants because they
+ * have to be repeated inline on every element — email has no stylesheet.
+ */
+const MAIL_THEME = {
+  /** `$gray-100` — the page behind the card. */
+  page: '#f8f9fa',
+  card: '#ffffff',
+  /** `$gray-300` — Bootstrap's card border. */
+  border: '#dee2e6',
+  /** `$gray-900` / `$gray-600` — body copy and `.text-muted`. */
+  text: '#212529',
+  muted: '#6c757d',
+  /** Brand blue, from nucleus-ui's `--brand-primary`. */
+  primary: '#2563eb',
+  // Single-quoted family names: these are interpolated into double-quoted
+  // `style="..."` attributes, and double quotes would close the attribute.
+  font: "system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif",
+} as const;
+
+/**
+ * The shared shell every template renders into: a Bootstrap-style card with a
+ * brand header bar and a muted footer.
+ *
+ * Built as nested tables with fully inlined styles rather than a Bootstrap CDN
+ * link, because no mail client would honour one — Gmail strips external
+ * stylesheets outright, and Outlook desktop renders through Word, which has no
+ * flexbox or grid for Bootstrap's layout classes to use. Tables also stand in
+ * for `max-width` + `margin:0 auto`, which Word ignores.
+ *
+ * Every colour is stated explicitly (no `<style>` block, no media queries, no
+ * `prefers-color-scheme`) so a client's dark mode cannot invert the card into
+ * white-on-white. `role="presentation"` keeps screen readers from announcing
+ * the layout tables as data.
+ *
+ * `body` is dropped in verbatim, so each template keeps authoring plain `<p>`
+ * markup and gets the new frame for free.
+ */
 function wrapHtml(body: string): string {
-  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;max-width:480px;margin:0 auto;padding:24px">
-    <h2 style="margin:0 0 16px;font-size:18px">Nucleus</h2>
-    ${body}
-  </div>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${MAIL_THEME.page};margin:0;padding:24px 12px">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">
+        <tr>
+          <td style="background-color:${MAIL_THEME.primary};border-radius:8px 8px 0 0;padding:20px 24px">
+            <span style="font-family:${MAIL_THEME.font};font-size:18px;font-weight:600;color:#ffffff;letter-spacing:-0.01em">Nucleus</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:${MAIL_THEME.card};border:1px solid ${MAIL_THEME.border};border-top:0;border-radius:0 0 8px 8px;padding:24px;font-family:${MAIL_THEME.font};font-size:14px;line-height:1.6;color:${MAIL_THEME.text}">
+            ${body}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 24px;text-align:center;font-family:${MAIL_THEME.font};font-size:12px;line-height:1.5;color:${MAIL_THEME.muted}">
+            This is an automated message from Nucleus. Please do not reply to this email.
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>`;
 }
 
 function escapeHtml(value: string): string {

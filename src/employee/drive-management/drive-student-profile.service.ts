@@ -69,7 +69,11 @@ export interface DriveStudentProfile {
   };
 }
 
-/** Government-ID group is never shown to employees on the drive surfaces. */
+/**
+ * Government IDs (Aadhaar / PAN) are hidden by default on every employee
+ * surface. Callers that legitimately need them opt in explicitly — see
+ * `getProfile`'s `includeGovIds`.
+ */
 const EXCLUDED_GROUPS: ProfileGroupKey[] = ['gov_ids'];
 
 /** Pseudo-fields surfaced as dedicated payload sections, not group rows. */
@@ -112,7 +116,16 @@ export class DriveStudentProfileService {
     private readonly storage: StorageService,
   ) {}
 
-  async getProfile(studentId: number): Promise<DriveStudentProfile> {
+  /**
+   * `includeGovIds` un-hides the Aadhaar/PAN group for the one surface that
+   * needs it (the placement coordinator's own cohort, whose row scope is the
+   * profile-verifier table). It is opt-in per call so every other employee
+   * surface keeps the default redaction.
+   */
+  async getProfile(
+    studentId: number,
+    opts: { includeGovIds?: boolean } = {},
+  ): Promise<DriveStudentProfile> {
     const s = await this.students.findOne({ where: { id: studentId } });
     if (!s) throw new NotFoundException('Student not found');
 
@@ -172,9 +185,13 @@ export class DriveStudentProfileService {
       };
     };
 
+    const hiddenGroups = opts.includeGovIds
+      ? EXCLUDED_GROUPS.filter((g) => g !== 'gov_ids')
+      : EXCLUDED_GROUPS;
+
     const groups: EmployeeProfileGroup[] = PROFILE_GROUPS.filter(
       (g) =>
-        !EXCLUDED_GROUPS.includes(g.key) && appliesTo(g.visible, s.entry_type),
+        !hiddenGroups.includes(g.key) && appliesTo(g.visible, s.entry_type),
     )
       .map((g) => ({
         key: g.key,

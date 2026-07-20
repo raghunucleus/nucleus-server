@@ -21,7 +21,10 @@ import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
 import { GetEmployee } from '../auth/get-employee.decorator';
 import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
-import { SetAllowedForPlacementsDto } from './dto/coordinator-student-query.dto';
+import {
+  NotifyStudentDto,
+  SetAllowedForPlacementsDto,
+} from './dto/coordinator-student-query.dto';
 import { PlacementCoordinatorStudentsAnalyticsService } from './placement-coordinator-students-analytics.service';
 import { PlacementCoordinatorStudentsSearchService } from './placement-coordinator-students-search.service';
 import {
@@ -171,8 +174,9 @@ export class PlacementCoordinatorStudentsController {
   @RequireScreen(KEY, 'view')
   @ApiOperation({
     summary:
-      "An in-batch student's full profile — registry groups, certifications " +
-      'and resume links (government IDs excluded), with completion detail.',
+      "An in-batch student's full profile — every registry group (government " +
+      'IDs included, since this employee verifies the profile), certifications ' +
+      'and resume links, with completion detail.',
   })
   profile(
     @GetEmployee() emp: AuthenticatedEmployee,
@@ -196,5 +200,22 @@ export class PlacementCoordinatorStudentsController {
     @Body() body: SetAllowedForPlacementsDto,
   ) {
     return this.svc.setAllowed(emp.id, payId, studentId, body.allowed);
+  }
+
+  @Post(':studentId/notify')
+  @HttpCode(200)
+  @RequireScreen(KEY, 'edit')
+  @ApiOperation({
+    summary:
+      'Ask an in-batch student to update specific profile fields, with a ' +
+      'custom message, over the chosen channels (in-app / push / email).',
+  })
+  notify(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('studentId', ParseIntPipe) studentId: number,
+    @Query('programme_admission_year_id', ParseIntPipe) payId: number,
+    @Body() body: NotifyStudentDto,
+  ) {
+    return this.svc.notifyProfileUpdate(emp.id, payId, studentId, body);
   }
 }

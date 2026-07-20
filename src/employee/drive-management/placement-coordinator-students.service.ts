@@ -1,9 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ProgrammeAdmissionYearProfileVerifier } from '../../admin/entities/programme-admission-year-profile-verifier.entity';
 import { Student } from '../../admin/entities/student.entity';
 import { displayedAdmissionYear } from '../../common/admission-year';
+import { StudentNotificationService } from '../../student/notification/student-notification.service';
+import { PROFILE_FIELD_LABELS } from '../../student/profile/profile-fields';
 import {
   completionPct,
   computeCompleteness,
@@ -48,6 +54,7 @@ export class PlacementCoordinatorStudentsService {
     @InjectRepository(Student)
     private readonly students: Repository<Student>,
     private readonly profiles: DriveStudentProfileService,
+    private readonly notifications: StudentNotificationService,
   ) {}
 
   /** The (programme × admission year) batches this employee verifies. */
@@ -143,13 +150,18 @@ export class PlacementCoordinatorStudentsService {
 
   /**
    * The full profile of an in-batch student. Reuses the drive surfaces' reader
-   * (same registry groups, government IDs excluded) and re-attaches the
-   * completeness the drive surface deliberately strips — here it's the point
-   * of the screen.
+   * (same registry groups) and re-attaches the completeness the drive surface
+   * deliberately strips — here it's the point of the screen.
+   *
+   * Government IDs ARE included: the coordinator verifies these students'
+   * profiles, so Aadhaar/PAN are part of what they check. The scope is the
+   * verifier table, not an RBAC wildcard, so this is narrower than it looks.
    */
   async profile(employeeId: number, payId: number, studentId: number) {
     const s = await this.assertStudent(employeeId, payId, studentId);
-    const profile = await this.profiles.getProfile(studentId);
+    const profile = await this.profiles.getProfile(studentId, {
+      includeGovIds: true,
+    });
     const completeness = computeCompleteness(s, this.hasResume(s));
     return {
       ...profile,
@@ -186,5 +198,51 @@ export class PlacementCoordinatorStudentsService {
       where: { id: studentId },
     });
     return this.rowView(updated);
+  }
+
+  /**
+   * Ask an in-batch student to fill specific profile fields, with the
+   * coordinator's own message and their choice of channels.
+   *
+   * Awaited rather than fired detached (the pattern the drive-outcome notice
+   * uses): this send IS the coordinator's action, so a failure has to surface
+   * as a failed request instead of a silent success toast.
+   */
+  async notifyProfileUpdate(
+    employeeId: number,
+    payId: number,
+    studentId: number,
+    input: {
+      field_keys: string[];
+      message: string;
+      channels: { in_app: boolean; push: boolean; email: boolean };
+    },
+  ) {
+    await this.assertStudent(employeeId, payId, studentId);
+
+    const labels = input.field_keys.map((key) => {
+      const label = PROFILE_FIELD_LABELS[key];
+      if (!label) throw new BadRequestException(`Unknown field: ${key}`);
+      return label;
+    });
+
+    const title = 'Action needed: update your profile';
+    const body = labels.length
+      ? `${input.message}\n\nFields to update: ${labels.join(', ')}`
+      : input.message;
+
+    await this.notifications.send(
+      studentId,
+      {
+        module: 'profile',
+        type: 'profile-update-request',
+        title,
+        body,
+        target: { type: 'profile' },
+      },
+      { channels: input.channels },
+    );
+
+    return { sent: true, fields: labels };
   }
 }

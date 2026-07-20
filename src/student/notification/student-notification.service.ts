@@ -6,11 +6,14 @@ import {
   type ExpoPushTicket,
 } from 'expo-server-sdk';
 import { In, IsNull, Repository } from 'typeorm';
+import { Student } from '../../admin/entities/student.entity';
+import { MailService } from '../../mail/mail.service';
 import { StudentNotification } from './entities/student-notification.entity';
 import { StudentPushToken } from './entities/student-push-token.entity';
 import { StudentNotificationsGateway } from './student-notification.gateway';
 import type {
   SendStudentNotificationInput,
+  StudentNotificationChannels,
   StudentNotificationDto,
   StudentNotificationsPage,
 } from './student-notification.types';
@@ -47,7 +50,10 @@ export class StudentNotificationService {
     private readonly repo: Repository<StudentNotification>,
     @InjectRepository(StudentPushToken)
     private readonly tokens: Repository<StudentPushToken>,
+    @InjectRepository(Student)
+    private readonly students: Repository<Student>,
     private readonly gateway: StudentNotificationsGateway,
+    private readonly mail: MailService,
   ) {}
 
   /**
@@ -71,11 +77,22 @@ export class StudentNotificationService {
    * the recipient's tray (Android `tag` / iOS `apns-collapse-id`). Use a key
    * that identifies the thread, e.g. `chat-<conversationId>`, and bake any
    * running count into the title/body — only the latest push is visible.
+   *
+   * Pass `channels` to pick the delivery channels explicitly:
+   * `{ in_app, push, email }`. Omit it and you get the default above (in-app +
+   * push, no email); `persist: false` is the long-standing shorthand for
+   * `{ push: true }` and still wins if both are given. Email has no default
+   * because most notifications are too routine to mail — a module opts in when
+   * the message is worth an inbox.
    */
   async send(
     studentId: number | number[],
     input: SendStudentNotificationInput,
-    opts: { persist?: boolean; collapseKey?: string } = {},
+    opts: {
+      persist?: boolean;
+      collapseKey?: string;
+      channels?: StudentNotificationChannels;
+    } = {},
   ): Promise<void> {
     const ids = [
       ...new Set(Array.isArray(studentId) ? studentId : [studentId]),
@@ -83,19 +100,36 @@ export class StudentNotificationService {
     if (ids.length === 0) return;
 
     const target = input.target ?? null;
+    const channels: Required<StudentNotificationChannels> =
+      opts.persist === false
+        ? { in_app: false, push: true, email: false }
+        : {
+            in_app: opts.channels?.in_app ?? true,
+            push: opts.channels?.push ?? true,
+            email: opts.channels?.email ?? false,
+          };
 
-    if (opts.persist === false) {
-      const deliveries: PushDelivery[] = ids.map((id) => ({
-        studentId: id,
-        title: input.title,
-        body: input.body,
-        data: { module: input.module, type: input.type, target },
-        collapseKey: opts.collapseKey,
-      }));
-      // Fire-and-forget: push must never block or reject the caller.
-      void this.pushToStudents(deliveries).catch((err) =>
-        this.logger.error(`Push delivery failed: ${String(err)}`),
+    if (channels.email) {
+      // Detached like push: a bounced address must never fail the caller.
+      void this.emailToStudents(ids, input).catch((err) =>
+        this.logger.error(`Email delivery failed: ${String(err)}`),
       );
+    }
+
+    if (!channels.in_app) {
+      if (channels.push) {
+        const deliveries: PushDelivery[] = ids.map((id) => ({
+          studentId: id,
+          title: input.title,
+          body: input.body,
+          data: { module: input.module, type: input.type, target },
+          collapseKey: opts.collapseKey,
+        }));
+        // Fire-and-forget: push must never block or reject the caller.
+        void this.pushToStudents(deliveries).catch((err) =>
+          this.logger.error(`Push delivery failed: ${String(err)}`),
+        );
+      }
       return;
     }
 
@@ -120,6 +154,8 @@ export class StudentNotificationService {
       );
     }
 
+    if (!channels.push) return;
+
     const deliveries: PushDelivery[] = saved.map((row) => ({
       studentId: row.student_id,
       title: row.title,
@@ -136,6 +172,60 @@ export class StudentNotificationService {
     void this.pushToStudents(deliveries).catch((err) =>
       this.logger.error(`Push delivery failed: ${String(err)}`),
     );
+  }
+
+  /**
+   * Mail the notification to each recipient's best address — the verified
+   * personal email when they have set one (that is the address they actually
+   * read), else the college email, which every student has.
+   *
+   * The link defaults to the notifications inbox rather than a deep link: the
+   * server has no knowledge of client routes, so the one page that can resolve
+   * any `target` does the routing. A sending module that DOES know its client
+   * route may override it with `input.email.url` — the route stays owned by the
+   * module, never by this service.
+   */
+  private async emailToStudents(
+    ids: number[],
+    input: SendStudentNotificationInput,
+  ): Promise<void> {
+    const rows = await this.students.find({
+      where: { id: In(ids) },
+      select: ['id', 'display_name', 'email', 'personal_email'],
+    });
+
+    const email = input.email;
+    const url = email?.url ?? this.notificationsUrl();
+    for (const s of rows) {
+      const to = s.personal_email ?? s.email;
+      if (!to) continue;
+      await this.mail
+        .sendStudentNotification({
+          to,
+          displayName: s.display_name,
+          title: input.title,
+          subject: email?.subject,
+          body: email?.intro ?? input.body,
+          details: email?.details,
+          ctaLabel: email?.ctaLabel,
+          url,
+        })
+        .catch((err) =>
+          this.logger.error(
+            `Notification email to student ${s.id} failed: ${String(err)}`,
+          ),
+        );
+    }
+  }
+
+  /**
+   * Built through `URL` rather than concatenation because STUDENT_APP_URL can
+   * carry a baked-in query string on the shared dev port that must survive.
+   */
+  private notificationsUrl(): string {
+    const url = new URL(process.env.STUDENT_APP_URL || 'http://localhost:5000');
+    url.pathname = '/notifications';
+    return url.toString();
   }
 
   /** A page of the student's notifications, newest first, plus unread total. */
