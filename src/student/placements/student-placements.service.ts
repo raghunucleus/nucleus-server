@@ -33,6 +33,22 @@ export interface PlacementDeniedRow extends PlacementInviteRow {
   rejection_reason: string | null;
 }
 
+/**
+ * What the student was actually selected for — present iff status is SELECTED.
+ * Amounts are per-student figures recorded by the placement cell, NOT the
+ * advertised drive bands: ctc is in LPA, stipend in ₹/month, and the main
+ * column holds the fixed value or the range MAX (`_min` null ⇒ fixed amount).
+ * Rows selected before this data was captured have every field null.
+ */
+export interface PlacementSelection {
+  drive_profile_id: number | null;
+  designation: string | null;
+  ctc: string | null;
+  ctc_min: string | null;
+  stipend: string | null;
+  stipend_min: string | null;
+}
+
 export interface PlacementDriveRecordRow extends PlacementDriveCard {
   status: number;
   invited_at: Date | null;
@@ -43,6 +59,7 @@ export interface PlacementDriveRecordRow extends PlacementDriveCard {
   rejection_reason: string | null;
   /** Only meaningful when status is REVOKED: true = revoked after accepting. */
   revoked_from_accepted: boolean | null;
+  selection: PlacementSelection | null;
 }
 
 /**
@@ -57,7 +74,8 @@ export interface PlacementHistoryEvent {
     | 'accepted'
     | 'denied'
     | 'outcome'
-    | 'revoked';
+    | 'revoked'
+    | 'selection_updated';
   to_status: number;
   by: 'you' | 'placement_cell';
   reason: string | null;
@@ -151,6 +169,7 @@ export class StudentPlacementsService {
           r.status === DRIVE_STUDENT_STATUS.REVOKED
             ? r.responded_at != null
             : null,
+        selection: selectionOf(r),
       })),
     );
     items.sort(byDateDesc(lastActivity));
@@ -165,6 +184,7 @@ export class StudentPlacementsService {
   async driveDetail(studentId: number, driveId: number) {
     const membership = await this.members.findOne({
       where: { student_id: studentId, drive_id: driveId },
+      relations: { selected_drive_profile: { designation: true } },
     });
     if (!membership || membership.status < DRIVE_STUDENT_STATUS.INVITED) {
       throw new NotFoundException('Drive not found.');
@@ -205,6 +225,7 @@ export class StudentPlacementsService {
         responded_at: membership.responded_at,
         rejection_reason: membership.rejection_reason,
         outcome_marked_at: membership.outcome_marked_at,
+        selection: selectionOf(membership),
       },
       history,
     };
@@ -298,6 +319,7 @@ export class StudentPlacementsService {
       where: { student_id: studentId, status: In(statuses) },
       relations: {
         drive: { company: true, offer_type: true, job_locations: true },
+        selected_drive_profile: { designation: true },
       },
     });
   }
@@ -327,6 +349,23 @@ export class StudentPlacementsService {
       drive_date: d.drive_date,
     };
   }
+}
+
+/**
+ * Selection details, only ever revealed on a SELECTED row. The designation may
+ * be null even on a fresh selection (profile deleted after the fact — the FK
+ * is SET NULL while the package columns survive).
+ */
+function selectionOf(r: DriveStudent): PlacementSelection | null {
+  if (r.status !== DRIVE_STUDENT_STATUS.SELECTED) return null;
+  return {
+    drive_profile_id: r.selected_drive_profile_id,
+    designation: r.selected_drive_profile?.designation?.name ?? null,
+    ctc: r.ctc,
+    ctc_min: r.ctc_min,
+    stipend: r.stipend,
+    stipend_min: r.stipend_min,
+  };
 }
 
 function byDateDesc<T>(pick: (row: T) => Date | null) {
