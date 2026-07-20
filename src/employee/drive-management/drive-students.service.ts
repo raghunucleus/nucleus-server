@@ -989,6 +989,11 @@ export class DriveStudentsService {
   /**
    * The pickable export columns: the drive's own lifecycle fields plus every
    * selectable student attribute, in one payload so the picker is one fetch.
+   *
+   * `student_id` and `display_name` need no special casing — they are implicit
+   * RESULT columns but also ordinary registry attributes, so the selectable
+   * filter already yields them. (Only `id` is implicit without being an
+   * attribute, and it is not worth exporting.)
    */
   exportColumns(surface: Surface): DriveStudentsExportColumns {
     const meta = this.engine.meta(surface);
@@ -1009,20 +1014,6 @@ export class DriveStudentsService {
             group: a.group,
             kind: a.kind,
           })),
-        // Implicit student columns aren't registry attributes but are the two
-        // columns every shortlist starts with, so they must be pickable.
-        {
-          key: 'student_id',
-          label: 'Roll number',
-          group: 'identity',
-          kind: 'string',
-        },
-        {
-          key: 'display_name',
-          label: 'Full name',
-          group: 'identity',
-          kind: 'string',
-        },
       ],
       defaultColumns: [...DEFAULT_DRIVE_EXPORT_COLUMNS],
     };
