@@ -9,7 +9,22 @@ import { StorageService } from '../../storage/storage.service';
 import { StudentNotificationService } from '../../student/notification/student-notification.service';
 import { StudentApprovalsSyncService } from '../../student/approvals/student-approvals-sync.service';
 import { StudentSearchDto } from '../../student-query/dto/student-search.dto';
+import {
+  exportFilename,
+  rowsToCsv,
+  rowsToXlsx,
+} from '../../student-query/export';
+import { Surface } from '../../student-query/registry/types';
 import { StudentQueryService } from '../../student-query/student-query.service';
+import { ExportJobsService } from '../exports/export-jobs.service';
+import {
+  DEFAULT_DRIVE_EXPORT_COLUMNS,
+  DRIVE_EXPORT_COLUMNS,
+  DRIVE_EXPORT_COLUMN_BY_KEY,
+  DRIVE_EXPORT_GROUP,
+  DRIVE_EXPORT_KEY_PREFIX,
+  driveColumnMeta,
+} from './drive-students-export-columns';
 import {
   DriveStudentProfile,
   DriveStudentProfileService,
@@ -35,6 +50,24 @@ const MAX_IMPORT_ALL = MAX_IMPORT_STUDENT_IDS;
 /** Hard cap on the `all=1` (load-all, used by the grouped view) list mode.
  *  `total` stays exact, so clients can tell the result was truncated. */
 const DRIVE_STUDENTS_ALL_CAP = 2000;
+
+/** Ceiling on a shortlist export. Far above any real drive — this exists to
+ *  stop a runaway job, not to shape normal use. */
+const MAX_EXPORT_ROWS = 50_000;
+
+/** One pickable export column, as the picker renders it. */
+export interface DriveStudentsExportColumn {
+  key: string;
+  label: string;
+  group: string;
+  kind: string;
+}
+
+export interface DriveStudentsExportColumns {
+  groups: ReadonlyArray<{ key: string; label: string }>;
+  columns: DriveStudentsExportColumn[];
+  defaultColumns: string[];
+}
 
 export interface DriveImportSummary {
   /** Newly added to the drive by this call. */
@@ -128,6 +161,35 @@ export interface DriveStudentsPage {
   pageCount: number;
 }
 
+/** Raw roster projection — `DriveStudentRow` before numeric coercion. */
+type DriveRosterRaw = Omit<
+  DriveStudentRow,
+  'id' | 'programme_id' | 'pass_out_year' | 'entry_type' | 'status'
+> & {
+  id: number;
+  programme_id: number | null;
+  pass_out_year: number | null;
+  entry_type: number;
+  status: number;
+};
+
+/**
+ * The Students tab's filter state. The list and the export take the SAME
+ * options object, which is what guarantees a download matches the screen.
+ */
+export interface DriveStudentsListOpts {
+  search?: string;
+  status?: number;
+  programmeIds?: number[];
+  passoutYears?: number[];
+  entryType?: number;
+  /** Load-all mode (grouped view): ignore paging, capped at
+   *  {@link DRIVE_STUDENTS_ALL_CAP} rows. List-only — the export has its own
+   *  ceiling. */
+  all?: boolean;
+  studentScope?: DriveStudentScope;
+}
+
 /** Distinct filterable values actually present among a drive's students. */
 export interface DriveStudentFilterOptions {
   programmes: { id: number; name: string }[];
@@ -196,6 +258,7 @@ export class DriveStudentsService {
     private readonly approvalsSync: StudentApprovalsSyncService,
     private readonly profiles: DriveStudentProfileService,
     private readonly storage: StorageService,
+    private readonly jobs: ExportJobsService,
   ) {}
 
   /** Restrict a `students s`-joined query to the caller's RBAC scope. */
@@ -739,7 +802,8 @@ export class DriveStudentsService {
   }
 
   /**
-   * The drive's shortlist for the Students tab.
+   * The Students tab's filtered row set — shared verbatim by {@link list} and
+   * {@link export_}, so an export can never disagree with what's on screen.
    *
    * `studentScope`, when given, restricts rows (and the count) to students
    * within the caller's accessible programmes/passout years — the
@@ -747,26 +811,10 @@ export class DriveStudentsService {
    * screen passes nothing. `'all'` on an axis drops that filter; callers must
    * short-circuit `[]` (no access) before calling.
    */
-  async list(
+  private buildListQuery(
     driveId: number,
-    opts: {
-      page: number;
-      pageSize: number;
-      search?: string;
-      status?: number;
-      programmeIds?: number[];
-      passoutYears?: number[];
-      entryType?: number;
-      /** Load-all mode (grouped view): ignore paging, capped at
-       *  {@link DRIVE_STUDENTS_ALL_CAP} rows. */
-      all?: boolean;
-      studentScope?: DriveStudentScope;
-    },
-  ): Promise<DriveStudentsPage> {
-    await this.assertDrive(driveId);
-    const page = Math.max(1, opts.page);
-    const pageSize = Math.min(100, Math.max(1, opts.pageSize));
-
+    opts: DriveStudentsListOpts,
+  ): SelectQueryBuilder<DriveStudent> {
     const qb = this.repo
       .createQueryBuilder('ds')
       .innerJoin('students', 's', 's.id = ds.student_id')
@@ -804,10 +852,14 @@ export class DriveStudentsService {
     if (opts.entryType !== undefined) {
       qb.andWhere('s.entry_type = :fEntryType', { fEntryType: opts.entryType });
     }
+    return qb;
+  }
 
-    const total = await qb.getCount();
-
-    const raw = await qb
+  /** The roster projection + its stable ordering, shared by list and export. */
+  private applyRosterSelect(
+    qb: SelectQueryBuilder<DriveStudent>,
+  ): SelectQueryBuilder<DriveStudent> {
+    return qb
       .select('ds.student_id', 'id')
       .addSelect('s.student_id', 'roll_no')
       .addSelect('s.display_name', 'display_name')
@@ -829,31 +881,26 @@ export class DriveStudentsService {
       .addSelect('ds.stipend', 'stipend')
       .addSelect('ds.stipend_min', 'stipend_min')
       .orderBy('ds.imported_at', 'DESC')
-      .addOrderBy('ds.student_id', 'DESC')
+      .addOrderBy('ds.student_id', 'DESC');
+  }
+
+  /** The drive's shortlist for the Students tab. */
+  async list(
+    driveId: number,
+    opts: DriveStudentsListOpts & { page: number; pageSize: number },
+  ): Promise<DriveStudentsPage> {
+    await this.assertDrive(driveId);
+    const page = Math.max(1, opts.page);
+    const pageSize = Math.min(100, Math.max(1, opts.pageSize));
+
+    const qb = this.buildListQuery(driveId, opts);
+
+    const total = await qb.getCount();
+
+    const raw = await this.applyRosterSelect(qb)
       .offset(opts.all ? 0 : (page - 1) * pageSize)
       .limit(opts.all ? DRIVE_STUDENTS_ALL_CAP : pageSize)
-      .getRawMany<{
-        id: number;
-        roll_no: string;
-        display_name: string;
-        programme: string | null;
-        programme_id: number | null;
-        pass_out_year: number | null;
-        entry_type: number;
-        imported_at: Date;
-        imported_by: string | null;
-        status: number;
-        invited_at: Date | null;
-        responded_at: Date | null;
-        rejection_reason: string | null;
-        outcome_marked_at: Date | null;
-        selected_drive_profile_id: number | null;
-        selected_designation: string | null;
-        ctc: string | null;
-        ctc_min: string | null;
-        stipend: string | null;
-        stipend_min: string | null;
-      }>();
+      .getRawMany<DriveRosterRaw>();
 
     return {
       rows: raw.map((r) => ({
@@ -862,8 +909,7 @@ export class DriveStudentsService {
         display_name: r.display_name,
         programme: r.programme,
         programme_id: r.programme_id == null ? null : Number(r.programme_id),
-        pass_out_year:
-          r.pass_out_year == null ? null : Number(r.pass_out_year),
+        pass_out_year: r.pass_out_year == null ? null : Number(r.pass_out_year),
         entry_type: Number(r.entry_type),
         imported_at: r.imported_at,
         imported_by: r.imported_by,
@@ -887,6 +933,173 @@ export class DriveStudentsService {
       pageSize: opts.all ? DRIVE_STUDENTS_ALL_CAP : pageSize,
       pageCount: opts.all ? 1 : Math.max(1, Math.ceil(total / pageSize)),
     };
+  }
+
+  // ---------------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------------
+
+  /**
+   * The pickable export columns: the drive's own lifecycle fields plus every
+   * selectable student attribute, in one payload so the picker is one fetch.
+   */
+  exportColumns(surface: Surface): DriveStudentsExportColumns {
+    const meta = this.engine.meta(surface);
+    return {
+      groups: [DRIVE_EXPORT_GROUP, ...meta.groups],
+      columns: [
+        ...DRIVE_EXPORT_COLUMNS.map((c) => ({
+          key: c.key,
+          label: c.label,
+          group: DRIVE_EXPORT_GROUP.key,
+          kind: c.kind,
+        })),
+        ...meta.attributes
+          .filter((a) => a.selectable)
+          .map((a) => ({
+            key: a.key,
+            label: a.label,
+            group: a.group,
+            kind: a.kind,
+          })),
+        // Implicit student columns aren't registry attributes but are the two
+        // columns every shortlist starts with, so they must be pickable.
+        {
+          key: 'student_id',
+          label: 'Roll number',
+          group: 'identity',
+          kind: 'string',
+        },
+        {
+          key: 'display_name',
+          label: 'Full name',
+          group: 'identity',
+          kind: 'string',
+        },
+      ],
+      defaultColumns: [...DEFAULT_DRIVE_EXPORT_COLUMNS],
+    };
+  }
+
+  /**
+   * Queue a spreadsheet of the drive's shortlist, exactly as filtered on the
+   * Students tab, with caller-chosen columns in caller-chosen order.
+   *
+   * Two engines feed one sheet: `drive.*` columns come from the roster query
+   * (which already carries them), student columns from
+   * {@link StudentQueryService.hydrateIds}. Row order is the roster's, so the
+   * file matches the screen top to bottom.
+   */
+  async export_(
+    employeeId: number,
+    driveId: number,
+    opts: DriveStudentsListOpts,
+    dto: { columns?: string[]; format: 'csv' | 'xlsx' },
+    surface: Surface = 'employee',
+  ): Promise<{ job_id: number }> {
+    const drive = await this.assertDrive(driveId);
+    const { format } = dto;
+
+    const columns = dto.columns?.length
+      ? [...new Set(dto.columns)]
+      : [...DEFAULT_DRIVE_EXPORT_COLUMNS];
+
+    // Split on the namespace, PRESERVING the caller's order in `columns` —
+    // that array alone decides the sheet's layout; these two are just routing.
+    const driveKeys = columns.filter((k) =>
+      k.startsWith(DRIVE_EXPORT_KEY_PREFIX),
+    );
+    const studentKeys = columns.filter(
+      (k) => !k.startsWith(DRIVE_EXPORT_KEY_PREFIX),
+    );
+    const unknown = driveKeys.filter((k) => !DRIVE_EXPORT_COLUMN_BY_KEY.has(k));
+    if (unknown.length > 0) {
+      throw new BadRequestException(
+        `Unknown export column(s): ${unknown.join(', ')}.`,
+      );
+    }
+
+    // Bound the result set synchronously — a request too large to export must
+    // fail the HTTP call, not a background job the user waits on.
+    const total = await this.buildListQuery(driveId, opts).getCount();
+    if (total > MAX_EXPORT_ROWS) {
+      throw new BadRequestException(
+        `Too many students to export (${total} rows, max ${MAX_EXPORT_ROWS.toLocaleString('en-US')}). Narrow the filters.`,
+      );
+    }
+
+    // The closure snapshots everything — a drive edited or deleted mid-job
+    // doesn't change the file.
+    const snapshot = { driveId, opts, columns, driveKeys, studentKeys };
+    return this.jobs
+      .create({
+        employeeId,
+        source: 'drive_students_tab',
+        label: `Shortlist — ${drive.drive_name}`,
+        context: { drive_id: driveId },
+        format,
+        filename: exportFilename(format),
+        generate: () => this.buildExportFile(snapshot, format, surface),
+      })
+      .then(({ id }) => ({ job_id: id }));
+  }
+
+  private async buildExportFile(
+    snap: {
+      driveId: number;
+      opts: DriveStudentsListOpts;
+      columns: string[];
+      driveKeys: string[];
+      studentKeys: string[];
+    },
+    format: 'csv' | 'xlsx',
+    surface: Surface,
+  ): Promise<{ buffer: Buffer; rowCount: number }> {
+    const roster = await this.applyRosterSelect(
+      this.buildListQuery(snap.driveId, snap.opts),
+    )
+      .limit(MAX_EXPORT_ROWS)
+      .getRawMany<DriveRosterRaw>();
+
+    const studentIds = roster.map((r) => Number(r.id));
+    const hydrated = await this.engine.hydrateIds(
+      studentIds,
+      snap.studentKeys,
+      surface,
+    );
+    const studentRowById = new Map(hydrated.rows.map((r) => [Number(r.id), r]));
+
+    const rows = roster.map((r) => {
+      const out: Record<string, unknown> = {
+        ...(studentRowById.get(Number(r.id)) ?? {}),
+      };
+      for (const key of snap.driveKeys) {
+        out[key] = (r as Record<string, unknown>)[
+          DRIVE_EXPORT_COLUMN_BY_KEY.get(key)!.raw
+        ];
+      }
+      return out;
+    });
+
+    const meta = driveColumnMeta();
+    // Give the two resume columns their short click-through labels — the URL
+    // itself never appears in the cell.
+    meta.set('resume_nucleus_url', {
+      label: 'Resume (Nucleus)',
+      kind: 'link',
+      linkText: 'Resume',
+    });
+    meta.set('resume_external_url', {
+      label: 'Resume (external link)',
+      kind: 'link',
+      linkText: 'Link',
+    });
+
+    const buffer =
+      format === 'csv'
+        ? rowsToCsv(snap.columns, rows, meta)
+        : await rowsToXlsx(snap.columns, rows, meta);
+    return { buffer, rowCount: rows.length };
   }
 
   /**

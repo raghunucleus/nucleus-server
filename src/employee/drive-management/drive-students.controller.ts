@@ -20,6 +20,7 @@ import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { GetEmployee } from '../auth/get-employee.decorator';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { DriveStudentsService } from './drive-students.service';
+import { ExportDriveStudentsDto } from './dto/export-drive-students.dto';
 import { ImportDriveStudentsDto } from './dto/import-drive-students.dto';
 import { InviteDriveStudentsDto } from './dto/invite-drive-students.dto';
 import { MarkDriveStudentOutcomeDto } from './dto/mark-drive-student-outcome.dto';
@@ -99,6 +100,48 @@ export class DriveStudentsController {
   })
   filterOptions(@Param('driveId', ParseIntPipe) driveId: number) {
     return this.svc.filterOptions(driveId);
+  }
+
+  // `roster/*` and NOT `export/*`: DriveStudentsSearchController owns
+  // `POST students/export` (the Filter tab's search export) on this same base
+  // route, and two @Post('export') would silently shadow one another.
+  @Get('roster/export/columns')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "The pickable export columns — the drive's lifecycle fields plus every " +
+      'selectable student attribute, with the default selection.',
+  })
+  exportColumns() {
+    return this.svc.exportColumns('employee');
+  }
+
+  @Post('roster/export')
+  @HttpCode(200)
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "Queue a spreadsheet of the drive's shortlist as currently filtered, " +
+      'with caller-chosen columns in caller-chosen order. Returns a job id — ' +
+      'poll /employee/exports for the file.',
+  })
+  export_(
+    @GetEmployee() e: AuthenticatedEmployee,
+    @Param('driveId', ParseIntPipe) driveId: number,
+    @Body() dto: ExportDriveStudentsDto,
+  ) {
+    return this.svc.export_(
+      e.id,
+      driveId,
+      {
+        search: dto.search,
+        status: dto.status,
+        programmeIds: dto.programme_ids?.length ? dto.programme_ids : undefined,
+        passoutYears: dto.passout_years?.length ? dto.passout_years : undefined,
+        entryType: dto.entry_type,
+      },
+      { columns: dto.columns, format: dto.format },
+    );
   }
 
   @Post('import')

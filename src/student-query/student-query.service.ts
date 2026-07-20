@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Brackets,
@@ -30,8 +31,14 @@ import {
   operatorsFor,
 } from './registry/student-attributes';
 import {
+  buildResumeHostedUrl,
+  mintResumeToken,
+  resumeApiBase,
+} from '../student/profile/resume-link';
+import {
   AttributeDef,
   FK_LOOKUPS,
+  HydratorId,
   JoinId,
   Operator,
   Surface,
@@ -89,6 +96,7 @@ export class StudentQueryService {
     @InjectRepository(Student)
     private readonly students: Repository<Student>,
     private readonly dataSource: DataSource,
+    private readonly config: ConfigService,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -560,6 +568,43 @@ export class StudentQueryService {
   // Hydration & row mapping
   // ---------------------------------------------------------------------
 
+  /**
+   * Hydrate an explicit, already-ordered list of student ids.
+   *
+   * For callers that own their own filtering and ordering and only want the
+   * registry's column machinery — currently the drive Students tab export,
+   * whose row set comes from `drive_students`, not from a student search. The
+   * returned `columns` preserve the requested order verbatim (no implicit
+   * columns are prepended); the caller decides what the sheet looks like.
+   */
+  async hydrateIds(
+    ids: number[],
+    columnKeys: string[],
+    surface: Surface,
+  ): Promise<{ columns: string[]; rows: Array<Record<string, unknown>> }> {
+    // Empty means "no student columns wanted" here, NOT resolveColumns'
+    // DEFAULT_COLUMNS fallback — an export of drive-only columns is valid.
+    if (columnKeys.length === 0) return { columns: [], rows: [] };
+
+    const issues: ValidationIssue[] = [];
+    const defs = this.resolveColumns(columnKeys, surface, issues);
+    if (issues.length > 0) {
+      throw new BadRequestException({
+        message: 'Invalid columns.',
+        issues,
+      });
+    }
+    // resolveColumns drops implicit keys (they're always selected anyway) —
+    // put them back where the caller asked for them.
+    const requested = [...new Set(columnKeys)].filter(
+      (k) =>
+        (IMPLICIT_COLUMNS as readonly string[]).includes(k) ||
+        defs.some((d) => d.key === k),
+    );
+    if (ids.length === 0) return { columns: requested, rows: [] };
+    return { columns: requested, rows: await this.hydrate(ids, defs) };
+  }
+
   private async hydrate(
     pageIds: number[],
     columns: AttributeDef[],
@@ -622,17 +667,25 @@ export class StudentQueryService {
     });
   }
 
-  /** Page-level multi-value hydrators (never row-multiplying joins). */
+  /** Page-level hydrators (never row-multiplying joins). */
   private async runHydrators(
     ids: number[],
     rows: Array<Record<string, unknown>>,
     columns: AttributeDef[],
   ): Promise<void> {
     if (ids.length === 0) return;
-    const wantsCerts = columns.some(
-      (c) => c.select && isHydrateFacet(c.select),
-    );
-    if (!wantsCerts) return;
+    const wanted = new Set<HydratorId>();
+    for (const c of columns) {
+      if (c.select && isHydrateFacet(c.select)) wanted.add(c.select.hydrate);
+    }
+    if (wanted.has('certifications')) await this.hydrateCerts(ids, rows);
+    if (wanted.has('resume_link')) await this.hydrateResumeLinks(ids, rows);
+  }
+
+  private async hydrateCerts(
+    ids: number[],
+    rows: Array<Record<string, unknown>>,
+  ): Promise<void> {
     const certRows: Array<{ student_id: number; name: string }> =
       await this.dataSource.query(
         `SELECT sic.student_id, ic.name
@@ -650,6 +703,58 @@ export class StudentQueryService {
     }
     for (const row of rows) {
       row.industry_certifications = byStudent.get(Number(row.id)) ?? [];
+    }
+  }
+
+  /**
+   * Build the permanent public resume URL, minting share tokens for students
+   * who never had one.
+   *
+   * Tokens are normally minted lazily when a profile is read
+   * ({@link StudentResumeService}), so without this backfill a bulk export's
+   * resume column would silently depend on who happened to have been viewed
+   * before — half the rows blank for no visible reason. Students with no
+   * uploaded file get null; that's a genuine "no resume", not a missing token.
+   */
+  private async hydrateResumeLinks(
+    ids: number[],
+    rows: Array<Record<string, unknown>>,
+  ): Promise<void> {
+    const students: Array<{
+      id: number;
+      resume_key: string | null;
+      resume_public_token: string | null;
+    }> = await this.dataSource.query(
+      `SELECT id, resume_key, resume_public_token
+         FROM students
+        WHERE id = ANY($1) AND resume_key IS NOT NULL`,
+      [ids],
+    );
+
+    const base = resumeApiBase(this.config);
+    const urlByStudent = new Map<number, string>();
+    const minted: Array<[number, string]> = [];
+    for (const s of students) {
+      const token = s.resume_public_token ?? mintResumeToken();
+      if (!s.resume_public_token) minted.push([Number(s.id), token]);
+      urlByStudent.set(Number(s.id), buildResumeHostedUrl(base, token));
+    }
+
+    // Persist the fresh tokens so the exported links keep resolving. Single
+    // statement; this only ever touches the never-viewed backlog and drains
+    // to zero.
+    if (minted.length > 0) {
+      await this.dataSource.query(
+        `UPDATE students AS s
+            SET resume_public_token = v.token
+           FROM (SELECT UNNEST($1::int[]) AS id, UNNEST($2::text[]) AS token) v
+          WHERE s.id = v.id AND s.resume_public_token IS NULL`,
+        [minted.map(([id]) => id), minted.map(([, t]) => t)],
+      );
+    }
+
+    for (const row of rows) {
+      row.resume_nucleus_url = urlByStudent.get(Number(row.id)) ?? null;
     }
   }
 

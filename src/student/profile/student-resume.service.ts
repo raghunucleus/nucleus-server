@@ -9,13 +9,17 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'crypto';
 import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { Student } from '../../admin/entities/student.entity';
 import { REDIS_CLIENT } from '../../redis/redis.module';
 import { storageKey } from '../../storage/storage.constants';
 import { StorageService } from '../../storage/storage.service';
+import {
+  buildResumeHostedUrl,
+  mintResumeToken,
+  resumeApiBase,
+} from './resume-link';
 
 export const RESUME_MAX_BYTES = 2 * 1024 * 1024; // < 2 MB, spec'd
 
@@ -76,10 +80,7 @@ export class StudentResumeService {
   ) {}
 
   private hostedUrlFor(token: string): string {
-    const base =
-      this.config.get<string>('API_PUBLIC_BASE_URL') ||
-      `http://localhost:${this.config.get<string>('PORT', '3000')}`;
-    return `${base.replace(/\/+$/, '')}/public/resumes/${token}`;
+    return buildResumeHostedUrl(resumeApiBase(this.config), token);
   }
 
   /**
@@ -89,7 +90,7 @@ export class StudentResumeService {
    */
   private async ensureToken(student: Student): Promise<string> {
     if (student.resume_public_token) return student.resume_public_token;
-    const token = randomBytes(24).toString('base64url');
+    const token = mintResumeToken();
     student.resume_public_token = token;
     await this.students.update(
       { id: student.id },

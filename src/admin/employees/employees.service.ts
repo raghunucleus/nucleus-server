@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, In, Repository } from 'typeorm';
 import { EmployeeAuthService } from '../../employee/auth/employee-auth.service';
 import type { EmployeesSortField } from '../dto/list-employees.dto';
 import { Department } from '../entities/department.entity';
@@ -95,6 +95,7 @@ export class EmployeesService {
     pageSize: number;
     sortBy: EmployeesSortField;
     sortOrder: 'asc' | 'desc';
+    q?: string;
     empCodeSearch?: string;
     displayNameSearch?: string;
     emailSearch?: string;
@@ -109,6 +110,19 @@ export class EmployeesService {
       .createQueryBuilder('e')
       .leftJoinAndSelect('e.department', 'department')
       .leftJoinAndSelect('e.designation', 'designation');
+
+    // Single-box typeahead used by the employee pickers. OR-matched so one
+    // keystroke stream can find a person by code, name, or email.
+    if (opts.q) {
+      const q = `%${opts.q.toLowerCase()}%`;
+      qb.andWhere(
+        new Brackets((w) => {
+          w.where('LOWER(e.emp_code) LIKE :q', { q })
+            .orWhere('LOWER(e.emp_display_name) LIKE :q', { q })
+            .orWhere('LOWER(e.email) LIKE :q', { q });
+        }),
+      );
+    }
 
     if (opts.empCodeSearch) {
       qb.andWhere('LOWER(e.emp_code) LIKE :ec', {

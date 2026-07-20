@@ -28,6 +28,9 @@ export const ListEmployeesSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
   sortBy: z.enum(EMPLOYEES_SORT_FIELDS).default('created_at'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
+  // Single-box typeahead: OR-matched across emp_code / display name / email.
+  // The per-column searches below stay for the employees table's column filters.
+  q: optionalSearchString,
   empCodeSearch: optionalSearchString,
   displayNameSearch: optionalSearchString,
   emailSearch: optionalSearchString,

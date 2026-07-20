@@ -1,8 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -14,6 +17,7 @@ import { GetEmployee } from '../auth/get-employee.decorator';
 import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { CoordinatorDriveQueryDto } from './dto/coordinator-drive-query.dto';
+import { ExportDriveStudentsDto } from './dto/export-drive-students.dto';
 import {
   COORDINATOR_SCREEN_KEY as KEY,
   PlacementCoordinatorDrivesService,
@@ -21,10 +25,14 @@ import {
 
 /**
  * The Placement Coordinator's drives surface — the RBAC-scoped, READ-ONLY
- * counterpart of `DrivesController`. Deliberately GET-only: a coordinator can
- * see the drives overlapping their assigned programmes/passout years (and only
- * the students within that scope), never mutate them. Analytics is omitted —
- * its aggregates aren't student-scoped yet.
+ * counterpart of `DrivesController`. Read-only: a coordinator can see the
+ * drives overlapping their assigned programmes/passout years (and only the
+ * students within that scope), never mutate them. Analytics is omitted — its
+ * aggregates aren't student-scoped yet.
+ *
+ * The single POST (`students/export`) is the one exception to GET-only, and it
+ * mutates nothing here either — it queues a read into an export job, POST only
+ * because the column list is too big for a query string.
  *
  * Literal routes are declared before `:id` so those segments aren't swallowed
  * by the param route.
@@ -149,6 +157,47 @@ export class PlacementCoordinatorDrivesController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.svc.studentFilterOptions(emp.id, id);
+  }
+
+  // `roster/*` mirrors the manage surface's path, where `students/export` is
+  // already taken by the Filter tab's search export.
+  @Get(':id/students/roster/export/columns')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "The pickable export columns — the drive's lifecycle fields plus every " +
+      'selectable student attribute, with the default selection.',
+  })
+  studentExportColumns() {
+    return this.svc.studentExportColumns();
+  }
+
+  @Post(':id/students/roster/export')
+  @HttpCode(200)
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "Queue a spreadsheet of the drive's shortlist as currently filtered, " +
+      "limited to the coordinator's scope. Returns a job id — poll " +
+      '/employee/exports for the file.',
+  })
+  studentsExport(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ExportDriveStudentsDto,
+  ) {
+    return this.svc.studentsExport(
+      emp.id,
+      id,
+      {
+        search: dto.search,
+        status: dto.status,
+        programmeIds: dto.programme_ids?.length ? dto.programme_ids : undefined,
+        passoutYears: dto.passout_years?.length ? dto.passout_years : undefined,
+        entryType: dto.entry_type,
+      },
+      { columns: dto.columns, format: dto.format },
+    );
   }
 
   @Get(':id/students/:studentId/track')

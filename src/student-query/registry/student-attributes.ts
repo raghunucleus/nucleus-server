@@ -304,6 +304,27 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
     },
   },
   col('resume_uploaded_at', 'Resume uploaded at', 'academic', 'date'),
+  {
+    // The two resume sources are PEERS and stay two separate columns — a
+    // recruiter reading an export needs to know which one is missing, which a
+    // single coalesced column would hide.
+    //
+    // Hydrated rather than selected: the stored value is a share token (and is
+    // minted lazily), so the hydrator both heals missing tokens and builds the
+    // public URL. Select-only — a URL is not something to filter or sort on.
+    key: 'resume_nucleus_url',
+    label: 'Resume (Nucleus)',
+    group: 'academic',
+    kind: 'link',
+    select: { hydrate: 'resume_link' },
+  },
+  {
+    key: 'resume_external_url',
+    label: 'Resume (external link)',
+    group: 'academic',
+    kind: 'link',
+    select: { expr: 's.resume_external_url' },
+  },
 
   // --- certifications -----------------------------------------------------
   {

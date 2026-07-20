@@ -23,7 +23,16 @@ function makeService(): StudentQueryService {
       throw new Error('dataSource must not be touched by validation tests');
     },
   };
-  return new StudentQueryService(repo as never, dataSource as never);
+  const config = {
+    get: () => {
+      throw new Error('config must not be touched by validation tests');
+    },
+  };
+  return new StudentQueryService(
+    repo as never,
+    dataSource as never,
+    config as never,
+  );
 }
 
 function dto(body: Record<string, unknown>): StudentSearchDto {

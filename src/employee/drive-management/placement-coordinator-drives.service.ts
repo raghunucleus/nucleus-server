@@ -150,6 +150,48 @@ export class PlacementCoordinatorDrivesService {
     });
   }
 
+  /** The pickable export columns — identical on both drive surfaces. */
+  studentExportColumns() {
+    return this.driveStudents.exportColumns('employee');
+  }
+
+  /**
+   * Queue a Students tab export, scoped exactly like {@link students}.
+   *
+   * The RBAC studentScope is applied inside the job's own query, so a
+   * coordinator's file can never contain a programme or passout year they
+   * can't see on screen.
+   */
+  async studentsExport(
+    employeeId: number,
+    driveId: number,
+    opts: {
+      search?: string;
+      status?: number;
+      programmeIds?: number[];
+      passoutYears?: number[];
+      entryType?: number;
+    },
+    dto: { columns?: string[]; format: 'csv' | 'xlsx' },
+  ) {
+    const scope = await this.assertVisible(
+      driveId,
+      await this.resolveScope(employeeId),
+    );
+    return this.driveStudents.export_(
+      employeeId,
+      driveId,
+      {
+        ...opts,
+        studentScope: {
+          programmeIds: scope.programmeIds,
+          passoutYears: scope.passoutYears,
+        },
+      },
+      dto,
+    );
+  }
+
   /** Filter dropdown options for the Students tab, within the scope. */
   async studentFilterOptions(employeeId: number, driveId: number) {
     const scope = await this.assertVisible(

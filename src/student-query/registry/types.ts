@@ -31,7 +31,19 @@ export const OPERATORS = [
 ] as const;
 export type Operator = (typeof OPERATORS)[number];
 
-export type AttrKind = 'string' | 'number' | 'boolean' | 'date' | 'enum' | 'fk';
+/**
+ * `link` is select-only: a URL-valued column that renders as a short clickable
+ * label in XLSX and as the raw URL in CSV. It carries no filter/sort facet, so
+ * it never reaches the operator machinery.
+ */
+export type AttrKind =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'enum'
+  | 'fk'
+  | 'link';
 
 export const DEFAULT_OPERATORS: Record<AttrKind, readonly Operator[]> = {
   string: [
@@ -72,6 +84,7 @@ export const DEFAULT_OPERATORS: Record<AttrKind, readonly Operator[]> = {
   boolean: ['eq', 'is_null', 'not_null'],
   enum: ['eq', 'neq', 'in', 'not_in', 'is_null', 'not_null'],
   fk: ['eq', 'neq', 'in', 'not_in', 'is_null', 'not_null'],
+  link: [],
 };
 
 /** Ids of the label joins the engine may add for select/sort facets. */
@@ -171,15 +184,21 @@ export function isExistsFacet(f: FilterFacet): f is ExistsFacet {
 }
 
 /**
- * Select facet: either a SQL expression (aliased to the attr key in the raw
- * select) or a named page-level hydrator for multi-value output (one extra
- * query per page, never a row-multiplying join).
+ * Named page-level hydrators — one extra query per page, never a
+ * row-multiplying join. Used for multi-value output (`certifications`) and for
+ * values that need post-processing the SQL select can't do (`resume_link`
+ * mints missing share tokens and builds the public URL).
  */
-export type SelectFacet = SqlFacet | { hydrate: 'certifications' };
+export const HYDRATORS = ['certifications', 'resume_link'] as const;
+export type HydratorId = (typeof HYDRATORS)[number];
 
-export function isHydrateFacet(
-  f: SelectFacet,
-): f is { hydrate: 'certifications' } {
+/**
+ * Select facet: either a SQL expression (aliased to the attr key in the raw
+ * select) or a named page-level hydrator.
+ */
+export type SelectFacet = SqlFacet | { hydrate: HydratorId };
+
+export function isHydrateFacet(f: SelectFacet): f is { hydrate: HydratorId } {
   return 'hydrate' in f;
 }
 
