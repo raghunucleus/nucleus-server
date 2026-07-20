@@ -29,6 +29,7 @@ import {
 import { MarkDriveStudentOutcomeDto } from './dto/mark-drive-student-outcome.dto';
 import { RevokeDriveStudentsDto } from './dto/revoke-drive-students.dto';
 import { UpdateDriveStudentSelectionDto } from './dto/update-drive-student-selection.dto';
+import { UploadSelectionsDto } from './dto/upload-selections.dto';
 
 const KEY = 'drive_management.drives.manage';
 
@@ -258,6 +259,42 @@ export class DriveStudentsController {
           }
         : undefined,
     );
+  }
+
+  @Post('selection-upload/preview')
+  @HttpCode(200)
+  @RequireScreen(KEY, 'edit')
+  @ApiOperation({
+    summary:
+      'Dry-run a parsed selections sheet for one designation. Always 200: ' +
+      'problems come back as per-cell `errors` under `valid: false`, since a ' +
+      'preview that finds them is the answer, not an HTTP failure. Amounts ' +
+      "the sheet left blank are filled from the drive's package and listed " +
+      'in each row\'s `defaulted`.',
+  })
+  previewSelectionUpload(
+    @Param('driveId', ParseIntPipe) driveId: number,
+    @Body() dto: UploadSelectionsDto,
+  ) {
+    return this.svc.previewSelectionUpload(driveId, dto);
+  }
+
+  @Post('selection-upload/commit')
+  @HttpCode(200)
+  @RequireScreen(KEY, 'edit')
+  @ApiOperation({
+    summary:
+      'Apply a selections sheet: Accepted/Selected students → Selected with ' +
+      'the designation + per-row package, all in one transaction. Re-validates ' +
+      'from scratch (the preview is never trusted) and 400s with `errors` if ' +
+      'anything fails. Only students newly reaching Selected are notified.',
+  })
+  commitSelectionUpload(
+    @GetEmployee() e: AuthenticatedEmployee,
+    @Param('driveId', ParseIntPipe) driveId: number,
+    @Body() dto: UploadSelectionsDto,
+  ) {
+    return this.svc.commitSelectionUpload(driveId, e.id, dto);
   }
 
   @Patch(':studentId/selection')

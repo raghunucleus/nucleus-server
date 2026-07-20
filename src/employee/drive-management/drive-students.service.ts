@@ -35,17 +35,23 @@ import {
 } from './drive-student-profile.service';
 import {
   DRIVE_STUDENT_STATUS,
+  DRIVE_STUDENT_STATUS_LABELS,
   DriveStudentAction,
   DriveStudentOutcome,
+  DriveStudentStatus,
   REVOCABLE_STATUSES,
 } from './drive-student-status';
-import { Drive } from './entities/drive.entity';
+import { Drive, DriveAmountMode } from './entities/drive.entity';
 import { DriveOfferType } from './entities/drive-lookups.entity';
 import { DriveProfile } from './entities/drive-profile.entity';
 import { DriveStudent } from './entities/drive-student.entity';
 import { DriveStudentEvent } from './entities/drive-student-event.entity';
 import { MAX_IMPORT_STUDENT_IDS } from './dto/import-drive-students.dto';
 import { SelectionPackageInput } from './dto/selection-package.schema';
+import {
+  UploadSelectionRow,
+  UploadSelectionsDto,
+} from './dto/upload-selections.dto';
 
 /** Campus-local time zone — the only one every recipient reads dates in. */
 const DISPLAY_TZ = 'Asia/Kolkata';
@@ -75,6 +81,100 @@ function formatMoment(value: string): string {
     hour12: true,
     timeZone: DISPLAY_TZ,
   });
+}
+
+/**
+ * The one-line human rendering of a recorded selection, used as the audit
+ * trail's `reason`. Shared by the single-student path ({@link
+ * DriveStudentsService.assertSelection}) and the bulk sheet upload, so an
+ * event's wording never depends on which screen wrote it.
+ */
+function selectionSummary(
+  designation: string,
+  sel: Omit<SelectionPackageInput, 'drive_profile_id'>,
+): string {
+  const fmt = (v: number) => Number(v).toLocaleString('en-IN');
+  const band = (main: number, min: number | null | undefined) =>
+    min != null ? `${fmt(min)} – ${fmt(main)}` : fmt(main);
+  const parts = [`Selected for ${designation}`];
+  if (sel.ctc != null) parts.push(`CTC ${band(sel.ctc, sel.ctc_min)} LPA`);
+  if (sel.stipend != null) {
+    parts.push(`Stipend ₹${band(sel.stipend, sel.stipend_min)}/month`);
+  }
+  return parts.join(' · ');
+}
+
+/** The four package cells a selection sheet may carry. */
+const AMOUNT_COLUMNS = ['ctc', 'ctc_min', 'stipend', 'stipend_min'] as const;
+
+/** numeric(12,2) ceiling — matches the drive package columns. */
+const MAX_SELECTION_AMOUNT = 9_999_999_999.99;
+
+/** One rejected cell, addressed by its 0-based sheet row and column key. */
+export interface SelectionUploadRowError {
+  row: number;
+  column: string;
+  value?: string;
+  reason: string;
+}
+
+/** A sheet row as the server resolved it — amounts filled, student matched. */
+export interface SelectionUploadRow {
+  row: number;
+  roll_number: string;
+  student_id: number | null;
+  display_name: string | null;
+  current_status: number | null;
+  ctc: number | null;
+  ctc_min: number | null;
+  stipend: number | null;
+  stipend_min: number | null;
+  /** Which amounts came from the drive rather than the sheet. */
+  defaulted: string[];
+  /** True when this student is already Selected — the row replaces it. */
+  will_update: boolean;
+}
+
+export interface SelectionUploadPreview {
+  drive_profile_id: number;
+  designation: string;
+  offer_type: { name: string; is_internship: boolean; is_full_time: boolean };
+  /** How each amount is advertised — a lower bound only applies to a `range`. */
+  package: {
+    ctc_mode: DriveAmountMode | null;
+    stipend_mode: DriveAmountMode | null;
+  };
+  valid: boolean;
+  total_rows: number;
+  error_count: number;
+  errors: SelectionUploadRowError[];
+  rows: SelectionUploadRow[];
+  /** Rows that will move Accepted → Selected. */
+  new_selections: number;
+  /** Rows replacing an existing selection. */
+  updates: number;
+}
+
+/** One student as actually written — the commit receipt's line item. */
+export interface SelectionUploadCommitRow {
+  student_id: number;
+  roll_number: string;
+  display_name: string | null;
+  /** 'selected' = 30 → 60 (notified); 'updated' = replaced an existing one. */
+  action: 'selected' | 'updated';
+  /** The package as recorded — the same string the audit trail stores. */
+  summary: string;
+}
+
+export interface SelectionUploadCommit {
+  selected: number;
+  updated: number;
+  notified: number;
+  requested: number;
+  /** Rows whose status guard didn't match — changed under us since preview. */
+  skipped: number;
+  designation: string;
+  rows: SelectionUploadCommitRow[];
 }
 
 /** The ceiling on "import all matched" — a drive shortlist is realistically
@@ -709,15 +809,20 @@ export class DriveStudentsService {
       );
     }
 
-    const fmt = (v: number) => Number(v).toLocaleString('en-IN');
-    const band = (main: number, min: number | null | undefined) =>
-      min != null ? `${fmt(min)} – ${fmt(main)}` : fmt(main);
-    const parts = [`Selected for ${profile.designation.name}`];
-    if (sel.ctc != null) parts.push(`CTC ${band(sel.ctc, sel.ctc_min)} LPA`);
-    if (sel.stipend != null) {
-      parts.push(`Stipend ₹${band(sel.stipend, sel.stipend_min)}/month`);
+    // A lower bound only means something against an advertised range.
+    const modes = this.packageModesFor(drive, profile);
+    if (sel.ctc_min != null && modes.ctc_mode !== 'range') {
+      throw new BadRequestException(
+        "This drive's CTC is a fixed amount, so the selection can't carry a lower bound.",
+      );
     }
-    return { summary: parts.join(' · ') };
+    if (sel.stipend_min != null && modes.stipend_mode !== 'range') {
+      throw new BadRequestException(
+        "This drive's stipend is a fixed amount, so the selection can't carry a lower bound.",
+      );
+    }
+
+    return { summary: selectionSummary(profile.designation.name, sel) };
   }
 
   /** The five selection columns as UPDATE values — nulls unless Selected. */
@@ -783,16 +888,8 @@ export class DriveStudentsService {
       'employee',
       { actorEmployeeId: employeeId, reason: summary },
     );
-    if (updatedIds.length > 0 && status === DRIVE_STUDENT_STATUS.SELECTED) {
-      void this.notifications
-        .send(updatedIds, {
-          module: 'placements',
-          type: 'drive-outcome',
-          title: 'Congratulations — you have been selected!',
-          body: `You were selected in ${drive.drive_name}. See the details in Placements.`,
-          target: { type: 'drive-outcome', id: driveId },
-        })
-        .catch(() => undefined);
+    if (status === DRIVE_STUDENT_STATUS.SELECTED) {
+      this.notifySelected(drive, updatedIds);
     }
 
     return {
@@ -846,6 +943,529 @@ export class DriveStudentsService {
       { actorEmployeeId: employeeId, reason: summary },
     );
     return { updated: rows.length };
+  }
+
+  /**
+   * The "you got the offer" push, fire-and-forget. Only ever sent for students
+   * who newly reached Selected — correcting the package on an already-Selected
+   * student must not congratulate them a second time, so the bulk upload passes
+   * only its 30 → 60 ids here.
+   */
+  private notifySelected(drive: Drive, studentIds: number[]): void {
+    if (studentIds.length === 0) return;
+    void this.notifications
+      .send(studentIds, {
+        module: 'placements',
+        type: 'drive-outcome',
+        title: 'Congratulations — you have been selected!',
+        body: `You were selected in ${drive.drive_name}. See the details in Placements.`,
+        target: { type: 'drive-outcome', id: drive.id },
+      })
+      .catch(() => undefined);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk selection upload (the Students tab's "Upload selections" sheet)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The drive's configured package for a designation, used to fill amounts the
+   * sheet left blank — so a sheet of bare roll numbers is a valid upload.
+   *
+   * Packages have no scope switch of their own: they follow `offer_type_scope`,
+   * exactly like the client's `effectivePackage()`. A `fixed` mode keeps its
+   * single figure in `*_min` (not `*_max`), which is why the two modes read
+   * different columns.
+   */
+  private defaultPackageFor(
+    drive: Drive,
+    profile: DriveProfile,
+  ): {
+    ctc: number | null;
+    ctc_min: number | null;
+    stipend: number | null;
+    stipend_min: number | null;
+  } {
+    const side = this.packageSide(drive, profile);
+    const num = (v: string | null): number | null => {
+      if (v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const band = (
+      mode: DriveAmountMode | null,
+      min: string | null,
+      max: string | null,
+    ): { main: number | null; lower: number | null } => {
+      if (mode === 'fixed') return { main: num(min), lower: null };
+      if (mode === 'range') return { main: num(max), lower: num(min) };
+      return { main: null, lower: null };
+    };
+
+    const ctc = band(side.ctc_mode, side.ctc_min, side.ctc_max);
+    const stipend = band(side.stipend_mode, side.stipend_min, side.stipend_max);
+    return {
+      ctc: ctc.main,
+      ctc_min: ctc.main == null ? null : ctc.lower,
+      stipend: stipend.main,
+      stipend_min: stipend.main == null ? null : stipend.lower,
+    };
+  }
+
+  /**
+   * Whichever of drive/designation owns the package. Packages have no scope
+   * switch of their own — they follow `offer_type_scope`. The single place that
+   * decision is made.
+   */
+  private packageSide(drive: Drive, profile: DriveProfile): Drive | DriveProfile {
+    return drive.offer_type_scope === 'designation' ? profile : drive;
+  }
+
+  /**
+   * How each amount is advertised. A lower bound may only ever be recorded
+   * against a `range` — a fixed drive has exactly one figure, so accepting a
+   * lower bound there would invent a band nobody configured.
+   */
+  private packageModesFor(
+    drive: Drive,
+    profile: DriveProfile,
+  ): { ctc_mode: DriveAmountMode | null; stipend_mode: DriveAmountMode | null } {
+    const side = this.packageSide(drive, profile);
+    return { ctc_mode: side.ctc_mode, stipend_mode: side.stipend_mode };
+  }
+
+  /**
+   * Validate one parsed sheet against the drive. Returns the resolved rows (with
+   * blanks filled from the drive's package) alongside a flat per-cell error
+   * list — the shape the grid renders. Both preview and commit call this; commit
+   * re-runs it rather than trusting the preview's verdict.
+   */
+  private async validateSelectionRows(
+    drive: Drive,
+    profile: DriveProfile,
+    offer: DriveOfferType,
+    rows: UploadSelectionRow[],
+  ): Promise<{ rows: SelectionUploadRow[]; errors: SelectionUploadRowError[] }> {
+    const errors: SelectionUploadRowError[] = [];
+    const fail = (
+      row: number,
+      column: string,
+      reason: string,
+      value?: string,
+    ): void => {
+      errors.push({ row, column, value, reason });
+    };
+
+    // One batched roll lookup for the whole sheet, joined to this drive's
+    // membership so a roll's status arrives in the same pass. Keyed uppercase:
+    // roll numbers are typed by hand into the company's sheet.
+    const rolls = [
+      ...new Set(
+        rows
+          .map((r) => (r.roll_number ?? '').trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    ];
+    const found = new Map<
+      string,
+      { student_id: number; display_name: string; status: number | null }
+    >();
+    if (rolls.length > 0) {
+      const hits = await this.repo.manager
+        .createQueryBuilder()
+        .select('s.id', 'student_id')
+        .addSelect('UPPER(s.student_id)', 'roll')
+        .addSelect('s.display_name', 'display_name')
+        .addSelect('ds.status', 'status')
+        .from('students', 's')
+        .leftJoin(
+          'drive_students',
+          'ds',
+          'ds.student_id = s.id AND ds.drive_id = :driveId',
+          { driveId: drive.id },
+        )
+        .where('UPPER(s.student_id) IN (:...rolls)', { rolls })
+        .getRawMany<{
+          student_id: number;
+          roll: string;
+          display_name: string;
+          status: number | null;
+        }>();
+      for (const h of hits) {
+        found.set(h.roll, {
+          student_id: h.student_id,
+          display_name: h.display_name,
+          status: h.status,
+        });
+      }
+    }
+
+    const defaults = this.defaultPackageFor(drive, profile);
+    const modes = this.packageModesFor(drive, profile);
+    const seen = new Set<string>();
+    const out: SelectionUploadRow[] = [];
+
+    rows.forEach((raw, index) => {
+      const roll = (raw.roll_number ?? '').trim();
+      const key = roll.toUpperCase();
+      const hit = roll ? found.get(key) : undefined;
+
+      if (!roll) {
+        fail(index, 'roll_number', 'Roll number is required.');
+      } else if (seen.has(key)) {
+        fail(
+          index,
+          'roll_number',
+          'This roll number appears more than once.',
+          roll,
+        );
+      } else if (!hit) {
+        fail(index, 'roll_number', `No student with roll number "${roll}".`, roll);
+      } else if (hit.status == null) {
+        fail(index, 'roll_number', 'Not registered in this drive.', roll);
+      } else if (
+        hit.status !== DRIVE_STUDENT_STATUS.ACCEPTED &&
+        hit.status !== DRIVE_STUDENT_STATUS.SELECTED
+      ) {
+        fail(
+          index,
+          'roll_number',
+          `${DRIVE_STUDENT_STATUS_LABELS[hit.status as DriveStudentStatus] ?? hit.status} — only Accepted students can be marked Selected.`,
+          roll,
+        );
+      }
+      if (roll) seen.add(key);
+
+      // Amounts: parse what the sheet gave, fall back to the drive, then apply
+      // the offer-type and range rules. Every branch still pushes a row so the
+      // grid stays 1:1 with the sheet even when the roll itself was rejected.
+      const amounts: Record<string, number | null> = {};
+      const defaulted: string[] = [];
+      for (const col of AMOUNT_COLUMNS) {
+        const cell = (raw[col] ?? '').trim();
+        if (cell === '') {
+          amounts[col] = null;
+          continue;
+        }
+        const n = Number(cell.replace(/,/g, ''));
+        if (!Number.isFinite(n) || n <= 0) {
+          fail(index, col, 'Must be a number above zero.', cell);
+          amounts[col] = null;
+        } else if (n > MAX_SELECTION_AMOUNT) {
+          fail(index, col, 'That amount is too large.', cell);
+          amounts[col] = null;
+        } else {
+          amounts[col] = n;
+        }
+      }
+
+      // Applicability comes from the offer type's flags, never its name — the
+      // same bidirectional rule `assertSelection` enforces for a single student.
+      if (amounts.stipend != null && !offer.is_internship) {
+        fail(
+          index,
+          'stipend',
+          `"${offer.name}" isn't an internship, so the selection can't carry a stipend.`,
+        );
+      }
+      if (amounts.ctc != null && !offer.is_full_time) {
+        fail(
+          index,
+          'ctc',
+          `"${offer.name}" isn't a full-time role, so the selection can't carry a CTC.`,
+        );
+      }
+
+      // Defaults only fill a main amount that the offer type actually wants, and
+      // only when the sheet said nothing — a lower bound alone never triggers a
+      // default main figure, since that would invent a range the sheet didn't ask for.
+      if (
+        offer.is_full_time &&
+        amounts.ctc == null &&
+        amounts.ctc_min == null &&
+        defaults.ctc != null
+      ) {
+        amounts.ctc = defaults.ctc;
+        amounts.ctc_min = defaults.ctc_min;
+        defaulted.push('ctc');
+        if (defaults.ctc_min != null) defaulted.push('ctc_min');
+      }
+      if (
+        offer.is_internship &&
+        amounts.stipend == null &&
+        amounts.stipend_min == null &&
+        defaults.stipend != null
+      ) {
+        amounts.stipend = defaults.stipend;
+        amounts.stipend_min = defaults.stipend_min;
+        defaulted.push('stipend');
+        if (defaults.stipend_min != null) defaulted.push('stipend_min');
+      }
+
+      if (offer.is_full_time && amounts.ctc == null) {
+        fail(
+          index,
+          'ctc',
+          'No CTC in the sheet and this drive has no default CTC.',
+        );
+      }
+      if (offer.is_internship && amounts.stipend == null) {
+        fail(
+          index,
+          'stipend',
+          'No stipend in the sheet and this drive has no default stipend.',
+        );
+      }
+
+      // The range rules, worded exactly as `refineSelectionPackage` words them.
+      // The mode check comes FIRST: on a fixed drive the real problem is that a
+      // lower bound doesn't apply at all, not that it sits at the wrong height.
+      for (const [main, lower, label, mode] of [
+        ['ctc', 'ctc_min', 'CTC', modes.ctc_mode],
+        ['stipend', 'stipend_min', 'stipend', modes.stipend_mode],
+      ] as const) {
+        if (amounts[lower] == null) continue;
+        if (mode !== 'range') {
+          fail(
+            index,
+            lower,
+            `This drive's ${label} is a fixed amount, so it can't carry a lower bound.`,
+          );
+        } else if (amounts[main] == null) {
+          fail(index, lower, `A ${label} lower bound needs the ${label} itself.`);
+        } else if (amounts[lower]! >= amounts[main]!) {
+          fail(
+            index,
+            lower,
+            `The ${label} lower bound must be below the ${label}.`,
+          );
+        }
+      }
+
+      out.push({
+        row: index,
+        roll_number: roll,
+        student_id: hit?.student_id ?? null,
+        display_name: hit?.display_name ?? null,
+        current_status: hit?.status ?? null,
+        ctc: amounts.ctc,
+        ctc_min: amounts.ctc_min,
+        stipend: amounts.stipend,
+        stipend_min: amounts.stipend_min,
+        defaulted,
+        will_update: hit?.status === DRIVE_STUDENT_STATUS.SELECTED,
+      });
+    });
+
+    return { rows: out, errors };
+  }
+
+  /**
+   * Dry-run a parsed sheet. Always 200 — a preview that finds problems is not an
+   * HTTP error, it is the answer, so the errors ride in the body under
+   * `valid: false` and the client renders them against its grid.
+   */
+  async previewSelectionUpload(
+    driveId: number,
+    dto: UploadSelectionsDto,
+  ): Promise<SelectionUploadPreview> {
+    const drive = await this.assertDrive(driveId);
+    this.assertNotArchived(drive);
+    const { profile, offer } = await this.resolveDesignation(
+      drive,
+      dto.drive_profile_id,
+    );
+    const { rows, errors } = await this.validateSelectionRows(
+      drive,
+      profile,
+      offer,
+      dto.rows,
+    );
+
+    return {
+      drive_profile_id: profile.id,
+      designation: profile.designation.name,
+      offer_type: {
+        name: offer.name,
+        is_internship: offer.is_internship,
+        is_full_time: offer.is_full_time,
+      },
+      package: this.packageModesFor(drive, profile),
+      valid: errors.length === 0,
+      total_rows: rows.length,
+      error_count: errors.length,
+      errors,
+      rows,
+      new_selections: rows.filter((r) => !r.will_update).length,
+      updates: rows.filter((r) => r.will_update).length,
+    };
+  }
+
+  /**
+   * Apply a validated sheet. All-or-nothing: the whole thing runs in one
+   * transaction, so a sheet is never half-applied.
+   *
+   * A student holds exactly one selection, so a row for an already-Selected
+   * student overwrites it — including moving them to a different designation.
+   * That distinction drives both the audit action ('outcome' vs
+   * 'selection_updated') and who gets congratulated.
+   */
+  async commitSelectionUpload(
+    driveId: number,
+    employeeId: number,
+    dto: UploadSelectionsDto,
+  ): Promise<SelectionUploadCommit> {
+    const drive = await this.assertDrive(driveId);
+    this.assertNotArchived(drive);
+    const { profile, offer } = await this.resolveDesignation(
+      drive,
+      dto.drive_profile_id,
+    );
+    const { rows, errors } = await this.validateSelectionRows(
+      drive,
+      profile,
+      offer,
+      dto.rows,
+    );
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        message: 'The sheet still has errors; nothing was saved.',
+        errors,
+      });
+    }
+
+    const freshlySelected: number[] = [];
+    const applied: SelectionUploadCommitRow[] = [];
+    let selected = 0;
+    let updated = 0;
+
+    await this.repo.manager.transaction(async (tx) => {
+      const repo = tx.getRepository(DriveStudent);
+      const events: {
+        drive_student_id: number;
+        from_status: number;
+        reason: string;
+      }[] = [];
+
+      for (const row of rows) {
+        const wasSelected = row.will_update;
+        // The status guard is what makes this race-safe against a concurrent
+        // outcome/revoke: a row that moved under us simply doesn't update.
+        const result = await repo
+          .createQueryBuilder()
+          .update(DriveStudent)
+          .set({
+            status: DRIVE_STUDENT_STATUS.SELECTED,
+            outcome_marked_at: () => 'now()',
+            outcome_marked_by_employee_id: employeeId,
+            ...this.selectionColumns({
+              drive_profile_id: profile.id,
+              ctc: row.ctc,
+              ctc_min: row.ctc_min,
+              stipend: row.stipend,
+              stipend_min: row.stipend_min,
+            }),
+          })
+          .where('drive_id = :driveId', { driveId })
+          .andWhere('student_id = :studentId', { studentId: row.student_id })
+          .andWhere('status IN (:...from)', {
+            from: [
+              DRIVE_STUDENT_STATUS.ACCEPTED,
+              DRIVE_STUDENT_STATUS.SELECTED,
+            ],
+          })
+          .returning(['id'])
+          .execute();
+
+        const hit = (result.raw as { id: number }[])[0];
+        if (!hit) continue;
+
+        if (wasSelected) updated += 1;
+        else {
+          selected += 1;
+          freshlySelected.push(row.student_id!);
+        }
+        // One summary string, used by both the audit event and the receipt the
+        // employee sees — so the two can never drift apart.
+        const summary = selectionSummary(profile.designation.name, row);
+        applied.push({
+          student_id: row.student_id!,
+          roll_number: row.roll_number,
+          display_name: row.display_name,
+          action: wasSelected ? 'updated' : 'selected',
+          summary,
+        });
+        events.push({
+          drive_student_id: hit.id,
+          from_status: wasSelected
+            ? DRIVE_STUDENT_STATUS.SELECTED
+            : DRIVE_STUDENT_STATUS.ACCEPTED,
+          reason: summary,
+        });
+      }
+
+      // Audit rows go in the same transaction as the writes they describe.
+      if (events.length > 0) {
+        await tx.getRepository(DriveStudentEvent).insert(
+          events.map((e) => ({
+            drive_student_id: e.drive_student_id,
+            action:
+              e.from_status === DRIVE_STUDENT_STATUS.SELECTED
+                ? ('selection_updated' as const)
+                : ('outcome' as const),
+            from_status: e.from_status,
+            to_status: DRIVE_STUDENT_STATUS.SELECTED,
+            actor_type: 'employee' as const,
+            actor_employee_id: employeeId,
+            reason: e.reason,
+          })),
+        );
+      }
+    });
+
+    this.notifySelected(drive, freshlySelected);
+
+    return {
+      selected,
+      updated,
+      notified: freshlySelected.length,
+      requested: rows.length,
+      // Non-zero only when a row's status moved between preview and commit.
+      skipped: rows.length - selected - updated,
+      designation: profile.designation.name,
+      rows: applied,
+    };
+  }
+
+  /** The designation and the offer type that governs its amounts, or 400. */
+  private async resolveDesignation(
+    drive: Drive,
+    driveProfileId: number,
+  ): Promise<{ profile: DriveProfile; offer: DriveOfferType }> {
+    const profile = await this.profilesRepo.findOne({
+      where: { id: driveProfileId, drive_id: drive.id },
+      relations: { designation: true },
+    });
+    if (!profile) {
+      throw new BadRequestException(
+        'That designation does not belong to this drive.',
+      );
+    }
+    const offerTypeId =
+      drive.offer_type_scope === 'designation'
+        ? profile.offer_type_id
+        : drive.offer_type_id;
+    if (offerTypeId == null) {
+      throw new BadRequestException(
+        'This drive has no offer type, so a package cannot be recorded.',
+      );
+    }
+    const offer = await this.offerTypesRepo.findOne({
+      where: { id: offerTypeId },
+    });
+    if (!offer) throw new BadRequestException('Unknown offer type.');
+    return { profile, offer };
   }
 
   /**
