@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { DRIVE_STUDENT_STATUS } from '../../employee/drive-management/drive-student-status';
 import {
   StudentApproval,
@@ -53,8 +53,14 @@ export class StudentApprovalsSyncService {
    * Mirror one or more placement drive-student transitions. A `pending` row
    * (a fresh or re-sent invite) clears the decision fields; any other status
    * stamps `decided_at` now and carries the reason.
+   *
+   * Pass `manager` to enlist the upsert in the caller's transaction, so the
+   * mirror commits or rolls back together with the transition it reflects.
    */
-  async syncDrivePlacements(rows: DrivePlacementSync[]): Promise<void> {
+  async syncDrivePlacements(
+    rows: DrivePlacementSync[],
+    manager?: EntityManager,
+  ): Promise<void> {
     if (rows.length === 0) return;
     const now = new Date();
     const values = rows.map((r) => {
@@ -73,7 +79,8 @@ export class StudentApprovalsSyncService {
         updated_at: now,
       };
     });
-    await this.repo.upsert(values, {
+    const repo = manager?.getRepository(StudentApproval) ?? this.repo;
+    await repo.upsert(values, {
       conflictPaths: ['module', 'ref_id'],
       skipUpdateIfNoValuesChanged: false,
     });

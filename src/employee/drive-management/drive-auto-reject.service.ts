@@ -1,16 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { StudentNotificationService } from '../../student/notification/student-notification.service';
 import { StudentApprovalsSyncService } from '../../student/approvals/student-approvals-sync.service';
 import { DRIVE_STUDENT_STATUS } from './drive-student-status';
 import { Drive } from './entities/drive.entity';
-import { DriveStudent } from './entities/drive-student.entity';
 import { DriveStudentEvent } from './entities/drive-student-event.entity';
 
 const AUTO_REJECT_REASON =
   'No action taken, auto rejected after the registration end date';
+
+/** One row off the sweep's `UPDATE ... RETURNING`. */
+type SweptRow = { id: number; student_id: number; drive_id: number };
 
 /**
  * Closes the loop on the registration deadline. Hourly, any invite still
@@ -24,22 +26,26 @@ export class DriveAutoRejectService {
   private readonly logger = new Logger('DriveAutoReject');
 
   constructor(
-    @InjectRepository(DriveStudent)
-    private readonly members: Repository<DriveStudent>,
-    @InjectRepository(DriveStudentEvent)
-    private readonly events: Repository<DriveStudentEvent>,
     @InjectRepository(Drive)
     private readonly drives: Repository<Drive>,
+    private readonly dataSource: DataSource,
     private readonly notifications: StudentNotificationService,
     private readonly approvalsSync: StudentApprovalsSyncService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
   async sweep(): Promise<void> {
-    // Atomic, race-safe transition — the `status = 20` guard mirrors the accept
-    // path, so a student accepting in the same instant can't be double-handled.
-    const swept: { id: number; student_id: number; drive_id: number }[] =
-      await this.members.query(
+    // The status change, its audit event and the approvals mirror go in one
+    // transaction — a failure downstream must not leave students denied with no
+    // paper trail and no notification.
+    const swept = await this.dataSource.transaction(async (manager) => {
+      // Race-safe transition — the `status = 20` guard mirrors the accept path,
+      // so a student accepting in the same instant can't be double-handled.
+      //
+      // `query()` on an UPDATE resolves to `[rows, rowCount]`, NOT the rows —
+      // the Postgres driver special-cases UPDATE/DELETE. Destructure, never
+      // annotate the call as a row array.
+      const [rows] = (await manager.query(
         `UPDATE "drive_students" ds
             SET status = $1, responded_at = now(), rejection_reason = $2
            FROM "drives" d
@@ -53,31 +59,37 @@ export class DriveAutoRejectService {
           AUTO_REJECT_REASON,
           DRIVE_STUDENT_STATUS.INVITED,
         ],
+      )) as [SweptRow[], number];
+      if (rows.length === 0) return rows;
+
+      await manager.getRepository(DriveStudentEvent).insert(
+        rows.map((r) => ({
+          drive_student_id: r.id,
+          action: 'denied',
+          from_status: DRIVE_STUDENT_STATUS.INVITED,
+          to_status: DRIVE_STUDENT_STATUS.DENIED,
+          actor_type: 'system' as const,
+          actor_employee_id: null,
+          reason: AUTO_REJECT_REASON,
+        })),
       );
+
+      // Mirror the auto-denial into the student approvals inbox (→ rejected).
+      await this.approvalsSync.syncDrivePlacements(
+        rows.map((r) => ({
+          student_id: r.student_id,
+          drive_student_id: r.id,
+          drive_status: DRIVE_STUDENT_STATUS.DENIED,
+          reason: AUTO_REJECT_REASON,
+        })),
+        manager,
+      );
+
+      return rows;
+    });
     if (swept.length === 0) return;
 
-    await this.events.insert(
-      swept.map((r) => ({
-        drive_student_id: r.id,
-        action: 'denied',
-        from_status: DRIVE_STUDENT_STATUS.INVITED,
-        to_status: DRIVE_STUDENT_STATUS.DENIED,
-        actor_type: 'system' as const,
-        actor_employee_id: null,
-        reason: AUTO_REJECT_REASON,
-      })),
-    );
-
-    // Mirror the auto-denial into the student approvals inbox (→ rejected).
-    await this.approvalsSync.syncDrivePlacements(
-      swept.map((r) => ({
-        student_id: r.student_id,
-        drive_student_id: r.id,
-        drive_status: DRIVE_STUDENT_STATUS.DENIED,
-        reason: AUTO_REJECT_REASON,
-      })),
-    );
-
+    // Past the commit — notifications must never fire for a rolled-back sweep.
     // Notify per drive so the drive name is fetched once and recipients fan out.
     const byDrive = new Map<number, number[]>();
     for (const r of swept) {
