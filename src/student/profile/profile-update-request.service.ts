@@ -37,6 +37,7 @@ import {
   DecisionInput,
   DecisionResult,
   ItemVerdict,
+  RequestRequesterRef,
   RequestTypeRegistry,
 } from '../../requests/request-type.registry';
 import { isStudentCertificateKey } from '../../storage/storage.constants';
@@ -801,20 +802,31 @@ export class ProfileUpdateRequestService
    */
   async assertCreatable(
     tx: EntityManager,
-    studentId: number,
+    requester: RequestRequesterRef,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    await this.assertNoFieldClash(tx, studentId, payload);
+    this.assertStudentRequester(requester.kind);
+    await this.assertNoFieldClash(tx, requester.id, payload);
   }
 
   /** Same rule on resubmit, minus the request being resubmitted. */
   async assertResubmittable(
     tx: EntityManager,
-    studentId: number,
+    requester: RequestRequesterRef,
     request: ApprovalRequest,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    await this.assertNoFieldClash(tx, studentId, payload, request.id);
+    this.assertStudentRequester(requester.kind);
+    await this.assertNoFieldClash(tx, requester.id, payload, request.id);
+  }
+
+  /** This type is student-only; anything else is a wiring bug, not user input. */
+  private assertStudentRequester(kind: string): void {
+    if (kind !== 'student') {
+      throw new InternalServerErrorException(
+        'profile_update requests must have a student requester',
+      );
+    }
   }
 
   /**
@@ -835,6 +847,14 @@ export class ProfileUpdateRequestService
     if (request.requester_student_id === null) {
       throw new InternalServerErrorException(
         'profile_update requests must have a student requester',
+      );
+    }
+    // Nothing on a profile update is the approver's to edit — they approve or
+    // reject each field. Silently dropping the edits would let a mis-targeted
+    // client believe it changed something.
+    if (input.overrides) {
+      throw new BadRequestException(
+        'Profile-update requests cannot be edited by the approver.',
       );
     }
     const studentId = request.requester_student_id;

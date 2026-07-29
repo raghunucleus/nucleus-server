@@ -39,7 +39,7 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
     key: 'placement',
     label: 'Placement',
     description:
-      'Placement / corporate-relations officer — manages companies and employee assignments.',
+      'Placement / corporate-relations officer — manages the company catalog and placement drives.',
   },
   // {
   //   key: 'management',

@@ -20,7 +20,7 @@ import {
 
 // Fixed single-value enums — stable domain values that drive UI/logic, not
 // user-configured lookups. Stored as varchar and enforced at the DTO layer, per
-// the `companies.relationship_status` convention.
+// the `employees.gender` convention.
 
 /**
  * Whether the drive hires for one designation or several. A `single` drive still

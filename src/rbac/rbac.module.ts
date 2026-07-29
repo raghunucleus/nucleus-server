@@ -8,6 +8,7 @@ import { JwtStrategy } from '../admin/auth/jwt.strategy';
 import { RequireTotpEnrolledGuard } from '../admin/auth/require-totp-enrolled.guard';
 import { Employee } from '../admin/entities/employee.entity';
 import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
+import { ApprovalActionApprover } from '../approval-approvers/entities/approval-action-approver.entity';
 import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
 import { RbacAdminController } from './admin/rbac-admin.controller';
 import { RbacAdminService } from './admin/rbac-admin.service';
@@ -39,9 +40,14 @@ import { ScreenAccessGuard } from './screen-access.guard';
       RoleAssignmentAttribute,
       Employee,
       Admin,
-      // The Requests screens are derived from profile-verifier membership —
-      // see PermissionsService.deriveRequestScreens.
+      // The Requests screens are derived from profile-verifier membership and
+      // from approval-action approver membership — see
+      // PermissionsService.deriveRequestScreens. Both entities are owned by
+      // other modules and repo-injected here rather than imported as modules:
+      // ApprovalApproversModule imports RbacModule (to bust the cache when the
+      // approver set changes), so the dependency must only go one way.
       ProgrammeAdmissionYearProfileVerifier,
+      ApprovalActionApprover,
     ]),
     ConfigModule,
     PassportModule,

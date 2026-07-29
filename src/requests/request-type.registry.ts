@@ -6,6 +6,17 @@ import type { ApprovalRequest } from './entities/approval-request.entity';
 export type ItemVerdict = 'approved' | 'rejected';
 
 /**
+ * Who raised a request. Students file their own requests through the student
+ * portal; employees file theirs (e.g. a company approval) from the employee
+ * portal. Handlers receive this rather than a bare id so an employee id can
+ * never be mistaken for a student id.
+ */
+export interface RequestRequesterRef {
+  kind: 'student' | 'employee';
+  id: number;
+}
+
+/**
  * What the approver decided:
  *  - `{ verdict }` — uniform: the whole request approved or rejected at once.
  *  - `{ verdicts, overall? }` — per-item: a map of type-specific item keys
@@ -16,9 +27,22 @@ export type ItemVerdict = 'approved' | 'rejected';
  *    support is a per-type capability — handlers of types without it should
  *    400 on `{ verdicts }` input.
  */
-export type DecisionInput =
+export type DecisionInput = (
   | { verdict: ItemVerdict }
-  | { verdicts: Record<string, ItemVerdict>; overall?: ItemVerdict };
+  | { verdicts: Record<string, ItemVerdict>; overall?: ItemVerdict }
+) & {
+  /**
+   * Type-specific edits the approver made while deciding — e.g. a company
+   * approver reassigning the employee responsible for a job role. Opaque to
+   * the framework; the handler validates the shape and applies it inside the
+   * decide transaction, so reviewing and editing stay one atomic act.
+   *
+   * Handlers that don't support edits must 400 when this is present rather
+   * than silently ignoring it — a client that thinks it edited something and
+   * didn't is worse than a rejected request.
+   */
+  overrides?: Record<string, unknown>;
+};
 
 /** Overall status a decision resolves to — same vocabulary as item verdicts. */
 export type DecidedStatus = ItemVerdict;
@@ -87,9 +111,29 @@ export interface ApprovalRequestTypeHandler {
    */
   assertCreatable?(
     tx: EntityManager,
-    studentId: number,
+    requester: RequestRequesterRef,
     payload: Record<string, unknown>,
   ): Promise<void>;
+
+  /**
+   * Discriminator for the create/resubmit advisory lock, appended to
+   * `approval_requests:`. Defaults to the requester (`<kind>:<id>:<type>`),
+   * which is right when duplicates are defined per requester — profile updates
+   * clash on the student's own open requests.
+   *
+   * Return something else when the duplicate rule is keyed on the SUBJECT
+   * rather than the requester: two different employees editing one company must
+   * take the SAME lock, or both `assertCreatable` checks miss each other's
+   * uncommitted row and the company ends up with two open requests.
+   *
+   * Must be derivable from the payload alone, and must not be used to take a
+   * second lock inside `assertCreatable` — two locks acquired in different
+   * orders across concurrent transactions is a deadlock.
+   */
+  lockKeyFor?(
+    requester: RequestRequesterRef,
+    payload: Record<string, unknown>,
+  ): string;
 
   /**
    * Duplicate check for a sent-back request coming back with a new payload —
@@ -103,7 +147,7 @@ export interface ApprovalRequestTypeHandler {
    */
   assertResubmittable?(
     tx: EntityManager,
-    studentId: number,
+    requester: RequestRequesterRef,
     request: ApprovalRequest,
     payload: Record<string, unknown>,
   ): Promise<void>;

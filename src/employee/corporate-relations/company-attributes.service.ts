@@ -9,21 +9,15 @@ import { LookupDto, UpdateLookupDto } from './dto/attribute.dto';
 import {
   COMPANY_LOOKUP_KINDS,
   CompanyCategory,
-  CompanyHiringMode,
-  CompanyIndustry,
   CompanyLookupBase,
   CompanyLookupKind,
-  CompanyRole,
-  CompanySize,
-  CompanySource,
-  CompanyTag,
-  CompanyType,
 } from './entities/company-lookups.entity';
 
 /**
- * CRUD over the configurable company-classifier lookups. The `kind` URL segment
- * is validated against an explicit whitelist → repository map so the
- * parameterised endpoint stays greppable (no dynamic entity resolution).
+ * CRUD over the configurable company-classifier lookups — categories, the only
+ * kind left. The `kind` URL segment is validated against an explicit whitelist
+ * → repository map so the parameterised endpoint stays greppable (no dynamic
+ * entity resolution), and so a second kind is one map entry away.
  */
 @Injectable()
 export class CompanyAttributesService {
@@ -35,26 +29,8 @@ export class CompanyAttributesService {
   constructor(
     @InjectRepository(CompanyCategory)
     categories: Repository<CompanyCategory>,
-    @InjectRepository(CompanyIndustry)
-    industries: Repository<CompanyIndustry>,
-    @InjectRepository(CompanyType) types: Repository<CompanyType>,
-    @InjectRepository(CompanySize) sizes: Repository<CompanySize>,
-    @InjectRepository(CompanySource) sources: Repository<CompanySource>,
-    @InjectRepository(CompanyHiringMode)
-    hiringModes: Repository<CompanyHiringMode>,
-    @InjectRepository(CompanyRole) roles: Repository<CompanyRole>,
-    @InjectRepository(CompanyTag) tags: Repository<CompanyTag>,
   ) {
-    this.repos = {
-      categories,
-      industries,
-      types,
-      sizes,
-      sources,
-      'hiring-modes': hiringModes,
-      roles,
-      tags,
-    };
+    this.repos = { categories };
   }
 
   private repo(kind: string): Repository<CompanyLookupBase> {

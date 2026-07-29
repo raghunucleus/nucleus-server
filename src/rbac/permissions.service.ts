@@ -3,6 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Redis } from 'ioredis';
 import { In, Repository } from 'typeorm';
 import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
+// Pure constants (no Nest DI), so importing it creates no module edge.
+import { APPROVAL_ACTION_BY_KEY } from '../approval-approvers/approval-actions';
+import { ApprovalActionApprover } from '../approval-approvers/entities/approval-action-approver.entity';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { isWildcardAll } from './catalog';
 import { CatalogService } from './catalog.service';
@@ -106,6 +109,8 @@ export class PermissionsService {
     private readonly assignmentAttributes: Repository<RoleAssignmentAttribute>,
     @InjectRepository(ProgrammeAdmissionYearProfileVerifier)
     private readonly profileVerifiers: Repository<ProgrammeAdmissionYearProfileVerifier>,
+    @InjectRepository(ApprovalActionApprover)
+    private readonly actionApprovers: Repository<ApprovalActionApprover>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly catalog: CatalogService,
   ) {}
@@ -440,14 +445,21 @@ export class PermissionsService {
   /**
    * Derived "Requests" screens — attached in the COMPUTE (cache-miss) path,
    * unlike {@link deriveStudentMarksView} which is pure in-memory in hydrate():
-   * the Approvals grant needs a DB EXISTS against the profile-verifier table,
-   * so the result must land in the cached blob. Freshness: `setProfileVerifiers`
-   * invalidates affected employees' cache; the 5-minute TTL is the backstop.
+   * the Approvals grant needs DB lookups, so the result must land in the cached
+   * blob. Freshness: `setProfileVerifiers` and `setApprovers` invalidate
+   * affected employees' cache; the 5-minute TTL is the backstop.
    *
    *   - `requests.mine.view` — every employee, unconditionally (own
    *     submissions, self-scoped by the token's employee id).
-   *   - `requests.approvals.review` — employees who verify at least one
-   *     batch. No attributes: the verifier table itself scopes every query.
+   *   - `requests.approvals.review` — employees who verify at least one batch
+   *     (student requests) OR are an assigned approver of at least one approval
+   *     action (employee requests). No attributes: those two membership tables
+   *     scope every query themselves.
+   *
+   * A removed approver keeps this screen until the TTL expires, but sees an
+   * EMPTY inbox: every approvals query and both act-time checks re-derive scope
+   * from the membership tables at request time. The screen grant is navigation;
+   * the join is the authority.
    *
    * Derived actions are UNIONed into an existing slot rather than skipped.
    * The catalog says these screens are derived-only, but a stale explicit
@@ -477,10 +489,20 @@ export class PermissionsService {
 
     grant('requests.mine.view', ['view']);
 
-    const isVerifier = await this.profileVerifiers.exists({
-      where: { employee_id: employeeId },
-    });
-    if (isVerifier) {
+    const [isVerifier, approverRows] = await Promise.all([
+      this.profileVerifiers.exists({ where: { employee_id: employeeId } }),
+      this.actionApprovers.find({
+        where: { employee_id: employeeId },
+        select: { action_key: true },
+      }),
+    ]);
+    // A row for an action that has since left the catalog must never grant the
+    // screen — the same stale-key filter ApprovalApproversService applies.
+    const isActionApprover = approverRows.some((r) =>
+      APPROVAL_ACTION_BY_KEY.has(r.action_key),
+    );
+
+    if (isVerifier || isActionApprover) {
       grant('requests.approvals.review', [
         'view',
         'approve',

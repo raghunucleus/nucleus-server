@@ -11,8 +11,7 @@ import { DriveStudent } from './drive-student.entity';
 
 /**
  * One entry in a drive-student's audit trail — a status change or action,
- * append-only, powering the employee-side track view. Modelled on
- * `company_activity_log`.
+ * append-only, powering the employee-side track view.
  *
  * `actor_type` is `'employee' | 'student' | 'system'`; `actor_employee_id` is
  * set only for employee actions (audit-only, no FK — the acting employee may be

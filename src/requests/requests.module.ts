@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { Employee } from '../admin/entities/employee.entity';
 import { ProgrammeAdmissionYear } from '../admin/entities/programme-admission-year.entity';
 import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
 import { Student } from '../admin/entities/student.entity';
+import { ApprovalApproversModule } from '../approval-approvers/approval-approvers.module';
 import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { ApprovalRequestsService } from './approval-requests.service';
@@ -14,8 +16,9 @@ import { StudentRequestsController } from './student-requests.controller';
 
 /**
  * Generic approval-requests framework — the COMMON layer only: request
- * lifecycle/state, one-pending-per-type, verifier routing, decisions,
- * the My Requests / Approvals surfaces, requester notifications.
+ * lifecycle/state, duplicate serialization, routing (batch verifiers for
+ * student requests, action approvers for employee ones), decisions, the My
+ * Requests / Approvals surfaces, requester notifications.
  *
  * Everything type-specific lives with the type's own module, plugged in via
  * {@link RequestTypeRegistry} (e.g. the student-profile module owns the
@@ -33,11 +36,15 @@ import { StudentRequestsController } from './student-requests.controller';
       ApprovalRequest,
       ApprovalRequestEvent,
       Student,
+      Employee,
       ProgrammeAdmissionYear,
       ProgrammeAdmissionYearProfileVerifier,
     ]),
     RbacModule,
     EmployeeAuthModule,
+    // Employee-raised requests route by action key. No cycle: that module
+    // imports TypeORM + RbacModule only, never this one.
+    ApprovalApproversModule,
   ],
   controllers: [StudentRequestsController, EmployeeRequestsController],
   providers: [ApprovalRequestsService, RequestTypeRegistry],

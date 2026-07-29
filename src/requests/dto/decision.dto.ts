@@ -8,11 +8,18 @@ const NoteSchema = z
   .optional()
   .transform((v) => (v ? v : undefined));
 
+// Type-specific edits the approver made while deciding (e.g. reassigning the
+// employee responsible for a company job role). Opaque here — the type's
+// handler owns the shape and 400s on anything it doesn't understand, including
+// its mere presence when the type has nothing an approver may edit.
+const OverridesSchema = z.record(z.string(), z.unknown()).optional();
+
 // Approve/reject body — an optional note shown to the requester. An empty
 // string collapses to "no note".
 export const DecisionSchema = z
   .object({
     note: NoteSchema,
+    overrides: OverridesSchema,
   })
   .strict();
 
@@ -33,6 +40,7 @@ export const DecideSchema = z
       ),
     overall: z.enum(['approved', 'rejected']).optional(),
     note: NoteSchema,
+    overrides: OverridesSchema,
   })
   .strict();
 

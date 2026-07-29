@@ -13,9 +13,6 @@ import { DriveProfile } from './drive-profile.entity';
  * A JD attachment on a drive profile (a PDF/DOC spelling out the role). Bytes
  * live in the private storage bucket keyed by `file_key`; the key is never
  * exposed to clients — reads go out as a presigned `file_url`.
- *
- * Column names follow `company_attachments`: `file_key` / `file_name` /
- * `content_type` / `uploaded_by`.
  */
 @Entity({ name: 'drive_profile_attachments' })
 @Index('IDX_drive_profile_attachments_drive_profile_id', ['drive_profile_id'])

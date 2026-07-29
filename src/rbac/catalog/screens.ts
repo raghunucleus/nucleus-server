@@ -292,35 +292,19 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
   // --- Corporate Relations -----------------------------------------------
   //
   // Placement / corporate-relations desk. Web-only screens with no
-  // per-attribute scope: a placement manager configures the classifier lookups
-  // and manages the whole company catalog, while the "Companies" list is
-  // filtered to the officer's own assignments server-side from the token's
-  // employee id (not via an RBAC attribute). Recording CRM activity
-  // (interactions, milestones, contacts) requires no dedicated action — screen
-  // access implies it, so those writes are gated on `view`. The manager's more
-  // privileged company-master operations keep their own actions
-  // (create/edit/activate/assign).
+  // per-attribute scope: a placement manager configures the category lookup and
+  // manages the whole company catalog, unscoped — every company is visible to
+  // every holder of the screen. `activate` gates the active/inactive switch,
+  // which the service refuses on a company still awaiting approval.
   {
     key: 'corporate_relations.company_management.manage',
     module_key: 'corporate_relations',
     role_type_keys: ['placement'],
     platforms: ['web'],
     label: 'Company Management',
-    description:
-      'Add, edit, activate/deactivate companies and assign employees.',
+    description: 'Add, edit and activate/deactivate companies.',
     web_route: '/corporate-relations/company-management',
-    actions: ['view', 'create', 'edit', 'activate', 'assign'],
-    attributes: [],
-  },
-  {
-    key: 'corporate_relations.companies.view',
-    module_key: 'corporate_relations',
-    role_type_keys: ['placement'],
-    platforms: ['web'],
-    label: 'Companies',
-    description: 'View your assigned companies and record interactions.',
-    web_route: '/corporate-relations/companies',
-    actions: ['view'],
+    actions: ['view', 'create', 'edit', 'activate'],
     attributes: [],
   },
   {
@@ -329,8 +313,7 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     role_type_keys: ['placement'],
     platforms: ['web'],
     label: 'Company Attributes',
-    description:
-      'Configure company classifiers: category, industry, type, size, source, hiring modes, roles and tags.',
+    description: 'Configure the categories companies can be tagged with.',
     web_route: '/corporate-relations/company-attributes',
     actions: ['view', 'create', 'edit', 'activate'],
     attributes: [],
@@ -440,9 +423,10 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
   // The generic approval-requests framework. BOTH screens are DERIVED, never
   // assigned via roles (see PermissionsService.deriveRequestScreens):
   //   - Approvals is synthesised for employees who are profile verifiers of at
-  //     least one batch (programme_admission_year_profile_verifiers) — being a
-  //     verifier IS the grant, and every query joins that table for row scope,
-  //     so there is no per-attribute scope here.
+  //     least one batch (programme_admission_year_profile_verifiers) OR are an
+  //     assigned approver of an approval action (approval_action_approvers) —
+  //     that membership IS the grant, and every query joins those tables for
+  //     row scope, so there is no per-attribute scope here.
   //   - My Requests is synthesised for every employee (their own submissions;
   //     self-scoped by the token's employee id).
   {
@@ -452,7 +436,7 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     platforms: ['web', 'mobile'],
     label: 'Approvals',
     description:
-      'Review requests awaiting your decision — e.g. profile updates from students of batches you verify. Derived from profile-verifier membership; do not assign via roles.',
+      'Review requests awaiting your decision — e.g. profile updates from students of batches you verify, or companies awaiting sign-off. Derived from profile-verifier or approval-action approver membership; do not assign via roles.',
     web_route: '/requests/approvals',
     mobile_route: '/approvals',
     actions: ['view', 'approve', 'reject', 'send_back'],

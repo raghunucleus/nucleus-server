@@ -7,6 +7,7 @@ import { EmployeeBirthdaysModule } from './birthdays/employee-birthdays.module';
 import { CashierModule } from './cashier/cashier.module';
 import { EmployeeCommonModule } from './common/employee-common.module';
 import { CorporateRelationsModule } from './corporate-relations/corporate-relations.module';
+import { EmployeeDirectoryModule } from './directory/employee-directory.module';
 import { DriveManagementModule } from './drive-management/drive-management.module';
 import { ExamCellModule } from './exam-cell/exam-cell.module';
 import { ExportsModule } from './exports/exports.module';
@@ -33,6 +34,7 @@ import { TeacherModule } from './teacher/teacher.module';
   imports: [
     EmployeeAuthModule,
     EmployeeCommonModule,
+    EmployeeDirectoryModule,
     EmployeeBirthdaysModule,
     EmployeeIdCardModule,
     HodModule,

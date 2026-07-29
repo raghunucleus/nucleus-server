@@ -1,15 +1,20 @@
 import {
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { Employee } from '../admin/entities/employee.entity';
 import { ProgrammeAdmissionYear } from '../admin/entities/programme-admission-year.entity';
 import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
 import { Student } from '../admin/entities/student.entity';
+import { APPROVAL_ACTION_BY_KEY } from '../approval-approvers/approval-actions';
+import { ApprovalApproversService } from '../approval-approvers/approval-approvers.service';
+import { ApprovalActionApprover } from '../approval-approvers/entities/approval-action-approver.entity';
 import { EmployeeNotificationService } from '../employee/notification/employee-notification.service';
 import { StudentNotificationService } from '../student/notification/student-notification.service';
 import { ApprovalRequestEvent } from './entities/approval-request-event.entity';
@@ -24,6 +29,7 @@ import {
   DecidedStatus,
   DecisionInput,
   RequestCatalogModule,
+  RequestRequesterRef,
   RequestTypeRegistry,
 } from './request-type.registry';
 
@@ -37,12 +43,32 @@ export interface RequesterRequestView {
   decision_note: string | null;
   decided_at: Date | null;
   created_at: Date;
+  /** The routing action for employee-raised requests; null for student ones. */
+  action_key: string | null;
 }
 
-/** Approver-facing row — adds the requesting student and decision identity. */
+/** Who raised a request, in a shape that reads the same for both kinds. */
+export interface RequestRequester {
+  kind: 'student' | 'employee';
+  id: number;
+  /** display_name / emp_display_name. */
+  name: string;
+  /** student_id / emp_code. */
+  code: string;
+  /** "B.Tech CSE · 2022" or "Assistant Professor · CSE"; null when unresolvable. */
+  subtitle: string | null;
+}
+
+/** Approver-facing row — adds the requester and decision identity. */
 export interface ApprovalRequestView extends RequesterRequestView {
   decided_by: { id: number; emp_display_name: string } | null;
-  student: {
+  requester: RequestRequester;
+  /**
+   * @deprecated Read `requester`. Still emitted for STUDENT requests only, so
+   * clients written before employee-raised requests existed keep working
+   * (nucleus-employee-mobile among them). Absent on employee requests.
+   */
+  student?: {
     id: number;
     student_id: string;
     display_name: string;
@@ -52,9 +78,10 @@ export interface ApprovalRequestView extends RequesterRequestView {
 }
 
 /**
- * Someone who can act on a request — a profile verifier of its batch. The pool
- * is flat: any one of them can decide, there is no order or quorum, so this is
- * "who it's with", not a sequence of steps.
+ * Someone who can act on a request — a profile verifier of its batch (student
+ * requests) or an approver assigned to its action key (employee requests). The
+ * pool is flat either way: any one of them can decide, there is no order or
+ * quorum, so this is "who it's with", not a sequence of steps.
  */
 export interface RequestApprover {
   id: number;
@@ -116,11 +143,21 @@ function nextDay(isoDate: string): string {
 
 /**
  * The generic approval-requests framework — owns lifecycle only: requester
- * identity, one-pending-per-type, verifier routing, status transitions,
- * decision metadata and requester notifications. Everything type-specific
- * (payload shape/validation, what "approve" applies, notification copy) comes
- * from the type's handler registered in {@link RequestTypeRegistry} by its
- * owning module.
+ * identity, duplicate serialization, routing, status transitions, decision
+ * metadata and notifications. Everything type-specific (payload shape and
+ * validation, what "approve" applies, what an approver may edit, notification
+ * copy) comes from the type's handler registered in
+ * {@link RequestTypeRegistry} by its owning module.
+ *
+ * There are two routing modes, and a request uses exactly one:
+ *  - **student** → `programme_admission_year_id`, decided by that batch's
+ *    profile verifiers;
+ *  - **employee** → `action_key`, decided by the approvers an admin assigned to
+ *    that action (`src/approval-approvers`).
+ *
+ * A row with neither is unroutable — it can only arise when a batch is deleted
+ * out from under a historical student request (the FK is SET NULL) — and
+ * nobody can act on it. That is enforced in one place: {@link assertCanAct}.
  */
 @Injectable()
 export class ApprovalRequestsService {
@@ -133,6 +170,8 @@ export class ApprovalRequestsService {
     private readonly events: Repository<ApprovalRequestEvent>,
     @InjectRepository(Student)
     private readonly students: Repository<Student>,
+    @InjectRepository(Employee)
+    private readonly employees: Repository<Employee>,
     @InjectRepository(ProgrammeAdmissionYear)
     private readonly batches: Repository<ProgrammeAdmissionYear>,
     @InjectRepository(ProgrammeAdmissionYearProfileVerifier)
@@ -140,8 +179,26 @@ export class ApprovalRequestsService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly notifications: StudentNotificationService,
     private readonly employeeNotifications: EmployeeNotificationService,
+    private readonly approvalApprovers: ApprovalApproversService,
     private readonly registry: RequestTypeRegistry,
   ) {}
+
+  /**
+   * The advisory-lock key for a create/resubmit. Defaults to the requester so
+   * one person's concurrent submits of a type serialize; a handler overrides it
+   * when duplicates are defined on the SUBJECT instead (see `lockKeyFor`).
+   */
+  private lockKey(
+    type: ApprovalRequestType,
+    requester: RequestRequesterRef,
+    payload: Record<string, unknown>,
+  ): string {
+    const handler = this.registry.get(type);
+    const suffix =
+      handler.lockKeyFor?.(requester, payload) ??
+      `${requester.kind}:${requester.id}:${type}`;
+    return `approval_requests:${suffix}`;
+  }
 
   // ---------------------------------------------------------------------------
   // Requester side (students)
@@ -189,13 +246,14 @@ export class ApprovalRequestsService {
     }
 
     const handler = this.registry.get(type);
+    const requester: RequestRequesterRef = { kind: 'student', id: studentId };
     const saved = await this.dataSource.transaction(async (tx) => {
-      // Serialize concurrent submits per (requester, type) so the handler's
-      // duplicate check can't be raced — the lock releases on commit/rollback.
+      // Serialize concurrent submits so the handler's duplicate check can't be
+      // raced — the lock releases on commit/rollback.
       await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-        `approval_requests:student:${studentId}:${type}`,
+        this.lockKey(type, requester, payload),
       ]);
-      await handler.assertCreatable?.(tx, studentId, payload);
+      await handler.assertCreatable?.(tx, requester, payload);
       const repo = tx.getRepository(ApprovalRequest);
       const row = await repo.save(
         repo.create({
@@ -223,7 +281,7 @@ export class ApprovalRequestsService {
     // After commit only, and fire-and-forget — a rolled-back submit must not
     // summon anyone, and a notification failure must never turn a saved request
     // into a failed one for the student.
-    this.dispatchApproverNotification(saved, studentId, 'raised');
+    this.dispatchApproverNotification(saved, 'raised');
     return this.toRequesterView(saved);
   }
 
@@ -308,9 +366,10 @@ export class ApprovalRequestsService {
     note?: string | null,
   ): Promise<RequesterRequestView> {
     const handler = this.registry.get(type);
+    const requester: RequestRequesterRef = { kind: 'student', id: studentId };
     const saved = await this.dataSource.transaction(async (tx) => {
       await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-        `approval_requests:student:${studentId}:${type}`,
+        this.lockKey(type, requester, payload),
       ]);
       const repo = tx.getRepository(ApprovalRequest);
       const row = await repo
@@ -329,7 +388,7 @@ export class ApprovalRequestsService {
         );
       }
 
-      await handler.assertResubmittable?.(tx, studentId, row, payload);
+      await handler.assertResubmittable?.(tx, requester, row, payload);
 
       await repo.update(
         { id: row.id, status: 'sent_back' },
@@ -366,7 +425,7 @@ export class ApprovalRequestsService {
     });
     // A resubmit puts the request back in the verifiers' queue, so it warrants
     // the same nudge as a fresh one. Post-commit, fire-and-forget (see create).
-    this.dispatchApproverNotification(saved, studentId, 'resubmitted');
+    this.dispatchApproverNotification(saved, 'resubmitted');
     return this.toRequesterView(saved);
   }
 
@@ -410,7 +469,221 @@ export class ApprovalRequestsService {
   }
 
   // ---------------------------------------------------------------------------
-  // Approver side (employees — profile verifiers of the request's batch)
+  // Requester side (employees)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * File a request on behalf of an employee, routed by action key rather than
+   * by batch. Same framework rules as {@link createForStudent}: require
+   * somebody who can act on it, run the type's duplicate check under an
+   * advisory lock, persist, then notify the approvers post-commit.
+   */
+  async createForEmployee(
+    employeeId: number,
+    type: ApprovalRequestType,
+    actionKey: string,
+    payload: Record<string, unknown>,
+    note?: string | null,
+  ): Promise<RequesterRequestView> {
+    const employee = await this.employees.findOne({ where: { id: employeeId } });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    // The action key is server-authored (the calling module hard-codes it), so
+    // an unknown one is a programming error, not bad user input.
+    if (!APPROVAL_ACTION_BY_KEY.has(actionKey)) {
+      throw new InternalServerErrorException(
+        `Unknown approval action: ${actionKey}`,
+      );
+    }
+
+    // An action with zero approvers would swallow the request — nobody could
+    // ever see or decide it. Same rule as the batch-verifier check above.
+    const approverIds =
+      await this.approvalApprovers.getApproverEmployeeIds(actionKey);
+    if (approverIds.length === 0) {
+      const label = APPROVAL_ACTION_BY_KEY.get(actionKey)!.label;
+      throw new UnprocessableEntityException(
+        `${label} are not set up yet — ask an administrator to assign approvers.`,
+      );
+    }
+
+    const handler = this.registry.get(type);
+    const requester: RequestRequesterRef = { kind: 'employee', id: employeeId };
+    const saved = await this.dataSource.transaction(async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        this.lockKey(type, requester, payload),
+      ]);
+      await handler.assertCreatable?.(tx, requester, payload);
+      const repo = tx.getRepository(ApprovalRequest);
+      const row = await repo.save(
+        repo.create({
+          request_type: type,
+          status: 'pending',
+          requester_employee_id: employeeId,
+          payload,
+          requester_note: note ?? null,
+          action_key: actionKey,
+        }),
+      );
+      await this.logEvent(
+        tx,
+        row.id,
+        'raised',
+        { kind: 'employee', id: employeeId },
+        note ?? null,
+        payload,
+      );
+      return row;
+    });
+    this.dispatchApproverNotification(saved, 'raised');
+    return this.toRequesterView(saved);
+  }
+
+  /** Employee mirror of {@link resubmitForStudent}. */
+  async resubmitForEmployee(
+    employeeId: number,
+    id: number,
+    type: ApprovalRequestType,
+    payload: Record<string, unknown>,
+    note?: string | null,
+  ): Promise<RequesterRequestView> {
+    const handler = this.registry.get(type);
+    const requester: RequestRequesterRef = { kind: 'employee', id: employeeId };
+    const saved = await this.dataSource.transaction(async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        this.lockKey(type, requester, payload),
+      ]);
+      const repo = tx.getRepository(ApprovalRequest);
+      const row = await repo
+        .createQueryBuilder('r')
+        .setLock('pessimistic_write')
+        .where('r.id = :id', { id })
+        .getOne();
+
+      if (!row || row.requester_employee_id !== employeeId) {
+        throw new NotFoundException('Request not found');
+      }
+      if (row.status !== 'sent_back') {
+        throw new ConflictException(
+          'Only a request that was sent back to you can be resubmitted.',
+        );
+      }
+
+      await handler.assertResubmittable?.(tx, requester, row, payload);
+
+      await repo.update(
+        { id: row.id, status: 'sent_back' },
+        {
+          status: 'pending',
+          payload: payload as ApprovalRequest['payload'] &
+            Record<string, never>,
+          requester_note: note ?? null,
+          decided_by_employee_id: null,
+          decided_at: null,
+          decision_note: null,
+        },
+      );
+      await this.logEvent(
+        tx,
+        row.id,
+        'resubmitted',
+        { kind: 'employee', id: employeeId },
+        note ?? null,
+        payload,
+      );
+      row.status = 'pending';
+      row.payload = payload;
+      row.requester_note = note ?? null;
+      row.decided_at = null;
+      row.decision_note = null;
+      return row;
+    });
+    this.dispatchApproverNotification(saved, 'resubmitted');
+    return this.toRequesterView(saved);
+  }
+
+  /** Employee mirror of {@link cancelForStudent}. */
+  async cancelForEmployee(
+    employeeId: number,
+    id: number,
+  ): Promise<RequesterRequestView> {
+    return this.dataSource.transaction(async (tx) => {
+      const repo = tx.getRepository(ApprovalRequest);
+      const row = await repo
+        .createQueryBuilder('r')
+        .setLock('pessimistic_write')
+        .where('r.id = :id', { id })
+        .getOne();
+
+      if (!row || row.requester_employee_id !== employeeId) {
+        throw new NotFoundException('Request not found');
+      }
+      if (
+        !(OPEN_APPROVAL_REQUEST_STATUSES as readonly string[]).includes(
+          row.status,
+        )
+      ) {
+        throw new ConflictException(
+          'This request has already been decided and can no longer be cancelled.',
+        );
+      }
+
+      await repo.update({ id: row.id }, { status: 'cancelled' });
+      await this.logEvent(tx, row.id, 'cancelled', {
+        kind: 'employee',
+        id: employeeId,
+      });
+      row.status = 'cancelled';
+      return this.toRequesterView(row);
+    });
+  }
+
+  /** The employee's still-open requests of a type — see {@link openRequests}. */
+  async openEmployeeRequests(
+    employeeId: number,
+    type: ApprovalRequestType,
+  ): Promise<ApprovalRequest[]> {
+    return this.requests.find({
+      where: {
+        requester_employee_id: employeeId,
+        request_type: type,
+        status: In([...OPEN_APPROVAL_REQUEST_STATUSES]),
+      },
+      order: { id: 'DESC' },
+    });
+  }
+
+  /** Full picture of one of the employee's own requests. 404 on someone else's. */
+  async getForEmployee(
+    employeeId: number,
+    id: number,
+  ): Promise<RequesterRequestDetailView> {
+    const row = await this.requests.findOne({
+      where: { id, requester_employee_id: employeeId },
+    });
+    if (!row) throw new NotFoundException('Request not found');
+    const [approvers, timeline, payload] = await Promise.all([
+      this.approversFor(row),
+      this.timelineFor(row.id),
+      this.enrichedPayload(row),
+    ]);
+    return { ...this.toRequesterView(row), payload, approvers, timeline };
+  }
+
+  /** Chip counts across ALL of the employee's own requests. */
+  async countsForEmployee(employeeId: number): Promise<RequestStatusCounts> {
+    const rows = await this.requests
+      .createQueryBuilder('r')
+      .select('r.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('r.requester_employee_id = :me', { me: employeeId })
+      .groupBy('r.status')
+      .getRawMany<{ status: string; count: string }>();
+    return this.tallyStatuses(rows);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Approver side (batch profile verifiers, or the action's assigned approvers)
   // ---------------------------------------------------------------------------
 
   async listApprovals(
@@ -441,7 +714,7 @@ export class ApprovalRequestsService {
       .getManyAndCount();
 
     return {
-      items: rows.map((r) => this.toApprovalView(r)),
+      items: await Promise.all(rows.map((r) => this.enrichedApprovalView(r))),
       total,
       page: q.page,
       limit: q.limit,
@@ -470,6 +743,18 @@ export class ApprovalRequestsService {
       .andWhere('r.id = :id', { id })
       .getOne();
     if (!row) throw new NotFoundException('Request not found');
+    return this.detailViewFor(row);
+  }
+
+  /**
+   * The detail view for a row the CALLER has already authorised. Unscoped by
+   * design — a module that owns the request's subject (e.g. corporate relations
+   * showing a company's pending change) gates on its own screen instead of the
+   * approvals inbox's approver scoping.
+   */
+  async detailViewFor(
+    row: ApprovalRequest,
+  ): Promise<ApprovalRequestDetailView> {
     const [approvers, timeline, payload] = await Promise.all([
       this.approversFor(row),
       this.timelineFor(row.id),
@@ -484,14 +769,10 @@ export class ApprovalRequestsService {
    * filters the list below.
    */
   async countsForApprovals(employeeId: number): Promise<RequestStatusCounts> {
-    const rows = await this.requests
-      .createQueryBuilder('r')
-      .innerJoin(
-        ProgrammeAdmissionYearProfileVerifier,
-        'v',
-        'v.programme_admission_year_id = r.programme_admission_year_id AND v.employee_id = :me',
-        { me: employeeId },
-      )
+    // Built on approvalsQuery so the inbox and its chips can never disagree
+    // about scope — a second hand-rolled join here silently counted only
+    // student requests once employee-raised ones existed.
+    const rows = await this.approvalsQuery(employeeId)
       .select('r.status', 'status')
       .addSelect('COUNT(*)', 'count')
       .groupBy('r.status')
@@ -523,23 +804,8 @@ export class ApprovalRequestsService {
           .where('r.id = :id', { id })
           .getOne();
 
-        if (
-          !row ||
-          row.requester_student_id === null ||
-          row.programme_admission_year_id === null
-        ) {
-          throw new NotFoundException('Request not found');
-        }
-
-        const isVerifier = await tx
-          .getRepository(ProgrammeAdmissionYearProfileVerifier)
-          .exists({
-            where: {
-              employee_id: employeeId,
-              programme_admission_year_id: row.programme_admission_year_id,
-            },
-          });
-        if (!isVerifier) throw new NotFoundException('Request not found');
+        if (!row) throw new NotFoundException('Request not found');
+        await this.assertCanAct(tx, row, employeeId);
 
         if (row.status !== 'pending') {
           throw new ConflictException('This request has already been decided.');
@@ -605,23 +871,8 @@ export class ApprovalRequestsService {
         .where('r.id = :id', { id })
         .getOne();
 
-      if (
-        !row ||
-        row.requester_student_id === null ||
-        row.programme_admission_year_id === null
-      ) {
-        throw new NotFoundException('Request not found');
-      }
-
-      const isVerifier = await tx
-        .getRepository(ProgrammeAdmissionYearProfileVerifier)
-        .exists({
-          where: {
-            employee_id: employeeId,
-            programme_admission_year_id: row.programme_admission_year_id,
-          },
-        });
-      if (!isVerifier) throw new NotFoundException('Request not found');
+      if (!row) throw new NotFoundException('Request not found');
+      await this.assertCanAct(tx, row, employeeId);
 
       if (row.status !== 'pending') {
         throw new ConflictException('Only a pending request can be sent back.');
@@ -664,7 +915,12 @@ export class ApprovalRequestsService {
       where: { requester_employee_id: employeeId },
       order: { id: 'DESC' },
     });
-    return rows.map((r) => this.toRequesterView(r));
+    return Promise.all(
+      rows.map(async (r) => ({
+        ...this.toRequesterView(r),
+        payload: await this.enrichedPayload(r),
+      })),
+    );
   }
 
   /** The Modules tree — every registered request type, grouped. */
@@ -704,6 +960,18 @@ export class ApprovalRequestsService {
   }
 
   /**
+   * A list row with its payload enriched. The inbox renders a per-type avatar
+   * (a company's logo, say) straight from the payload, so the presigned URLs
+   * have to be there — `getCachedReadUrl` is Redis-cached, making a page of
+   * these cheap.
+   */
+  private async enrichedApprovalView(
+    row: ApprovalRequest,
+  ): Promise<ApprovalRequestView> {
+    return { ...this.toApprovalView(row), payload: await this.enrichedPayload(row) };
+  }
+
+  /**
    * The payload as the DETAIL views should render it: passed through the
    * type's optional `enrichPayloadForView` (e.g. presigned file URLs).
    * View-only — never persisted; enrichment failures fall back to the raw
@@ -722,13 +990,26 @@ export class ApprovalRequestsService {
   }
 
   /**
-   * The pool who can act on a request — every profile verifier of its batch,
-   * flagging whoever actually decided. Flat by design: any one of them can
-   * decide, so this is "who it's with", not a sequence.
+   * The pool who can act on a request — its batch's profile verifiers, or the
+   * approvers assigned to its action key — flagging whoever actually decided.
+   * Flat by design: any one of them can decide, so this is "who it's with",
+   * not a sequence.
    */
   private async approversFor(
     request: ApprovalRequest,
   ): Promise<RequestApprover[]> {
+    if (request.action_key !== null) {
+      const rows = await this.approvalApprovers.approversFor(
+        request.action_key,
+      );
+      return rows.map((a) => ({
+        id: a.id,
+        emp_display_name: a.emp_display_name,
+        designation: a.designation,
+        department: a.department,
+        is_decider: a.id === request.decided_by_employee_id,
+      }));
+    }
     if (request.programme_admission_year_id === null) return [];
     // `employee` is non-eager on the verifier row (it would cycle with
     // Employee.department), so join it and its lookups explicitly.
@@ -788,24 +1069,78 @@ export class ApprovalRequestsService {
   }
 
   /**
-   * Base approver query: INNER JOIN on the verifier table scopes rows to
-   * batches the acting employee verifies — the verifier table IS the scope
-   * (the RBAC screen carries no attributes). Student's programme/admission
-   * year are joined explicitly because QueryBuilder ignores `eager:`.
+   * Base approver query — one inbox, both routing modes. A row is visible when
+   * the acting employee verifies its batch OR is an assigned approver of its
+   * action; these tables ARE the scope (the RBAC screen carries no attributes).
+   *
+   * Three things here are load-bearing:
+   *  - The OR is parenthesised INSIDE the `where` string. Callers chain
+   *    `andWhere` afterwards, and an unbracketed `A OR B` re-associates into
+   *    `A OR (B AND status = …)` — which shows every approver every request.
+   *  - Both joins are LEFT. They stay row-count-safe because each routing table
+   *    is unique on (scope, employee_id), so `getManyAndCount()` is unaffected.
+   *  - `requester_student` is LEFT too: it was the INNER join that made the
+   *    whole framework student-only. Requester relations and their lookups are
+   *    joined explicitly because QueryBuilder ignores `eager:`.
    */
   private approvalsQuery(employeeId: number) {
     return this.requests
       .createQueryBuilder('r')
-      .innerJoin(
+      .leftJoin(
         ProgrammeAdmissionYearProfileVerifier,
         'v',
         'v.programme_admission_year_id = r.programme_admission_year_id AND v.employee_id = :me',
-        { me: employeeId },
       )
-      .innerJoinAndSelect('r.requester_student', 's')
+      .leftJoin(
+        ApprovalActionApprover,
+        'aa',
+        'aa.action_key = r.action_key AND aa.employee_id = :me',
+      )
+      .leftJoinAndSelect('r.requester_student', 's')
       .leftJoinAndSelect('s.programme', 'p')
       .leftJoinAndSelect('s.admission_year', 'ay')
-      .leftJoinAndSelect('r.decided_by_employee', 'de');
+      .leftJoinAndSelect('r.requester_employee', 're')
+      .leftJoinAndSelect('re.designation', 'redes')
+      .leftJoinAndSelect('re.department', 'redep')
+      .leftJoinAndSelect('r.decided_by_employee', 'de')
+      .where('(v.employee_id IS NOT NULL OR aa.employee_id IS NOT NULL)')
+      .setParameter('me', employeeId);
+  }
+
+  /**
+   * May this employee act on this request? The routing key is the authority:
+   * a batch's profile verifier for student requests, an assigned approver for
+   * employee ones. A request with NEITHER key is unroutable (a student request
+   * whose batch was deleted — the FK is SET NULL) and nobody may act on it.
+   *
+   * Throws 404, never 403: an approver must not be able to probe which request
+   * ids exist outside their scope.
+   */
+  private async assertCanAct(
+    tx: EntityManager,
+    row: ApprovalRequest,
+    employeeId: number,
+  ): Promise<void> {
+    if (row.programme_admission_year_id !== null) {
+      const isVerifier = await tx
+        .getRepository(ProgrammeAdmissionYearProfileVerifier)
+        .exists({
+          where: {
+            employee_id: employeeId,
+            programme_admission_year_id: row.programme_admission_year_id,
+          },
+        });
+      if (isVerifier) return;
+    }
+    if (row.action_key !== null) {
+      const isApprover = await this.approvalApprovers.isApprover(
+        employeeId,
+        row.action_key,
+        tx,
+      );
+      if (isApprover) return;
+    }
+    throw new NotFoundException('Request not found');
   }
 
   private toRequesterView(r: ApprovalRequest): RequesterRequestView {
@@ -818,10 +1153,42 @@ export class ApprovalRequestsService {
       decision_note: r.decision_note,
       decided_at: r.decided_at,
       created_at: r.created_at,
+      action_key: r.action_key,
     };
   }
 
   private toApprovalView(r: ApprovalRequest): ApprovalRequestView {
+    const student = r.requester_student;
+    const employee = r.requester_employee;
+
+    // Whichever side loaded. Neither can only happen if the requester row was
+    // deleted (both FKs are CASCADE, so the request would be gone too) — the
+    // fallback exists so a list fetch degrades to one unnamed row instead of
+    // 500ing the whole endpoint, which is what the old unguarded deref did.
+    const requester: RequestRequester = student
+      ? {
+          kind: 'student',
+          id: student.id,
+          name: student.display_name,
+          code: student.student_id,
+          subtitle:
+            [student.programme?.name, student.admission_year?.display_year]
+              .filter(Boolean)
+              .join(' · ') || null,
+        }
+      : employee
+        ? {
+            kind: 'employee',
+            id: employee.id,
+            name: employee.emp_display_name,
+            code: employee.emp_code,
+            subtitle:
+              [employee.designation?.name, employee.department?.name]
+                .filter(Boolean)
+                .join(' · ') || null,
+          }
+        : { kind: 'employee', id: 0, name: '—', code: '—', subtitle: null };
+
     return {
       ...this.toRequesterView(r),
       decided_by: r.decided_by_employee
@@ -830,14 +1197,20 @@ export class ApprovalRequestsService {
             emp_display_name: r.decided_by_employee.emp_display_name,
           }
         : null,
-      student: {
-        id: r.requester_student.id,
-        student_id: r.requester_student.student_id,
-        display_name: r.requester_student.display_name,
-        programme_name: r.requester_student.programme?.name ?? '—',
-        admission_year_display:
-          r.requester_student.admission_year?.display_year ?? '—',
-      },
+      requester,
+      // Legacy shape, student requests only — see the interface docblock.
+      ...(student
+        ? {
+            student: {
+              id: student.id,
+              student_id: student.student_id,
+              display_name: student.display_name,
+              programme_name: student.programme?.name ?? '—',
+              admission_year_display:
+                student.admission_year?.display_year ?? '—',
+            },
+          }
+        : {}),
     };
   }
 
@@ -851,14 +1224,10 @@ export class ApprovalRequestsService {
     request: ApprovalRequest,
     note: string,
   ): Promise<void> {
-    if (request.requester_student_id === null) return;
     const label = this.registry.get(request.request_type).catalog.label;
-    await this.notifications.send(request.requester_student_id, {
-      module: 'requests',
-      type: `${request.request_type}-sent_back`,
+    await this.notifyRequester(request, `${request.request_type}-sent_back`, {
       title: `${label} request needs changes`,
       body: `Your ${label.toLowerCase()} request was sent back for changes: ${note}`,
-      target: { type: 'request', id: request.id },
     });
   }
 
@@ -867,17 +1236,48 @@ export class ApprovalRequestsService {
     status: DecidedStatus,
     note: string | null,
   ): Promise<void> {
-    if (request.requester_student_id === null) return;
     const copy = this.registry
       .get(request.request_type)
       .decisionNotification(request, status, note);
-    await this.notifications.send(request.requester_student_id, {
-      module: 'requests',
-      type: `${request.request_type}-${status}`,
-      title: copy.title,
-      body: copy.body,
-      target: { type: 'request', id: request.id },
-    });
+    await this.notifyRequester(
+      request,
+      `${request.request_type}-${status}`,
+      copy,
+    );
+  }
+
+  /**
+   * Tell whoever raised the request what happened to it, on whichever channel
+   * they live on.
+   *
+   * The employee target is `my-request`, NOT `request`: the latter deep-links
+   * to the Approvals inbox, and a raiser who isn't an approver would land on a
+   * page that can't fetch their own request.
+   */
+  private async notifyRequester(
+    request: ApprovalRequest,
+    type: string,
+    copy: { title: string; body: string },
+  ): Promise<void> {
+    if (request.requester_student_id !== null) {
+      await this.notifications.send(request.requester_student_id, {
+        module: 'requests',
+        type,
+        title: copy.title,
+        body: copy.body,
+        target: { type: 'request', id: request.id },
+      });
+      return;
+    }
+    if (request.requester_employee_id !== null) {
+      await this.employeeNotifications.send(request.requester_employee_id, {
+        module: 'requests',
+        type,
+        title: copy.title,
+        body: copy.body,
+        target: { type: 'my-request', id: request.id },
+      });
+    }
   }
 
   /**
@@ -887,10 +1287,9 @@ export class ApprovalRequestsService {
    */
   private dispatchApproverNotification(
     request: ApprovalRequest,
-    studentId: number,
     kind: 'raised' | 'resubmitted',
   ): void {
-    void this.notifyApprovers(request, studentId, kind).catch((err) =>
+    void this.notifyApprovers(request, kind).catch((err) =>
       this.logger.error(
         `Approver notification for request ${request.id} failed: ${String(err)}`,
       ),
@@ -909,16 +1308,16 @@ export class ApprovalRequestsService {
    */
   private async notifyApprovers(
     request: ApprovalRequest,
-    studentId: number,
     kind: 'raised' | 'resubmitted',
   ): Promise<void> {
-    const approverIds = await this.approverIdsFor(
-      request.programme_admission_year_id,
-    );
+    const approverIds = (await this.approverIdsFor(request))
+      // Someone who is both a company manager and a configured approver must
+      // not be told to review their own submission.
+      .filter((id) => id !== request.requester_employee_id);
     if (approverIds.length === 0) return;
 
-    const student = await this.students.findOne({ where: { id: studentId } });
-    if (!student) return;
+    const who = await this.requesterLabel(request);
+    if (!who) return;
 
     const label = this.registry.get(request.request_type).catalog.label;
     const lower = label.toLowerCase();
@@ -933,24 +1332,46 @@ export class ApprovalRequestsService {
           kind === 'raised'
             ? `New ${label} request to review`
             : `${label} request resubmitted`,
-        body: `${student.display_name} (${student.student_id}) ${kind === 'raised' ? 'raised' : 'resubmitted'} a ${lower} request for your approval.`,
+        body: `${who} ${kind === 'raised' ? 'raised' : 'resubmitted'} a ${lower} request for your approval.`,
         target: { type: 'request', id: request.id },
       },
       { email: true },
     );
   }
 
+  /** "Asha Rao (EMP001)" — null when the requester row is gone. */
+  private async requesterLabel(
+    request: ApprovalRequest,
+  ): Promise<string | null> {
+    if (request.requester_student_id !== null) {
+      const s = await this.students.findOne({
+        where: { id: request.requester_student_id },
+      });
+      return s ? `${s.display_name} (${s.student_id})` : null;
+    }
+    if (request.requester_employee_id !== null) {
+      const e = await this.employees.findOne({
+        where: { id: request.requester_employee_id },
+      });
+      return e ? `${e.emp_display_name} (${e.emp_code})` : null;
+    }
+    return null;
+  }
+
   /**
-   * Just the employee ids of a batch's verifiers — the recipient list. Separate
-   * from {@link approversFor}, which joins designation/department for display
-   * that a notification fan-out has no use for.
+   * Just the employee ids who can act — the recipient list, by whichever
+   * routing key the request carries. Separate from {@link approversFor}, which
+   * joins designation/department for display a fan-out has no use for.
    */
-  private async approverIdsFor(
-    programmeAdmissionYearId: number | null,
-  ): Promise<number[]> {
-    if (programmeAdmissionYearId === null) return [];
+  private async approverIdsFor(request: ApprovalRequest): Promise<number[]> {
+    if (request.action_key !== null) {
+      return this.approvalApprovers.getApproverEmployeeIds(request.action_key);
+    }
+    if (request.programme_admission_year_id === null) return [];
     const rows = await this.profileVerifiers.find({
-      where: { programme_admission_year_id: programmeAdmissionYearId },
+      where: {
+        programme_admission_year_id: request.programme_admission_year_id,
+      },
       select: { employee_id: true },
     });
     return rows.map((v) => v.employee_id);

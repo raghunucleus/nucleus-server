@@ -18,7 +18,10 @@ import { Student } from '../../admin/entities/student.entity';
  * and apply-on-approve behaviour live in that type's own module (registered
  * via RequestTypeRegistry) — this list only names them.
  */
-export const APPROVAL_REQUEST_TYPES = ['profile_update'] as const;
+export const APPROVAL_REQUEST_TYPES = [
+  'profile_update',
+  'company_approval',
+] as const;
 export type ApprovalRequestType = (typeof APPROVAL_REQUEST_TYPES)[number];
 
 /**
@@ -75,6 +78,11 @@ export const OPEN_APPROVAL_REQUEST_STATUSES = ['pending', 'sent_back'] as const;
   'programme_admission_year_id',
   'status',
 ])
+@Index('IDX_approval_requests_action_key_status', ['action_key', 'status'])
+@Check(
+  'CHK_approval_requests_employee_requester_action_key',
+  '"requester_employee_id" IS NULL OR "action_key" IS NOT NULL',
+)
 export class ApprovalRequest {
   @PrimaryGeneratedColumn()
   id: number;
@@ -111,15 +119,29 @@ export class ApprovalRequest {
   @Column({ type: 'text', nullable: true })
   requester_note: string | null;
 
-  // Routing scope for student requests: approvers are the profile verifiers of
+  // Routing scope for STUDENT requests: approvers are the profile verifiers of
   // this (programme × admission-year) batch. SET NULL — history outlives a
-  // deleted batch. Null for (future) employee-submitted requests.
+  // deleted batch. Null for employee-submitted requests, which route by
+  // `action_key` instead.
   @Column({ type: 'int', nullable: true })
   programme_admission_year_id: number | null;
 
   @ManyToOne(() => ProgrammeAdmissionYear, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'programme_admission_year_id' })
   programme_admission_year: ProgrammeAdmissionYear;
+
+  // Routing scope for EMPLOYEE requests: one of APPROVAL_ACTIONS (see
+  // `src/approval-approvers/approval-actions.ts`); the approvers are whoever an
+  // admin assigned to that action. Null for student requests — a DB CHECK
+  // enforces that an employee requester always carries one, or the request
+  // would sit in nobody's inbox.
+  //
+  // Deliberately NOT `request_type`: the type says what the payload IS (which
+  // handler parses it), the action key says WHO DECIDES. They happen to be 1:1
+  // today; conflating them would mean a type could never route two ways, and
+  // re-keying an action later would retroactively re-route decided history.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  action_key: string | null;
 
   // Decision metadata — set once when the request leaves `pending` via an
   // approver action. SET NULL keeps decided history if the employee goes.

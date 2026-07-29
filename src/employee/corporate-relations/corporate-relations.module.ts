@@ -1,67 +1,48 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Department } from '../../admin/entities/department.entity';
 import { Employee } from '../../admin/entities/employee.entity';
+import { ApprovalApproversModule } from '../../approval-approvers/approval-approvers.module';
 import { RbacModule } from '../../rbac/rbac.module';
+import { RequestsModule } from '../../requests/requests.module';
 import { EmployeeAuthModule } from '../auth/employee-auth.module';
-import { DriveManagementModule } from '../drive-management/drive-management.module';
-import { CompaniesController } from './companies.controller';
+import { CompanyApprovalService } from './company-approval.service';
 import { CompanyAttributesController } from './company-attributes.controller';
 import { CompanyAttributesService } from './company-attributes.service';
 import { CompanyManagementController } from './company-management.controller';
 import { CorporateRelationsService } from './corporate-relations.service';
 import { Company } from './entities/company.entity';
-import { CompanyActivityLog } from './entities/company-activity-log.entity';
-import { CompanyAttachment } from './entities/company-attachment.entity';
-import { CompanyContact } from './entities/company-contact.entity';
-import { CompanyInteraction } from './entities/company-interaction.entity';
-import {
-  CompanyCategory,
-  CompanyHiringMode,
-  CompanyIndustry,
-  CompanyRole,
-  CompanySize,
-  CompanySource,
-  CompanyTag,
-  CompanyType,
-} from './entities/company-lookups.entity';
-import { CompanyRelationshipMilestone } from './entities/company-relationship-milestone.entity';
+import { CompanyCategory } from './entities/company-lookups.entity';
+import { CompanyJobRole } from './entities/company-job-role.entity';
 
 /**
- * Placement / corporate-relations role-type module — the company CRM. Holds the
- * manager surface (Company Management), the officer surface (Companies, scoped
- * to the responsible officer), and the lookup-configuration surface (Company
- * Attributes). Screens are declared in the RBAC catalog.
+ * Placement / corporate-relations role-type module — the company catalog. Holds
+ * the management surface (Company Management), the lookup-configuration surface
+ * (Company Attributes), and the `company_approval` request type that gates
+ * every change to a company. Screens are declared in the RBAC catalog.
+ *
+ * `RequestsModule` is imported one-way: the handler registers ITSELF into the
+ * type registry at boot, so the framework never has to know this module exists.
  */
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       Company,
-      CompanyActivityLog,
-      CompanyContact,
-      CompanyInteraction,
-      CompanyRelationshipMilestone,
-      CompanyAttachment,
       CompanyCategory,
-      CompanyIndustry,
-      CompanyType,
-      CompanySize,
-      CompanySource,
-      CompanyHiringMode,
-      CompanyRole,
-      CompanyTag,
+      CompanyJobRole,
       Employee,
-      Department,
     ]),
     RbacModule,
     EmployeeAuthModule,
-    DriveManagementModule,
+    RequestsModule,
+    // Company Management shows a pending request inline and lets an approver
+    // decide it there — so it has to ask whether the caller is one.
+    ApprovalApproversModule,
   ],
-  controllers: [
-    CompanyManagementController,
-    CompaniesController,
-    CompanyAttributesController,
+  controllers: [CompanyManagementController, CompanyAttributesController],
+  providers: [
+    CorporateRelationsService,
+    CompanyAttributesService,
+    CompanyApprovalService,
   ],
-  providers: [CorporateRelationsService, CompanyAttributesService],
 })
 export class CorporateRelationsModule {}

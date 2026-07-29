@@ -22,6 +22,7 @@ import {
   ApprovalRequestsService,
   ApprovalRequestView,
   PaginatedApprovals,
+  RequesterRequestDetailView,
   RequesterRequestView,
   RequestStatusCounts,
 } from './approval-requests.service';
@@ -37,9 +38,11 @@ const MINE_KEY = 'requests.mine.view';
  *
  * Both screens are DERIVED, never role-assigned: `requests.mine.view` is
  * granted to every employee, `requests.approvals.review` to profile verifiers
- * (see PermissionsService.deriveRequestScreens). The screens carry no RBAC
- * attributes — row scope comes from the verifier table itself, which the
- * service INNER JOINs on every approvals query/mutation.
+ * and to anyone assigned as an approver of an approval action (see
+ * PermissionsService.deriveRequestScreens). The screens carry no RBAC
+ * attributes — row scope comes from those two membership tables, which the
+ * service joins on every approvals query and re-checks on every mutation. The
+ * screen grant is navigation; the join is the authority.
  */
 @ApiTags('employee-requests')
 @ApiBearerAuth('employee-access-token')
@@ -103,7 +106,12 @@ export class EmployeeRequestsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: DecisionDto,
   ): Promise<ApprovalRequestView> {
-    return this.requests.decide(emp.id, id, { verdict: 'approved' }, dto.note);
+    return this.requests.decide(
+      emp.id,
+      id,
+      { verdict: 'approved', overrides: dto.overrides },
+      dto.note,
+    );
   }
 
   @Post('approvals/:id/reject')
@@ -117,7 +125,12 @@ export class EmployeeRequestsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: DecisionDto,
   ): Promise<ApprovalRequestView> {
-    return this.requests.decide(emp.id, id, { verdict: 'rejected' }, dto.note);
+    return this.requests.decide(
+      emp.id,
+      id,
+      { verdict: 'rejected', overrides: dto.overrides },
+      dto.note,
+    );
   }
 
   // Gated on 'approve': a mixed decision includes approvals, and the derived
@@ -137,7 +150,11 @@ export class EmployeeRequestsController {
     return this.requests.decide(
       emp.id,
       id,
-      { verdicts: dto.decisions, overall: dto.overall },
+      {
+        verdicts: dto.decisions,
+        overall: dto.overall,
+        overrides: dto.overrides,
+      },
       dto.note,
     );
   }
@@ -172,13 +189,47 @@ export class EmployeeRequestsController {
 
   @Get('mine')
   @RequireScreen(MINE_KEY, 'view')
-  @ApiOperation({
-    summary:
-      "The caller's own submitted requests (no employee-creatable types yet — empty list).",
-  })
+  @ApiOperation({ summary: "The caller's own submitted requests." })
   listMine(
     @GetEmployee() emp: AuthenticatedEmployee,
   ): Promise<RequesterRequestView[]> {
     return this.requests.listMine(emp.id);
+  }
+
+  // Declared BEFORE `mine/:id` — the param route would otherwise swallow it.
+  @Get('mine/counts')
+  @RequireScreen(MINE_KEY, 'view')
+  @ApiOperation({ summary: "Status chip counts for the caller's requests." })
+  mineCounts(
+    @GetEmployee() emp: AuthenticatedEmployee,
+  ): Promise<RequestStatusCounts> {
+    return this.requests.countsForEmployee(emp.id);
+  }
+
+  @Get('mine/:id')
+  @RequireScreen(MINE_KEY, 'view')
+  @ApiOperation({
+    summary:
+      "Full view of one of the caller's own requests — state, who it's with, and history.",
+  })
+  getMine(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<RequesterRequestDetailView> {
+    return this.requests.getForEmployee(emp.id, id);
+  }
+
+  @Post('mine/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @RequireScreen(MINE_KEY, 'view')
+  @ApiOperation({
+    summary:
+      'Withdraw one of your own requests while it is still open (pending or sent back).',
+  })
+  cancelMine(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<RequesterRequestView> {
+    return this.requests.cancelForEmployee(emp.id, id);
   }
 }

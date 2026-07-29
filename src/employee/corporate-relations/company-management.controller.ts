@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -32,17 +31,7 @@ import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
 import { RequireEmployeePasswordChangedGuard } from '../auth/require-password-changed.guard';
 import { CorporateRelationsService } from './corporate-relations.service';
 import {
-  ActivityQueryDto,
-  ContactDto,
-  InteractionDto,
-  InteractionQueryDto,
-  MilestoneDto,
-  UpdateContactDto,
-  UpdateInteractionDto,
-} from './dto/activity.dto';
-import {
   CompanyListQueryDto,
-  CompanyStatusDto,
   CreateCompanyDto,
   UpdateCompanyDto,
 } from './dto/company.dto';
@@ -50,10 +39,8 @@ import {
 const KEY = 'corporate_relations.company_management.manage';
 
 /**
- * Placement-manager surface: full CRUD over the company catalog plus the CRM
- * activity sub-resources. Unscoped — the manager sees and edits every company
- * (ownership scoping applies only to the officer surface). Guarded by the
- * `company_management.manage` screen; `record` gates activity writes.
+ * Placement-manager surface: CRUD over the company catalog. Unscoped — every
+ * company is visible to anyone holding the `company_management.manage` screen.
  */
 @ApiTags('corporate-relations/management')
 @ApiBearerAuth('employee-access-token')
@@ -66,8 +53,6 @@ const KEY = 'corporate_relations.company_management.manage';
 export class CompanyManagementController {
   constructor(private readonly svc: CorporateRelationsService) {}
 
-  // ---- Companies -----------------------------------------------------------
-
   @Get('companies')
   @RequireScreen(KEY, 'view')
   @ApiOperation({ summary: 'List all companies (filters + pagination).' })
@@ -78,24 +63,19 @@ export class CompanyManagementController {
   @Get('companies/form-options')
   @RequireScreen(KEY, 'view')
   @ApiOperation({
-    summary: 'Lookups, departments and enums for the company form.',
+    summary:
+      'Category lookups for the company form, plus the caller — who the form defaults every job role to.',
   })
-  formOptions() {
-    return this.svc.formOptions();
-  }
-
-  @Get('companies/assignable-employees')
-  @RequireScreen(KEY, 'view')
-  @ApiOperation({
-    summary: 'Active employees for the responsible-officer picker.',
-  })
-  assignableEmployees() {
-    return this.svc.assignableEmployees();
+  formOptions(@GetEmployee() emp: AuthenticatedEmployee) {
+    return this.svc.formOptions(emp);
   }
 
   @Post('companies')
   @RequireScreen(KEY, 'create')
-  @ApiOperation({ summary: 'Create a company.' })
+  @ApiOperation({
+    summary:
+      'Create a company and send it for approval. It stays out of the live catalog until an approver signs it off.',
+  })
   create(
     @GetEmployee() emp: AuthenticatedEmployee,
     @Body() dto: CreateCompanyDto,
@@ -105,15 +85,29 @@ export class CompanyManagementController {
 
   @Get('companies/:id')
   @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'One company with full detail.' })
+  @ApiOperation({ summary: 'One company.' })
   get(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getCompany(id);
+  }
+
+  @Get('companies/:id/request')
+  @RequireScreen(KEY, 'view')
+  @ApiOperation({
+    summary:
+      "The company's open approval request with its approvers and history, or null. `can_act` is true when the caller may also decide it.",
+  })
+  request(
+    @GetEmployee() emp: AuthenticatedEmployee,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.svc.getCompanyRequest(id, emp.id);
   }
 
   @Patch('companies/:id')
   @RequireScreen(KEY, 'edit')
   @ApiOperation({
-    summary: 'Edit company fields, classifiers and responsible officer.',
+    summary:
+      'Edit a company. An APPROVED company is not written — the change is staged on an approval request and applied when someone approves it. A pending/rejected one is written directly and re-sent for approval.',
   })
   update(
     @GetEmployee() emp: AuthenticatedEmployee,
@@ -121,17 +115,6 @@ export class CompanyManagementController {
     @Body() dto: UpdateCompanyDto,
   ) {
     return this.svc.updateCompany(id, dto, emp.id);
-  }
-
-  @Patch('companies/:id/status')
-  @RequireScreen(KEY, 'activate')
-  @ApiOperation({ summary: 'Activate / deactivate a company.' })
-  setStatus(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: CompanyStatusDto,
-  ) {
-    return this.svc.setCompanyStatus(id, dto.is_active, emp.id);
   }
 
   @Post('companies/:id/logo')
@@ -145,9 +128,11 @@ export class CompanyManagementController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @ApiOperation({ summary: 'Upload / replace the company logo.' })
+  @ApiOperation({
+    summary:
+      'Upload a logo. For an approved company the object is only STAGED — put the returned `logo_key` in the edit payload and it lands when the change is approved.',
+  })
   setLogo(
-    @GetEmployee() emp: AuthenticatedEmployee,
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile(
       new ParseFilePipe({
@@ -156,136 +141,6 @@ export class CompanyManagementController {
     )
     file: Express.Multer.File,
   ) {
-    return this.svc.setLogo(id, file, emp.id);
-  }
-
-  // ---- Contacts (SPOCs) ----------------------------------------------------
-
-  @Get('companies/:id/contacts')
-  @RequireScreen(KEY, 'view')
-  contacts(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.listContacts(id);
-  }
-
-  @Post('companies/:id/contacts')
-  @RequireScreen(KEY, 'view')
-  addContact(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ContactDto,
-  ) {
-    return this.svc.createContact(id, dto, emp.id);
-  }
-
-  @Patch('companies/:id/contacts/:contactId')
-  @RequireScreen(KEY, 'view')
-  editContact(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Param('contactId', ParseIntPipe) contactId: number,
-    @Body() dto: UpdateContactDto,
-  ) {
-    return this.svc.updateContact(id, contactId, dto, emp.id);
-  }
-
-  @Delete('companies/:id/contacts/:contactId')
-  @RequireScreen(KEY, 'view')
-  removeContact(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Param('contactId', ParseIntPipe) contactId: number,
-  ) {
-    return this.svc.deleteContact(id, contactId, emp.id);
-  }
-
-  // ---- Interactions --------------------------------------------------------
-
-  @Get('companies/:id/interactions')
-  @RequireScreen(KEY, 'view')
-  interactions(
-    @Param('id', ParseIntPipe) id: number,
-    @Query() query: InteractionQueryDto,
-  ) {
-    return this.svc.listInteractions(id, query);
-  }
-
-  @Post('companies/:id/interactions')
-  @RequireScreen(KEY, 'view')
-  addInteraction(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: InteractionDto,
-  ) {
-    return this.svc.createInteraction(id, dto, emp.id);
-  }
-
-  @Patch('companies/:id/interactions/:interactionId')
-  @RequireScreen(KEY, 'view')
-  editInteraction(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Param('interactionId', ParseIntPipe) interactionId: number,
-    @Body() dto: UpdateInteractionDto,
-  ) {
-    return this.svc.updateInteraction(id, interactionId, dto, emp.id);
-  }
-
-  @Delete('companies/:id/interactions/:interactionId')
-  @RequireScreen(KEY, 'view')
-  removeInteraction(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Param('interactionId', ParseIntPipe) interactionId: number,
-  ) {
-    return this.svc.deleteInteraction(id, interactionId, emp.id);
-  }
-
-  // ---- Relationship milestones ---------------------------------------------
-
-  @Get('companies/:id/milestones')
-  @RequireScreen(KEY, 'view')
-  milestones(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.listMilestones(id);
-  }
-
-  @Post('companies/:id/milestones')
-  @RequireScreen(KEY, 'view')
-  addMilestone(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: MilestoneDto,
-  ) {
-    return this.svc.createMilestone(id, dto, emp.id);
-  }
-
-  @Delete('companies/:id/milestones/:milestoneId')
-  @RequireScreen(KEY, 'view')
-  removeMilestone(
-    @GetEmployee() emp: AuthenticatedEmployee,
-    @Param('id', ParseIntPipe) id: number,
-    @Param('milestoneId', ParseIntPipe) milestoneId: number,
-  ) {
-    return this.svc.deleteMilestone(id, milestoneId, emp.id);
-  }
-
-  // ---- Drives --------------------------------------------------------------
-
-  @Get('companies/:id/drives')
-  @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Placement drives raised against this company.' })
-  drives(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.listCompanyDrives(id);
-  }
-
-  // ---- Activity log --------------------------------------------------------
-
-  @Get('companies/:id/activity')
-  @RequireScreen(KEY, 'view')
-  @ApiOperation({ summary: 'Unified audit feed for one company.' })
-  activity(
-    @Param('id', ParseIntPipe) id: number,
-    @Query() query: ActivityQueryDto,
-  ) {
-    return this.svc.listActivity(id, query);
+    return this.svc.setLogo(id, file);
   }
 }

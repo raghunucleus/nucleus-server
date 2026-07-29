@@ -23,9 +23,9 @@ import {
 const KEY = 'corporate_relations.company_attributes.manage';
 
 /**
- * Configure the company classifier lookups (category, industry, type, size,
- * source, hiring-modes, roles, tags). `:type` is validated against the
- * whitelist inside the service. Manager-only screen.
+ * Configure the company classifier lookups — categories, the only kind left.
+ * `:type` is validated against the whitelist inside the service, so the
+ * endpoint stays ready for a second kind. Manager-only screen.
  */
 @ApiTags('corporate-relations/attributes')
 @ApiBearerAuth('employee-access-token')

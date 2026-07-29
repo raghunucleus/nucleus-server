@@ -47,9 +47,6 @@ export const STORAGE_PREFIX = {
    * The employee id leads so one person's exports share a prefix.
    */
   exports: 'exports',
-  // Placeholder — company attachments (`Company.file_key`) will live under
-  // `companies/<id>/attachments/...` once a write path exists; add the prefix
-  // and a `storageKey` builder here when it lands.
 } as const;
 
 /**

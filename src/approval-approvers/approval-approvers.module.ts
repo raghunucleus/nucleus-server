@@ -1,6 +1,7 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Employee } from '../admin/entities/employee.entity';
+import { RbacModule } from '../rbac/rbac.module';
 import { AdminApprovalApproversController } from './admin-approval-approvers.controller';
 import { assertValidApprovalActionCatalog } from './approval-actions';
 import { ApprovalApproversService } from './approval-approvers.service';
@@ -21,7 +22,13 @@ import { ApprovalActionApprover } from './entities/approval-action-approver.enti
  * Same precedent as RequestsModule's student guards.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([ApprovalActionApprover, Employee])],
+  imports: [
+    TypeOrmModule.forFeature([ApprovalActionApprover, Employee]),
+    // `requests.approvals.review` is derived from the approver rows, so
+    // changing them has to bust the RBAC cache. One direction only: RbacModule
+    // repo-injects ApprovalActionApprover rather than importing this module.
+    RbacModule,
+  ],
   controllers: [AdminApprovalApproversController],
   providers: [ApprovalApproversService],
   exports: [ApprovalApproversService],

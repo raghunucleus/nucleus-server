@@ -4,8 +4,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { Employee } from '../admin/entities/employee.entity';
+import { PermissionsService } from '../rbac/permissions.service';
 import {
   ApprovalActionDef,
   APPROVAL_ACTION_BY_KEY,
@@ -53,6 +54,7 @@ export class ApprovalApproversService {
     @InjectRepository(Employee)
     private readonly employees: Repository<Employee>,
     private readonly dataSource: DataSource,
+    private readonly permissions: PermissionsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -126,6 +128,13 @@ export class ApprovalApproversService {
     this.actionOr404(actionKey);
     await this.assertEmployeesExist(employeeIds);
 
+    // Captured BEFORE the swap: someone REMOVED from the action needs their
+    // cache busted just as much as someone added.
+    const before = await this.approvers.find({
+      where: { action_key: actionKey },
+      select: { employee_id: true },
+    });
+
     await this.dataSource.transaction(async (tx) => {
       const repo = tx.getRepository(ApprovalActionApprover);
       await repo.delete({ action_key: actionKey });
@@ -138,9 +147,20 @@ export class ApprovalApproversService {
       }
     });
 
-    // No RBAC cache to bust yet — nothing derives permissions from these rows.
-    // When a derived screen is introduced, invalidate (before ∪ after) here the
-    // way ProgrammeAdmissionYearsService.setProfileVerifiers does.
+    // `requests.approvals.review` is derived from these rows
+    // (PermissionsService.deriveRequestScreens), so the cached blob is stale
+    // for everyone on either side of the swap. Invalidate rather than patch:
+    // an employee dropped from THIS action may still approve another one, and
+    // the recompute settles that. Same pattern as
+    // ProgrammeAdmissionYearsService.setProfileVerifiers.
+    const affected = new Set([
+      ...before.map((b) => b.employee_id),
+      ...employeeIds,
+    ]);
+    await Promise.all(
+      [...affected].map((id) => this.permissions.invalidate(id)),
+    );
+
     return this.approversFor(actionKey);
   }
 
@@ -176,14 +196,25 @@ export class ApprovalApproversService {
     return rows.map((r) => r.employee_id);
   }
 
-  /** Single indexed existence check — the act-time authority guard. */
-  isApprover(employeeId: number, actionKey: string): Promise<boolean> {
-    return this.approvers.exists({
+  /**
+   * Single indexed existence check — the act-time authority guard. Pass the
+   * caller's `manager` when deciding inside a transaction, so the check runs on
+   * the same connection that holds the request's row lock.
+   */
+  isApprover(
+    employeeId: number,
+    actionKey: string,
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    const repo = manager
+      ? manager.getRepository(ApprovalActionApprover)
+      : this.approvers;
+    return repo.exists({
       where: { employee_id: employeeId, action_key: actionKey },
     });
   }
 
-  /** Every action this employee can approve — for a future derived RBAC grant. */
+  /** Every action this employee can approve — drives the derived RBAC grant. */
   async actionKeysForEmployee(employeeId: number): Promise<string[]> {
     const rows = await this.approvers.find({
       where: { employee_id: employeeId },
