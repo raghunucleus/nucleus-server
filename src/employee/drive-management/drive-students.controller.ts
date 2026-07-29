@@ -270,7 +270,7 @@ export class DriveStudentsController {
       'problems come back as per-cell `errors` under `valid: false`, since a ' +
       'preview that finds them is the answer, not an HTTP failure. Amounts ' +
       "the sheet left blank are filled from the drive's package and listed " +
-      'in each row\'s `defaulted`.',
+      "in each row's `defaulted`.",
   })
   previewSelectionUpload(
     @Param('driveId', ParseIntPipe) driveId: number,

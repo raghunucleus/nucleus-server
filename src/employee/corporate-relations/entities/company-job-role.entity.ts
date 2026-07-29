@@ -29,7 +29,10 @@ import { Company } from './company.entity';
  * deactivated far more often than deleted here, so the blast radius is small.
  */
 @Entity({ name: 'company_job_roles' })
-@Unique('UQ_company_job_roles_company_id_role_name', ['company_id', 'role_name'])
+@Unique('UQ_company_job_roles_company_id_role_name', [
+  'company_id',
+  'role_name',
+])
 @Index('IDX_company_job_roles_company_id', ['company_id'])
 @Index('IDX_company_job_roles_responsible_employee_id', [
   'responsible_employee_id',

@@ -87,7 +87,12 @@ export class ApprovalApproversService {
     for (const g of [...APPROVAL_ACTION_GROUPS].sort(
       (a, b) => a.order - b.order,
     )) {
-      groups.set(g.key, { key: g.key, label: g.label, order: g.order, actions: [] });
+      groups.set(g.key, {
+        key: g.key,
+        label: g.label,
+        order: g.order,
+        actions: [],
+      });
     }
 
     for (const action of sortedApprovalActions()) {

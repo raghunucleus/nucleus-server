@@ -35,14 +35,26 @@ export class TrimCompanyToCatalog1795900000000 implements MigrationInterface {
 
   // Join tables dropped (company_categories_link survives).
   private readonly droppedLinks = [
-    { table: 'company_industries_link', col: 'industry_id', ref: 'company_industries' },
+    {
+      table: 'company_industries_link',
+      col: 'industry_id',
+      ref: 'company_industries',
+    },
     { table: 'company_types_link', col: 'type_id', ref: 'company_types' },
     { table: 'company_sizes_link', col: 'size_id', ref: 'company_sizes' },
     { table: 'company_sources_link', col: 'source_id', ref: 'company_sources' },
-    { table: 'company_hiring_modes_link', col: 'hiring_mode_id', ref: 'company_hiring_modes' },
+    {
+      table: 'company_hiring_modes_link',
+      col: 'hiring_mode_id',
+      ref: 'company_hiring_modes',
+    },
     { table: 'company_roles_link', col: 'role_id', ref: 'company_roles' },
     { table: 'company_tags_link', col: 'tag_id', ref: 'company_tags' },
-    { table: 'company_eligible_branches', col: 'department_id', ref: 'departments' },
+    {
+      table: 'company_eligible_branches',
+      col: 'department_id',
+      ref: 'departments',
+    },
   ];
 
   // Columns dropped from `companies`, with the DDL needed to put them back.
@@ -65,7 +77,10 @@ export class TrimCompanyToCatalog1795900000000 implements MigrationInterface {
     ['offers_internships', 'boolean NOT NULL DEFAULT false'],
     ['offers_ppo', 'boolean NOT NULL DEFAULT false'],
     ['last_engaged_on', 'date'],
-    ['relationship_status', "character varying(16) NOT NULL DEFAULT 'prospect'"],
+    [
+      'relationship_status',
+      "character varying(16) NOT NULL DEFAULT 'prospect'",
+    ],
     ['partnership_since', 'date'],
     ['address_line1', 'character varying(255)'],
     ['address_line2', 'character varying(255)'],
@@ -88,12 +103,36 @@ export class TrimCompanyToCatalog1795900000000 implements MigrationInterface {
       'Education',
       'E-commerce',
     ],
-    company_types: ['Product', 'Service', 'MNC', 'Startup', 'PSU', 'Government'],
+    company_types: [
+      'Product',
+      'Service',
+      'MNC',
+      'Startup',
+      'PSU',
+      'Government',
+    ],
     company_sizes: ['1-50', '51-200', '201-1000', '1001-5000', '5000+'],
-    company_sources: ['Referral', 'Alumni', 'Inbound', 'Event', 'Cold outreach'],
+    company_sources: [
+      'Referral',
+      'Alumni',
+      'Inbound',
+      'Event',
+      'Cold outreach',
+    ],
     company_hiring_modes: ['On-campus', 'Off-campus', 'Virtual', 'Internship'],
-    company_roles: ['SDE', 'Analyst', 'Trainee', 'Consultant', 'Research Associate'],
-    company_tags: ['Dream', 'Super dream', 'Mass recruiter', 'Repeat recruiter'],
+    company_roles: [
+      'SDE',
+      'Analyst',
+      'Trainee',
+      'Consultant',
+      'Research Associate',
+    ],
+    company_tags: [
+      'Dream',
+      'Super dream',
+      'Mass recruiter',
+      'Repeat recruiter',
+    ],
   };
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -169,9 +208,7 @@ export class TrimCompanyToCatalog1795900000000 implements MigrationInterface {
   public async down(queryRunner: QueryRunner): Promise<void> {
     // --- companies columns -------------------------------------------------
     for (const [col, type] of this.droppedColumns) {
-      await queryRunner.query(
-        `ALTER TABLE "companies" ADD "${col}" ${type}`,
-      );
+      await queryRunner.query(`ALTER TABLE "companies" ADD "${col}" ${type}`);
     }
     await queryRunner.query(
       `CREATE INDEX "IDX_companies_responsible_employee_id" ON "companies" ("responsible_employee_id")`,

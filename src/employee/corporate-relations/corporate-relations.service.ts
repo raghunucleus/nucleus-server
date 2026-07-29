@@ -6,12 +6,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Employee } from '../../admin/entities/employee.entity';
-import { ApprovalRequest } from '../../requests/entities/approval-request.entity';
 import { StorageService } from '../../storage/storage.service';
 import { storageKey } from '../../storage/storage.constants';
 import { CompanyApprovalService } from './company-approval.service';
-import type { CompanyApprovalPayload } from './company-approval.service';
 import { CompanyAttributesService } from './company-attributes.service';
+import { companyChromeFor, openRequest } from './company-chrome';
 import { Company } from './entities/company.entity';
 import { CompanyCategory } from './entities/company-lookups.entity';
 import { CompanyJobRole } from './entities/company-job-role.entity';
@@ -21,6 +20,7 @@ import {
   CreateCompanyDto,
   UpdateCompanyDto,
 } from './dto/company.dto';
+import { MyJobRoleListQueryDto } from './dto/job-role.dto';
 
 /** Maps whitelisted sort keys to their DISTINCT-safe scalar column on `c`. */
 const COMPANY_SORT_COLUMN: Record<
@@ -50,16 +50,6 @@ const mapRoles = (c: Company) =>
           }
         : null,
     }));
-
-/** The company's open change request, flattened for the client. */
-const openRequest = (r: ApprovalRequest | undefined) =>
-  r
-    ? {
-        id: r.id,
-        status: r.status,
-        kind: (r.payload as CompanyApprovalPayload).kind,
-      }
-    : null;
 
 @Injectable()
 export class CorporateRelationsService {
@@ -131,7 +121,10 @@ export class CorporateRelationsService {
 
     const rows = await this.companies.find({
       where: { id: In(pageIds) },
-      relations: { categories: true, job_roles: { responsible_employee: true } },
+      relations: {
+        categories: true,
+        job_roles: { responsible_employee: true },
+      },
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
     // One query for the whole page — a "change pending" flag must never go
@@ -165,10 +158,114 @@ export class CorporateRelationsService {
   async getCompany(companyId: number) {
     const company = await this.companies.findOne({
       where: { id: companyId },
-      relations: { categories: true, job_roles: { responsible_employee: true } },
+      relations: {
+        categories: true,
+        job_roles: { responsible_employee: true },
+      },
     });
     if (!company) throw new NotFoundException('Company not found.');
     return this.mapDetail(company);
+  }
+
+  /**
+   * The job roles ONE employee is accountable for, with the company each
+   * belongs to — the Roles or Designations screen.
+   *
+   * Scoped to the caller by `responsible_employee_id`, which comes from the
+   * token and never from the request. Unpaginated by design (see the DTO): the
+   * screen groups by company, and a page boundary would split a company's roles.
+   */
+  async listMyJobRoles(employeeId: number, query: MyJobRoleListQueryDto) {
+    const qb = this.jobRoles
+      .createQueryBuilder('r')
+      .innerJoinAndSelect('r.company', 'c')
+      .leftJoinAndSelect('c.categories', 'cat')
+      .where('r.responsible_employee_id = :me', { me: employeeId });
+
+    if (query.search) {
+      qb.andWhere('(c.name ILIKE :s OR r.role_name ILIKE :s)', {
+        s: `%${query.search}%`,
+      });
+    }
+
+    const rows = await qb
+      .orderBy('c.name', 'ASC')
+      .addOrderBy('r.id', 'ASC')
+      .getMany();
+
+    // Several roles can share a company — the open-request flag and the
+    // presigned logo are resolved once per company, never once per row.
+    const chrome = await companyChromeFor(
+      [...new Map(rows.map((r) => [r.company_id, r.company])).values()],
+      this.storage,
+      this.approvals,
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      role_name: r.role_name,
+      company: {
+        id: r.company.id,
+        name: r.company.name,
+        website: r.company.website,
+        logo_url: chrome.get(r.company_id)?.logo_url ?? null,
+        approval_status: r.company.approval_status,
+        is_active: r.company.is_active,
+        // Lets the screen offer "edit and resubmit" on the caller's own draft
+        // and nothing else — the same rule `assertOwnDraftCompany` enforces.
+        created_by_employee_id: r.company.created_by_employee_id,
+        categories: (r.company.categories ?? []).map(chip),
+        open_request: chrome.get(r.company_id)?.open_request ?? null,
+      },
+      updated_at: r.updated_at,
+    }));
+  }
+
+  /**
+   * Guard for the Roles or Designations screen's READ endpoints: the caller may
+   * only open a company they are accountable for a role on — the ones already
+   * on their list — or one they created themselves. The second clause matters
+   * for the send-back path: someone can create a company and assign every role
+   * to a colleague, and still has to be able to resubmit it.
+   *
+   * 404s rather than 403s, so the screen can't be used to probe the catalog.
+   */
+  async assertCompanyVisibleToOwner(companyId: number, employeeId: number) {
+    const [company, ownedRoles] = await Promise.all([
+      this.companies.findOne({
+        where: { id: companyId },
+        select: { id: true, created_by_employee_id: true },
+      }),
+      this.jobRoles.count({
+        where: { company_id: companyId, responsible_employee_id: employeeId },
+      }),
+    ]);
+    if (
+      !company ||
+      (ownedRoles === 0 && company.created_by_employee_id !== employeeId)
+    ) {
+      throw new NotFoundException('Company not found.');
+    }
+  }
+
+  /**
+   * Guard for the Roles or Designations screen's WRITE endpoints: it may only
+   * touch a company the caller created that is NOT live yet — the draft they
+   * just added, never the catalog. Anything else 404s rather than 403s, so the
+   * screen can't be used to probe which companies exist.
+   */
+  async assertOwnDraftCompany(companyId: number, employeeId: number) {
+    const company = await this.companies.findOne({
+      where: { id: companyId },
+      select: { id: true, created_by_employee_id: true, approval_status: true },
+    });
+    if (
+      !company ||
+      company.created_by_employee_id !== employeeId ||
+      company.approval_status === 'approved'
+    ) {
+      throw new NotFoundException('Company not found.');
+    }
   }
 
   /**

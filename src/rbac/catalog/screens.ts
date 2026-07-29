@@ -296,6 +296,13 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
   // manages the whole company catalog, unscoped — every company is visible to
   // every holder of the screen. `activate` gates the active/inactive switch,
   // which the service refuses on a company still awaiting approval.
+  //
+  // Roles or Designations and CR View are the exceptions to "unscoped": both
+  // are scoped by the ACTING EMPLOYEE — the job roles they are personally
+  // accountable for — which needs no catalog attribute because the filter comes
+  // from the token. Roles or Designations is the desk-level counterpart to
+  // Company Management: read-only over roles, with `create` covering "add a
+  // company" (which goes to approval like any other company change).
   {
     key: 'corporate_relations.company_management.manage',
     module_key: 'corporate_relations',
@@ -314,9 +321,41 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     platforms: ['web'],
     label: 'Company Attributes',
     description:
-      'Configure the categories companies can be tagged with, and the passout years.',
+      'Configure the categories companies can be tagged with, the relationship types and current statuses CR View records against, and the passout years.',
     web_route: '/corporate-relations/company-attributes',
     actions: ['view', 'create', 'edit', 'activate'],
+    attributes: [],
+  },
+  {
+    key: 'corporate_relations.job_roles.manage',
+    module_key: 'corporate_relations',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Roles or Designations',
+    description:
+      'The job roles you are accountable for, and adding a company for approval.',
+    web_route: '/corporate-relations/job-roles',
+    // Self-scoped to the acting employee — no per-attribute scope to assign.
+    actions: ['view', 'create'],
+    attributes: [],
+  },
+  {
+    key: 'corporate_relations.cr_view.view',
+    module_key: 'corporate_relations',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'CR View',
+    description:
+      'Your job roles across companies, per passout year — relationship types, current status, designations, programmes, locations, HR contacts, follow-ups and remarks recorded for each year.',
+    web_route: '/corporate-relations/cr-view',
+    // Self-scoped to the acting employee — no per-attribute scope to assign.
+    //
+    // The passout year is a REQUEST PARAMETER validated against the active
+    // `passout_years` master, deliberately not an RBAC attribute: which years
+    // exist is institution config, not a per-assignment grant, and every holder
+    // works every year for the roles they already own. `edit` gates the per-year
+    // save only — it can never reach a role the caller is not responsible for.
+    actions: ['view', 'edit'],
     attributes: [],
   },
 

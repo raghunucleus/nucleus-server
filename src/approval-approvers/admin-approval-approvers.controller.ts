@@ -28,7 +28,8 @@ export class AdminApprovalApproversController {
 
   @Get('actions/:actionKey')
   @ApiOperation({
-    summary: 'One action and its full approver list. 404 if the key is not in the catalog.',
+    summary:
+      'One action and its full approver list. 404 if the key is not in the catalog.',
   })
   getAction(
     @Param('actionKey') actionKey: string,

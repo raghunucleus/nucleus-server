@@ -21,9 +21,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * roles. Those heal as the catalog is edited, since the form requires at least
  * one role on save.
  */
-export class CompanyJobRolesAndApprovalStatus1796000000000
-  implements MigrationInterface
-{
+export class CompanyJobRolesAndApprovalStatus1796000000000 implements MigrationInterface {
   name = 'CompanyJobRolesAndApprovalStatus1796000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -105,7 +103,9 @@ export class CompanyJobRolesAndApprovalStatus1796000000000
       `ALTER TABLE "approval_requests" DROP COLUMN "action_key"`,
     );
 
-    await queryRunner.query(`DROP INDEX "public"."IDX_companies_approval_status"`);
+    await queryRunner.query(
+      `DROP INDEX "public"."IDX_companies_approval_status"`,
+    );
     await queryRunner.query(
       `ALTER TABLE "companies" ADD "is_approved" boolean NOT NULL DEFAULT false`,
     );

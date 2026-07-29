@@ -87,9 +87,7 @@ export const COMPANY_SORT_FIELDS = ['name', 'updated_at'] as const;
 export const CompanyListQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
   status: z.enum(['active', 'inactive', 'pending', 'all']).default('all'),
-  approval: z
-    .enum(['pending', 'approved', 'rejected', 'all'])
-    .default('all'),
+  approval: z.enum(['pending', 'approved', 'rejected', 'all']).default('all'),
   category_ids: csvIntArray,
   sort_by: z.enum(COMPANY_SORT_FIELDS).default('updated_at'),
   sort_dir: z.enum(['asc', 'desc']).default('desc'),

@@ -12,9 +12,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * reproduces today's behaviour exactly (one threshold applied to whichever
  * percentage the student has).
  */
-export class SplitDriveEligibilityTwelfthDiploma1795600000000
-  implements MigrationInterface
-{
+export class SplitDriveEligibilityTwelfthDiploma1795600000000 implements MigrationInterface {
   name = 'SplitDriveEligibilityTwelfthDiploma1795600000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

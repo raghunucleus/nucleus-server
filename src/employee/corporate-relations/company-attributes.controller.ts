@@ -23,9 +23,9 @@ import {
 const KEY = 'corporate_relations.company_attributes.manage';
 
 /**
- * Configure the company classifier lookups — categories, the only kind left.
- * `:type` is validated against the whitelist inside the service, so the
- * endpoint stays ready for a second kind. Manager-only screen.
+ * Configure the company classifier lookups — categories, relationship types and
+ * current statuses. `:type` is validated against the whitelist inside the
+ * service, so the endpoint stays ready for another kind. Manager-only screen.
  */
 @ApiTags('corporate-relations/attributes')
 @ApiBearerAuth('employee-access-token')
@@ -74,5 +74,28 @@ export class CompanyAttributesController {
     @Body() dto: LookupStatusDto,
   ) {
     return this.svc.setStatus(type, id, dto.is_active);
+  }
+
+  /**
+   * `edit` rather than a fifth action: this mutates a property of an existing
+   * lookup row, which is exactly what `edit` already covers, and anyone holding
+   * it can already rename the default to anything they like. A new action would
+   * mean a catalog change plus a re-grant on every placement role for no
+   * security gain.
+   *
+   * No body — it only ever sets. `{ is_default: true }` would be a field with
+   * one legal value.
+   */
+  @Patch(':type/:id/default')
+  @RequireScreen(KEY, 'edit')
+  @ApiOperation({
+    summary:
+      "Make this value its type's default (current statuses only). Exclusive — the previous default is cleared in the same transaction. There is no unset, and the value must be active.",
+  })
+  setDefault(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.svc.setDefault(type, id);
   }
 }

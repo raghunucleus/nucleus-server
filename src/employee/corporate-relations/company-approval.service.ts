@@ -277,7 +277,10 @@ export class CompanyApprovalService
   ): Promise<CompanyApprovalPayload> {
     const company = await this.companies.findOne({
       where: { id: companyId },
-      relations: { categories: true, job_roles: { responsible_employee: true } },
+      relations: {
+        categories: true,
+        job_roles: { responsible_employee: true },
+      },
     });
     if (!company) throw new NotFoundException('Company not found.');
 
@@ -286,10 +289,13 @@ export class CompanyApprovalService
 
     const proposed: CompanySnapshot = {
       name: dto.name ?? company.name,
-      website: dto.website === undefined ? company.website : (dto.website ?? null),
-      logo_key: dto.logo_key === undefined ? company.logo_key : (dto.logo_key ?? null),
+      website:
+        dto.website === undefined ? company.website : (dto.website ?? null),
+      logo_key:
+        dto.logo_key === undefined ? company.logo_key : (dto.logo_key ?? null),
       categories:
-        categories ?? (company.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
+        categories ??
+        (company.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
       is_active:
         dto.is_active === undefined ? company.is_active : dto.is_active,
       roles,
@@ -319,7 +325,8 @@ export class CompanyApprovalService
         id: r.id,
         role_name: r.role_name,
         responsible_employee_id: r.responsible_employee_id,
-        responsible_employee_name: r.responsible_employee?.emp_display_name ?? '—',
+        responsible_employee_name:
+          r.responsible_employee?.emp_display_name ?? '—',
         responsible_employee_code: r.responsible_employee?.emp_code ?? '—',
       })),
     };
@@ -574,7 +581,10 @@ export class CompanyApprovalService
         },
       );
     } catch (err) {
-      if (err instanceof QueryFailedError && (err as never as { code?: string }).code === '23505') {
+      if (
+        err instanceof QueryFailedError &&
+        (err as never as { code?: string }).code === '23505'
+      ) {
         throw new ConflictException(
           `Another company is already called "${payload.proposed.name}". Reject this request or ask for a different name.`,
         );
@@ -634,7 +644,8 @@ export class CompanyApprovalService
   ): Promise<CompanyRolePayload[]> {
     const merged = roles.map((r) => ({
       ...r,
-      responsible_employee_id: overrides.get(r.key) ?? r.responsible_employee_id,
+      responsible_employee_id:
+        overrides.get(r.key) ?? r.responsible_employee_id,
     }));
     const employees = await this.resolveEmployees(
       merged.map((r) => r.responsible_employee_id),
@@ -661,7 +672,9 @@ export class CompanyApprovalService
       relations: { categories: true },
     });
     if (!company) return;
-    company.categories = categories.map((c) => ({ id: c.id })) as CompanyCategory[];
+    company.categories = categories.map((c) => ({
+      id: c.id,
+    })) as CompanyCategory[];
     await repo.save(company);
   }
 

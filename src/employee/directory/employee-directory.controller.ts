@@ -32,8 +32,9 @@ export class DirectoryQueryDto extends createZodDto(DirectoryQuerySchema) {}
  * name, designation, department) is institution-wide information every
  * employee can already reach from the birthdays screen, and the callers sit
  * behind DIFFERENT screens (`corporate_relations.company_management.manage`
- * for the company form, `requests.approvals.review` for the approvals screen),
- * so no single `@RequireScreen` could serve both.
+ * and `corporate_relations.job_roles.manage` for the company form,
+ * `requests.approvals.review` for the approvals screen), so no single
+ * `@RequireScreen` could serve them all.
  */
 @ApiTags('employee-directory')
 @ApiBearerAuth('employee-access-token')

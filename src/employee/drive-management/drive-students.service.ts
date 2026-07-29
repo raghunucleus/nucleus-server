@@ -1017,7 +1017,10 @@ export class DriveStudentsService {
    * switch of their own — they follow `offer_type_scope`. The single place that
    * decision is made.
    */
-  private packageSide(drive: Drive, profile: DriveProfile): Drive | DriveProfile {
+  private packageSide(
+    drive: Drive,
+    profile: DriveProfile,
+  ): Drive | DriveProfile {
     return drive.offer_type_scope === 'designation' ? profile : drive;
   }
 
@@ -1029,7 +1032,10 @@ export class DriveStudentsService {
   private packageModesFor(
     drive: Drive,
     profile: DriveProfile,
-  ): { ctc_mode: DriveAmountMode | null; stipend_mode: DriveAmountMode | null } {
+  ): {
+    ctc_mode: DriveAmountMode | null;
+    stipend_mode: DriveAmountMode | null;
+  } {
     const side = this.packageSide(drive, profile);
     return { ctc_mode: side.ctc_mode, stipend_mode: side.stipend_mode };
   }
@@ -1045,7 +1051,10 @@ export class DriveStudentsService {
     profile: DriveProfile,
     offer: DriveOfferType,
     rows: UploadSelectionRow[],
-  ): Promise<{ rows: SelectionUploadRow[]; errors: SelectionUploadRowError[] }> {
+  ): Promise<{
+    rows: SelectionUploadRow[];
+    errors: SelectionUploadRowError[];
+  }> {
     const errors: SelectionUploadRowError[] = [];
     const fail = (
       row: number,
@@ -1120,7 +1129,12 @@ export class DriveStudentsService {
           roll,
         );
       } else if (!hit) {
-        fail(index, 'roll_number', `No student with roll number "${roll}".`, roll);
+        fail(
+          index,
+          'roll_number',
+          `No student with roll number "${roll}".`,
+          roll,
+        );
       } else if (hit.status == null) {
         fail(index, 'roll_number', 'Not registered in this drive.', roll);
       } else if (
@@ -1232,8 +1246,12 @@ export class DriveStudentsService {
             `This drive's ${label} is a fixed amount, so it can't carry a lower bound.`,
           );
         } else if (amounts[main] == null) {
-          fail(index, lower, `A ${label} lower bound needs the ${label} itself.`);
-        } else if (amounts[lower]! >= amounts[main]!) {
+          fail(
+            index,
+            lower,
+            `A ${label} lower bound needs the ${label} itself.`,
+          );
+        } else if (amounts[lower] >= amounts[main]) {
           fail(
             index,
             lower,

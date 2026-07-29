@@ -27,7 +27,10 @@ export class EmployeeDirectoryService {
   ) {}
 
   /** Typeahead over code + name. Active employees only. */
-  async search(q: string | undefined, limit: number): Promise<DirectoryEmployee[]> {
+  async search(
+    q: string | undefined,
+    limit: number,
+  ): Promise<DirectoryEmployee[]> {
     const qb = this.base().where('e.is_active = TRUE');
     if (q) {
       qb.andWhere(

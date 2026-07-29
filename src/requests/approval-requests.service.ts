@@ -485,7 +485,9 @@ export class ApprovalRequestsService {
     payload: Record<string, unknown>,
     note?: string | null,
   ): Promise<RequesterRequestView> {
-    const employee = await this.employees.findOne({ where: { id: employeeId } });
+    const employee = await this.employees.findOne({
+      where: { id: employeeId },
+    });
     if (!employee) throw new NotFoundException('Employee not found');
 
     // The action key is server-authored (the calling module hard-codes it), so
@@ -968,7 +970,10 @@ export class ApprovalRequestsService {
   private async enrichedApprovalView(
     row: ApprovalRequest,
   ): Promise<ApprovalRequestView> {
-    return { ...this.toApprovalView(row), payload: await this.enrichedPayload(row) };
+    return {
+      ...this.toApprovalView(row),
+      payload: await this.enrichedPayload(row),
+    };
   }
 
   /**

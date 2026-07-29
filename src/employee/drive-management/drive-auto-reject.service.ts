@@ -45,7 +45,7 @@ export class DriveAutoRejectService {
       // `query()` on an UPDATE resolves to `[rows, rowCount]`, NOT the rows —
       // the Postgres driver special-cases UPDATE/DELETE. Destructure, never
       // annotate the call as a row array.
-      const [rows] = (await manager.query(
+      const [rows] = await manager.query(
         `UPDATE "drive_students" ds
             SET status = $1, responded_at = now(), rejection_reason = $2
            FROM "drives" d
@@ -59,7 +59,7 @@ export class DriveAutoRejectService {
           AUTO_REJECT_REASON,
           DRIVE_STUDENT_STATUS.INVITED,
         ],
-      )) as [SweptRow[], number];
+      );
       if (rows.length === 0) return rows;
 
       await manager.getRepository(DriveStudentEvent).insert(

@@ -18,9 +18,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // future work — adding it means nullable scope columns plus a pair of PARTIAL
 // uniques, since Postgres treats NULLs as distinct and a plain 4-column unique
 // would silently allow duplicate global rows.
-export class CreateApprovalActionApprovers1795800000000
-  implements MigrationInterface
-{
+export class CreateApprovalActionApprovers1795800000000 implements MigrationInterface {
   name = 'CreateApprovalActionApprovers1795800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
