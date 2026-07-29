@@ -313,7 +313,8 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     role_type_keys: ['placement'],
     platforms: ['web'],
     label: 'Company Attributes',
-    description: 'Configure the categories companies can be tagged with.',
+    description:
+      'Configure the categories companies can be tagged with, and the passout years.',
     web_route: '/corporate-relations/company-attributes',
     actions: ['view', 'create', 'edit', 'activate'],
     attributes: [],

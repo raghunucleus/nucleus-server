@@ -13,12 +13,16 @@ import { CorporateRelationsService } from './corporate-relations.service';
 import { Company } from './entities/company.entity';
 import { CompanyCategory } from './entities/company-lookups.entity';
 import { CompanyJobRole } from './entities/company-job-role.entity';
+import { PassoutYear } from './entities/passout-year.entity';
+import { PassoutYearsController } from './passout-years.controller';
+import { PassoutYearsService } from './passout-years.service';
 
 /**
  * Placement / corporate-relations role-type module — the company catalog. Holds
  * the management surface (Company Management), the lookup-configuration surface
- * (Company Attributes), and the `company_approval` request type that gates
- * every change to a company. Screens are declared in the RBAC catalog.
+ * (Company Attributes, which also hosts the passout-year master), and the
+ * `company_approval` request type that gates every change to a company. Screens
+ * are declared in the RBAC catalog.
  *
  * `RequestsModule` is imported one-way: the handler registers ITSELF into the
  * type registry at boot, so the framework never has to know this module exists.
@@ -29,6 +33,7 @@ import { CompanyJobRole } from './entities/company-job-role.entity';
       Company,
       CompanyCategory,
       CompanyJobRole,
+      PassoutYear,
       Employee,
     ]),
     RbacModule,
@@ -38,11 +43,16 @@ import { CompanyJobRole } from './entities/company-job-role.entity';
     // decide it there — so it has to ask whether the caller is one.
     ApprovalApproversModule,
   ],
-  controllers: [CompanyManagementController, CompanyAttributesController],
+  controllers: [
+    CompanyManagementController,
+    CompanyAttributesController,
+    PassoutYearsController,
+  ],
   providers: [
     CorporateRelationsService,
     CompanyAttributesService,
     CompanyApprovalService,
+    PassoutYearsService,
   ],
 })
 export class CorporateRelationsModule {}
