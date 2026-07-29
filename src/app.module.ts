@@ -6,6 +6,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { join } from 'path';
 import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
+import { ApprovalApproversModule } from './approval-approvers/approval-approvers.module';
 import { AppService } from './app.service';
 import { FakeDelayMiddleware } from './common/middleware/fake-delay.middleware';
 import { EmployeeModule } from './employee/employee.module';
@@ -99,6 +100,7 @@ import { StudentNotificationModule } from './student/notification/student-notifi
     EmployeeNotificationModule,
     RbacModule,
     RequestsModule,
+    ApprovalApproversModule,
   ],
   controllers: [AppController],
   providers: [AppService],
