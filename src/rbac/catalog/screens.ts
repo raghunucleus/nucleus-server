@@ -358,6 +358,29 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     actions: ['view', 'edit'],
     attributes: [],
   },
+  {
+    key: 'corporate_relations.management_view.view',
+    module_key: 'corporate_relations',
+    role_type_keys: ['placement'],
+    platforms: ['web'],
+    label: 'Management View',
+    description:
+      'Every company job role for a passout year, across all CRs — read-only, with insights on current status, CR workload, companies, job roles and follow-ups.',
+    web_route: '/corporate-relations/management-view',
+    // The management counterpart to CR View, and the deliberate inverse of its
+    // self-scoping: NOTHING is filtered by the acting employee, so a holder sees
+    // every company, every job role and every CR. Unscoped exactly like Company
+    // Management — holding the screen IS the grant (`attributes: []`).
+    //
+    // `view` is the ONLY action, and that is the safety property: the controller
+    // has no write handler to gate, so this key can never mutate a record a CR
+    // owns. Editing stays on `cr_view.view`'s `edit`, which is self-scoped.
+    //
+    // Listed straight after CR View because the sidebar renders a module's
+    // screens in catalog order — this is the "under the cr-view" placement.
+    actions: ['view'],
+    attributes: [],
+  },
 
   // --- Drive Management ----------------------------------------------------
   //

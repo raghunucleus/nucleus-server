@@ -29,6 +29,8 @@ import { CompanyJobRoleYearContact } from './entities/company-job-role-year-cont
 import { CompanyJobRoleYearStatusLog } from './entities/company-job-role-year-status-log.entity';
 import { PassoutYear } from './entities/passout-year.entity';
 import { JobRolesController } from './job-roles.controller';
+import { ManagementViewController } from './management-view.controller';
+import { ManagementViewService } from './management-view.service';
 import { PassoutYearsController } from './passout-years.controller';
 import { PassoutYearsService } from './passout-years.service';
 
@@ -38,9 +40,10 @@ import { PassoutYearsService } from './passout-years.service';
  * (Company Attributes, which also hosts the passout-year master), the per-owner
  * surface (Roles or Designations — the roles one employee is accountable for,
  * plus adding a company), the per-owner-per-year surface (CR View — the same
- * roles with whatever was recorded against each passout year), and the
- * `company_approval` request type that gates every change to a company. Screens
- * are declared in the RBAC catalog.
+ * roles with whatever was recorded against each passout year), the read-only
+ * institution-wide surface (Management View — every CR's roles for a year, with
+ * roll-ups), and the `company_approval` request type that gates every change to a
+ * company. Screens are declared in the RBAC catalog.
  *
  * `RequestsModule` is imported one-way: the handler registers ITSELF into the
  * type registry at boot, so the framework never has to know this module exists.
@@ -78,6 +81,7 @@ import { PassoutYearsService } from './passout-years.service';
     CompanyAttributesController,
     JobRolesController,
     CrViewController,
+    ManagementViewController,
     PassoutYearsController,
   ],
   providers: [
@@ -85,6 +89,9 @@ import { PassoutYearsService } from './passout-years.service';
     CompanyAttributesService,
     CompanyApprovalService,
     CrViewService,
+    // Reads CR View's scope through `CrViewService` rather than duplicating the
+    // year resolution and the six lookup queries behind it.
+    ManagementViewService,
     PassoutYearsService,
   ],
 })
