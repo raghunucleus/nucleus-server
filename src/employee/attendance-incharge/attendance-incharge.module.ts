@@ -57,5 +57,11 @@ import { InchargeSessionsService } from './incharge-sessions.service';
     InchargeSessionsController,
   ],
   providers: [InchargeScheduleService, InchargeSessionsService],
+  // Surfaced so the sibling attendance-analytics module can pivot on the SAME
+  // ownership source (`ownedGroupIds` / `listGroups` / `listProgrammeSemesters`)
+  // instead of re-querying `attendance_group_incharges` in a slightly different
+  // way. Re-providing it there is not an option: its dependency tail reaches
+  // TimetablesService, SessionSeederService and StudentNotificationService.
+  exports: [InchargeScheduleService],
 })
 export class AttendanceInchargeModule {}

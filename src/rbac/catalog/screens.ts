@@ -100,6 +100,37 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     actions: ['view'],
     attributes: [],
   },
+  {
+    // Group-wise attendance analytics for an attendance-group incharge. Unlike
+    // the two screens above — which are teacher-self-scoped by
+    // `effective_employee_id` — this one is scoped by
+    // `attendance_group_incharges`, exactly like the `timetable.incharge.*`
+    // pair: the server filters every read to the groups the caller is incharge
+    // of, so granting the screen IS the scope. Hence the `.incharge.` segment
+    // in the key: it sits in the `attendance` module (that's where the menu
+    // item belongs) but it is NOT one of the teacher-self-scoped screens above.
+    //
+    // Do NOT add department / programme refs here. A management-wide twin (an
+    // HOD or principal seeing every group unscoped) belongs on its own key —
+    // the way corporate_relations.management_view.view sits beside cr_view —
+    // so this key's contract stays unambiguous.
+    //
+    // `view` is the ONLY action, and that is the safety property: the
+    // controller has no write handler to gate, so the key can never mutate
+    // attendance a teacher marked.
+    key: 'attendance.incharge.analytics.view',
+    module_key: 'attendance',
+    role_type_keys: ['teacher'],
+    platforms: ['web'],
+    label: 'Attendance Analytics',
+    description:
+      'Group-wise attendance analytics for the attendance groups you are ' +
+      'incharge of — per student, per subject, per day, with defaulters and a ' +
+      'session-marking log.',
+    web_route: '/attendance/analytics',
+    actions: ['view'],
+    attributes: [],
+  },
 
   // --- Time table --------------------------------------------------------
   //

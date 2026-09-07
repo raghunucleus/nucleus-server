@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AccountantModule } from './accountant/accountant.module';
+import { AttendanceAnalyticsModule } from './attendance-analytics/attendance-analytics.module';
 import { AttendanceInchargeModule } from './attendance-incharge/attendance-incharge.module';
 import { EmployeeAuthModule } from './auth/employee-auth.module';
 import { EmployeeBirthdaysModule } from './birthdays/employee-birthdays.module';
@@ -45,6 +46,7 @@ import { TeacherModule } from './teacher/teacher.module';
     AccountantModule,
     CashierModule,
     AttendanceInchargeModule,
+    AttendanceAnalyticsModule,
     SecurityVerifyModule,
     CorporateRelationsModule,
     DriveManagementModule,

@@ -249,7 +249,17 @@ export class StudentAttendanceQueryService {
   }
 }
 
-function pct(attended: number, held: number): number {
+/**
+ * The canonical attendance percentage — one decimal place, 0 when nothing was
+ * held. Exported because the employee analytics surface must round IDENTICALLY
+ * to the student dashboard; a second implementation is how the two screens
+ * start disagreeing over the number students actually argue about.
+ *
+ * Note it ROUNDS: 74.96 renders as 75.0. Never compare the rounded value
+ * against a defaulter threshold — compare the raw ratio (see
+ * `AttendanceAnalyticsService`).
+ */
+export function pct(attended: number, held: number): number {
   if (held <= 0) return 0;
   return Math.round((attended / held) * 1000) / 10;
 }
