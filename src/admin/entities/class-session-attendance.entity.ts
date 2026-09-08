@@ -18,16 +18,22 @@ export type ClassSessionAttendanceStatus =
   | 'absent'
   | 'late'
   | 'exempt'
-  | 'od';
+  | 'od'
+  | 'leave';
 
 // One row per (session, student) once attendance has been marked. The unique
 // constraint makes the marking endpoint trivially idempotent — a retry from
 // a flaky mobile network upserts the same row.
 //
 // 'present' and 'late' both count toward `attended` in the rollup;
-// 'absent' / 'exempt' / 'od' don't. 'od' here means a student-level OD
-// recorded against the session itself (rare); broader OD adjustments are
-// tracked on attendance_adjustments instead.
+// 'absent' / 'exempt' / 'od' / 'leave' don't. 'od' here means a student-level
+// OD recorded against the session itself (rare); broader OD adjustments are
+// tracked on attendance_adjustments instead. 'leave' is a SANCTIONED absence:
+// the student has an approved leave (student_leaves) covering the session
+// date — held, not attended, so the percentage math is identical to 'absent';
+// only the label differs. Marking writes it automatically for students on
+// effective leave (teacher may still override to 'present'), and approving a
+// leave after the fact flips existing 'absent' rows in range to 'leave'.
 @Entity({ name: 'class_session_attendance' })
 @Unique('UQ_class_session_attendance_session_student', [
   'class_session_id',

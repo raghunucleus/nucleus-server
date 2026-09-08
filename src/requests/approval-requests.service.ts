@@ -8,10 +8,12 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { AttendanceGroupIncharge } from '../admin/entities/attendance-group-incharge.entity';
 import { Employee } from '../admin/entities/employee.entity';
 import { ProgrammeAdmissionYear } from '../admin/entities/programme-admission-year.entity';
 import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
 import { Student } from '../admin/entities/student.entity';
+import { StudentGroup } from '../admin/entities/student-group.entity';
 import { APPROVAL_ACTION_BY_KEY } from '../approval-approvers/approval-actions';
 import { ApprovalApproversService } from '../approval-approvers/approval-approvers.service';
 import { ApprovalActionApprover } from '../approval-approvers/entities/approval-action-approver.entity';
@@ -31,6 +33,7 @@ import {
   RequestCatalogModule,
   RequestRequesterRef,
   RequestTypeRegistry,
+  StudentRequestRouting,
 } from './request-type.registry';
 
 /** Requester-facing view — hides who decided (only that it was decided). */
@@ -149,15 +152,19 @@ function nextDay(isoDate: string): string {
  * copy) comes from the type's handler registered in
  * {@link RequestTypeRegistry} by its owning module.
  *
- * There are two routing modes, and a request uses exactly one:
- *  - **student** → `programme_admission_year_id`, decided by that batch's
- *    profile verifiers;
+ * There are three routing modes, and a request uses exactly one:
+ *  - **student, default** → `programme_admission_year_id`, decided by that
+ *    batch's profile verifiers;
+ *  - **student, `routing: 'attendance_group_incharges'`** →
+ *    `attendance_group_id`, decided by that group's in-charges (leave
+ *    requests);
  *  - **employee** → `action_key`, decided by the approvers an admin assigned to
  *    that action (`src/approval-approvers`).
  *
- * A row with neither is unroutable — it can only arise when a batch is deleted
- * out from under a historical student request (the FK is SET NULL) — and
- * nobody can act on it. That is enforced in one place: {@link assertCanAct}.
+ * A row with none is unroutable — it can only arise when a batch or group is
+ * deleted out from under a historical student request (both FKs are SET NULL)
+ * — and nobody can act on it. That is enforced in one place:
+ * {@link assertCanAct}.
  */
 @Injectable()
 export class ApprovalRequestsService {
@@ -176,6 +183,10 @@ export class ApprovalRequestsService {
     private readonly batches: Repository<ProgrammeAdmissionYear>,
     @InjectRepository(ProgrammeAdmissionYearProfileVerifier)
     private readonly profileVerifiers: Repository<ProgrammeAdmissionYearProfileVerifier>,
+    @InjectRepository(AttendanceGroupIncharge)
+    private readonly groupIncharges: Repository<AttendanceGroupIncharge>,
+    @InjectRepository(StudentGroup)
+    private readonly studentGroups: Repository<StudentGroup>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly notifications: StudentNotificationService,
     private readonly employeeNotifications: EmployeeNotificationService,
@@ -207,8 +218,9 @@ export class ApprovalRequestsService {
   /**
    * File a request on behalf of a student. The caller (the type's own module)
    * has already validated the payload and snapshotted whatever it needs —
-   * this method only applies the framework rules: resolve the routing batch,
-   * require someone who can act on it, run the type's duplicate check,
+   * this method only applies the framework rules: resolve the routing scope
+   * (batch verifiers, or the attendance group's in-charges when the type says
+   * so), require someone who can act on it, run the type's duplicate check,
    * persist. Several pending requests of one type may coexist.
    */
   async createForStudent(
@@ -220,32 +232,9 @@ export class ApprovalRequestsService {
     const student = await this.students.findOne({ where: { id: studentId } });
     if (!student) throw new NotFoundException('Student not found');
 
-    // Approvers are the profile verifiers of the student's batch; without the
-    // batch row the request could never be routed to anyone.
-    const batch = await this.batches.findOne({
-      where: {
-        programme_id: student.programme_id,
-        admission_year_id: student.admission_year_id,
-      },
-    });
-    if (!batch) {
-      throw new UnprocessableEntityException(
-        'Your batch is not set up for approvals yet. Please contact the college office.',
-      );
-    }
-
-    // A batch with zero verifiers would swallow the request — nobody could
-    // ever see or decide it. Fail up front instead of parking it in a void.
-    const hasVerifiers = await this.profileVerifiers.exists({
-      where: { programme_admission_year_id: batch.id },
-    });
-    if (!hasVerifiers) {
-      throw new UnprocessableEntityException(
-        'Approvals are not set up for your batch yet. Please contact the college office.',
-      );
-    }
-
     const handler = this.registry.get(type);
+    const scope = await this.resolveStudentRouting(student, handler.routing);
+
     const requester: RequestRequesterRef = { kind: 'student', id: studentId };
     const saved = await this.dataSource.transaction(async (tx) => {
       // Serialize concurrent submits so the handler's duplicate check can't be
@@ -262,9 +251,23 @@ export class ApprovalRequestsService {
           requester_student_id: studentId,
           payload,
           requester_note: note ?? null,
-          programme_admission_year_id: batch.id,
+          ...scope,
         }),
       );
+      // The type may create its own domain row here and hand back a payload
+      // carrying that row's id — the stored request and its `raised` event
+      // must both reflect it.
+      const patched = await handler.onRaised?.(tx, row);
+      if (patched) {
+        await repo.update(
+          { id: row.id },
+          {
+            payload: patched as ApprovalRequest['payload'] &
+              Record<string, never>,
+          },
+        );
+        row.payload = patched;
+      }
       await this.logEvent(
         tx,
         row.id,
@@ -274,7 +277,7 @@ export class ApprovalRequestsService {
           id: studentId,
         },
         note ?? null,
-        payload,
+        row.payload,
       );
       return row;
     });
@@ -405,6 +408,13 @@ export class ApprovalRequestsService {
           decision_note: null,
         },
       );
+      row.status = 'pending';
+      row.payload = payload;
+      row.requester_note = note ?? null;
+      row.decided_at = null;
+      row.decision_note = null;
+      // Same transaction: the type syncs its domain row to the new payload.
+      await handler.onResubmitted?.(tx, row);
       await this.logEvent(
         tx,
         row.id,
@@ -416,14 +426,9 @@ export class ApprovalRequestsService {
         note ?? null,
         payload,
       );
-      row.status = 'pending';
-      row.payload = payload;
-      row.requester_note = note ?? null;
-      row.decided_at = null;
-      row.decision_note = null;
       return row;
     });
-    // A resubmit puts the request back in the verifiers' queue, so it warrants
+    // A resubmit puts the request back in the approvers' queue, so it warrants
     // the same nudge as a fresh one. Post-commit, fire-and-forget (see create).
     this.dispatchApproverNotification(saved, 'resubmitted');
     return this.toRequesterView(saved);
@@ -459,11 +464,14 @@ export class ApprovalRequestsService {
       }
 
       await repo.update({ id: row.id }, { status: 'cancelled' });
+      row.status = 'cancelled';
+      // Same transaction: the type releases whatever its domain row reserved
+      // (e.g. a pending leave becomes `withdrawn`).
+      await this.registry.get(row.request_type).onCancelled?.(tx, row);
       await this.logEvent(tx, row.id, 'cancelled', {
         kind: 'student',
         id: studentId,
       });
-      row.status = 'cancelled';
       return this.toRequesterView(row);
     });
   }
@@ -598,6 +606,7 @@ export class ApprovalRequestsService {
       row.requester_note = note ?? null;
       row.decided_at = null;
       row.decision_note = null;
+      await handler.onResubmitted?.(tx, row);
       return row;
     });
     this.dispatchApproverNotification(saved, 'resubmitted');
@@ -631,11 +640,12 @@ export class ApprovalRequestsService {
       }
 
       await repo.update({ id: row.id }, { status: 'cancelled' });
+      row.status = 'cancelled';
+      await this.registry.get(row.request_type).onCancelled?.(tx, row);
       await this.logEvent(tx, row.id, 'cancelled', {
         kind: 'employee',
         id: employeeId,
       });
-      row.status = 'cancelled';
       return this.toRequesterView(row);
     });
   }
@@ -815,7 +825,7 @@ export class ApprovalRequestsService {
 
         const result = await this.registry
           .get(row.request_type)
-          .applyDecision(tx, row, input);
+          .applyDecision(tx, row, input, { employee_id: employeeId });
 
         await repo.update(
           { id: row.id, status: 'pending' },
@@ -925,8 +935,12 @@ export class ApprovalRequestsService {
     );
   }
 
-  /** The Modules tree — the request types `requester` can raise, grouped. */
-  catalog(requester: RequestRequesterRef['kind']): RequestCatalogModule[] {
+  /**
+   * The Modules tree — the request types `requester` can raise, grouped. Omit
+   * `requester` for every type that exists: an approvals inbox receives
+   * student-raised types, so the raiser filter is the wrong question there.
+   */
+  catalog(requester?: RequestRequesterRef['kind']): RequestCatalogModule[] {
     return this.registry.catalog(requester);
   }
 
@@ -995,10 +1009,70 @@ export class ApprovalRequestsService {
   }
 
   /**
-   * The pool who can act on a request — its batch's profile verifiers, or the
-   * approvers assigned to its action key — flagging whoever actually decided.
-   * Flat by design: any one of them can decide, so this is "who it's with",
-   * not a sequence.
+   * Resolve where a student's request of this type goes, and fail up front
+   * when nobody could ever see it — a request parked in a void is worse than
+   * a 422. Returns the routing columns to write on the row.
+   */
+  private async resolveStudentRouting(
+    student: Student,
+    routing: StudentRequestRouting | undefined,
+  ): Promise<
+    Pick<ApprovalRequest, 'programme_admission_year_id' | 'attendance_group_id'>
+  > {
+    if (routing === 'attendance_group_incharges') {
+      const membership = await this.studentGroups.findOne({
+        where: { student_id: student.id },
+        select: { id: true, attendance_group_id: true },
+      });
+      const groupId = membership?.attendance_group_id ?? null;
+      if (groupId === null) {
+        throw new UnprocessableEntityException(
+          'You are not assigned to an attendance group yet. Please contact the college office.',
+        );
+      }
+      const hasIncharge = await this.groupIncharges.exists({
+        where: { attendance_group_id: groupId },
+      });
+      if (!hasIncharge) {
+        throw new UnprocessableEntityException(
+          'No in-charge is assigned to your attendance group yet. Please contact the college office.',
+        );
+      }
+      return {
+        programme_admission_year_id: null,
+        attendance_group_id: groupId,
+      };
+    }
+
+    // Default: the profile verifiers of the student's batch; without the
+    // batch row the request could never be routed to anyone.
+    const batch = await this.batches.findOne({
+      where: {
+        programme_id: student.programme_id,
+        admission_year_id: student.admission_year_id,
+      },
+    });
+    if (!batch) {
+      throw new UnprocessableEntityException(
+        'Your batch is not set up for approvals yet. Please contact the college office.',
+      );
+    }
+    const hasVerifiers = await this.profileVerifiers.exists({
+      where: { programme_admission_year_id: batch.id },
+    });
+    if (!hasVerifiers) {
+      throw new UnprocessableEntityException(
+        'Approvals are not set up for your batch yet. Please contact the college office.',
+      );
+    }
+    return { programme_admission_year_id: batch.id, attendance_group_id: null };
+  }
+
+  /**
+   * The pool who can act on a request — its batch's profile verifiers, its
+   * attendance group's in-charges, or the approvers assigned to its action key
+   * — flagging whoever actually decided. Flat by design: any one of them can
+   * decide, so this is "who it's with", not a sequence.
    */
   private async approversFor(
     request: ApprovalRequest,
@@ -1013,6 +1087,25 @@ export class ApprovalRequestsService {
         designation: a.designation,
         department: a.department,
         is_decider: a.id === request.decided_by_employee_id,
+      }));
+    }
+    if (request.attendance_group_id !== null) {
+      const rows = await this.groupIncharges
+        .createQueryBuilder('gi')
+        .innerJoinAndSelect('gi.employee', 'e')
+        .leftJoinAndSelect('e.designation', 'dg')
+        .leftJoinAndSelect('e.department', 'dp')
+        .where('gi.attendance_group_id = :g', {
+          g: request.attendance_group_id,
+        })
+        .orderBy('e.emp_display_name', 'ASC')
+        .getMany();
+      return rows.map((gi) => ({
+        id: gi.employee.id,
+        emp_display_name: gi.employee.emp_display_name,
+        designation: gi.employee.designation?.name ?? null,
+        department: gi.employee.department?.name ?? null,
+        is_decider: gi.employee_id === request.decided_by_employee_id,
       }));
     }
     if (request.programme_admission_year_id === null) return [];
@@ -1074,16 +1167,18 @@ export class ApprovalRequestsService {
   }
 
   /**
-   * Base approver query — one inbox, both routing modes. A row is visible when
-   * the acting employee verifies its batch OR is an assigned approver of its
-   * action; these tables ARE the scope (the RBAC screen carries no attributes).
+   * Base approver query — one inbox, all three routing modes. A row is visible
+   * when the acting employee verifies its batch, OR is an in-charge of its
+   * attendance group, OR is an assigned approver of its action; these tables
+   * ARE the scope (the RBAC screen carries no attributes).
    *
    * Three things here are load-bearing:
    *  - The OR is parenthesised INSIDE the `where` string. Callers chain
    *    `andWhere` afterwards, and an unbracketed `A OR B` re-associates into
    *    `A OR (B AND status = …)` — which shows every approver every request.
-   *  - Both joins are LEFT. They stay row-count-safe because each routing table
-   *    is unique on (scope, employee_id), so `getManyAndCount()` is unaffected.
+   *  - All routing joins are LEFT. They stay row-count-safe because each
+   *    routing table is unique on (scope, employee_id), so `getManyAndCount()`
+   *    is unaffected.
    *  - `requester_student` is LEFT too: it was the INNER join that made the
    *    whole framework student-only. Requester relations and their lookups are
    *    joined explicitly because QueryBuilder ignores `eager:`.
@@ -1101,6 +1196,11 @@ export class ApprovalRequestsService {
         'aa',
         'aa.action_key = r.action_key AND aa.employee_id = :me',
       )
+      .leftJoin(
+        AttendanceGroupIncharge,
+        'agi',
+        'agi.attendance_group_id = r.attendance_group_id AND agi.employee_id = :me',
+      )
       .leftJoinAndSelect('r.requester_student', 's')
       .leftJoinAndSelect('s.programme', 'p')
       .leftJoinAndSelect('s.admission_year', 'ay')
@@ -1108,15 +1208,18 @@ export class ApprovalRequestsService {
       .leftJoinAndSelect('re.designation', 'redes')
       .leftJoinAndSelect('re.department', 'redep')
       .leftJoinAndSelect('r.decided_by_employee', 'de')
-      .where('(v.employee_id IS NOT NULL OR aa.employee_id IS NOT NULL)')
+      .where(
+        '(v.employee_id IS NOT NULL OR aa.employee_id IS NOT NULL OR agi.employee_id IS NOT NULL)',
+      )
       .setParameter('me', employeeId);
   }
 
   /**
    * May this employee act on this request? The routing key is the authority:
-   * a batch's profile verifier for student requests, an assigned approver for
-   * employee ones. A request with NEITHER key is unroutable (a student request
-   * whose batch was deleted — the FK is SET NULL) and nobody may act on it.
+   * a batch's profile verifier or an attendance group's in-charge for student
+   * requests, an assigned approver for employee ones. A request with NO key is
+   * unroutable (a student request whose batch or group was deleted — the FKs
+   * are SET NULL) and nobody may act on it.
    *
    * Throws 404, never 403: an approver must not be able to probe which request
    * ids exist outside their scope.
@@ -1136,6 +1239,17 @@ export class ApprovalRequestsService {
           },
         });
       if (isVerifier) return;
+    }
+    if (row.attendance_group_id !== null) {
+      const isIncharge = await tx
+        .getRepository(AttendanceGroupIncharge)
+        .exists({
+          where: {
+            employee_id: employeeId,
+            attendance_group_id: row.attendance_group_id,
+          },
+        });
+      if (isIncharge) return;
     }
     if (row.action_key !== null) {
       const isApprover = await this.approvalApprovers.isApprover(
@@ -1371,6 +1485,13 @@ export class ApprovalRequestsService {
   private async approverIdsFor(request: ApprovalRequest): Promise<number[]> {
     if (request.action_key !== null) {
       return this.approvalApprovers.getApproverEmployeeIds(request.action_key);
+    }
+    if (request.attendance_group_id !== null) {
+      const rows = await this.groupIncharges.find({
+        where: { attendance_group_id: request.attendance_group_id },
+        select: { employee_id: true },
+      });
+      return rows.map((gi) => gi.employee_id);
     }
     if (request.programme_admission_year_id === null) return [];
     const rows = await this.profileVerifiers.find({

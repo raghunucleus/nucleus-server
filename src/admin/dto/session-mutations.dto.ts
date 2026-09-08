@@ -142,7 +142,14 @@ export const MarkAttendanceSchema = z
         z
           .object({
             student_id: z.coerce.number().int().positive(),
-            status: z.enum(['present', 'absent', 'late', 'exempt', 'od']),
+            status: z.enum([
+              'present',
+              'absent',
+              'late',
+              'exempt',
+              'od',
+              'leave',
+            ]),
           })
           .strict(),
       )

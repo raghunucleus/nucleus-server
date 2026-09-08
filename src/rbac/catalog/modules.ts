@@ -13,6 +13,12 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     order: 10,
   },
   {
+    key: 'requests',
+    label: 'Requests',
+    icon: 'ClipboardList',
+    order: 15,
+  },
+  {
     key: 'attendance',
     label: 'Attendance',
     icon: 'ClipboardCheck',
@@ -59,12 +65,6 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     label: 'Placement Coordinator',
     icon: 'UserCheck',
     order: 67,
-  },
-  {
-    key: 'requests',
-    label: 'Requests',
-    icon: 'ClipboardList',
-    order: 70,
   },
 
   // {

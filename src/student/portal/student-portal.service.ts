@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import {
+  EFFECTIVE_LEAVE_STATUS_SQL,
+  leaveCoversSessionSql,
+} from '../../leaves/leaves-read.service';
 import { ProgrammeSemester } from '../../admin/entities/programme-semester.entity';
 import { Student } from '../../admin/entities/student.entity';
 
@@ -44,9 +48,27 @@ export interface WeekCell {
   is_substitute: boolean;
   status: 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
   cancel_reason: string | null;
-  attendance_status: 'present' | 'absent' | 'late' | 'exempt' | 'od' | null;
+  attendance_status: AttendanceMarkStatus | null;
+  // True when an in-effect approved leave (student_leaves, status approved /
+  // cancel_requested) covers THIS session — its date, and for a partial-day
+  // leave its period run too, so a morning leave leaves the afternoon classes
+  // false. Always false on a cancelled session: the class did not happen, so
+  // "Cancelled" is the truth rather than "Leave".
+  //
+  // Derived, never stored: an unmarked covered session renders as "Leave"
+  // rather than "Upcoming"; once the teacher marks it the stored
+  // `attendance_status` takes over.
+  on_leave: boolean;
   room: string | null;
 }
+
+export type AttendanceMarkStatus =
+  | 'present'
+  | 'absent'
+  | 'late'
+  | 'exempt'
+  | 'od'
+  | 'leave';
 
 export interface WeekBreakRow {
   position: number;
@@ -79,7 +101,9 @@ export interface SubjectSessionRow {
   cancel_reason: string | null;
   // The student's own mark for this session. `null` means the teacher
   // hasn't marked it yet (or the session is still in the future).
-  attendance_status: 'present' | 'absent' | 'late' | 'exempt' | 'od' | null;
+  attendance_status: AttendanceMarkStatus | null;
+  // See WeekCell.on_leave.
+  on_leave: boolean;
   is_substitute: boolean;
   teacher_display_name: string | null;
   room: string | null;
@@ -257,6 +281,12 @@ export class StudentPortalService {
         cs.status,
         cs.cancel_reason,
         csa.status AS attendance_status,
+        EXISTS (
+          SELECT 1 FROM "student_leaves" sl
+          WHERE sl.student_id = $1
+            AND sl.status IN (${EFFECTIVE_LEAVE_STATUS_SQL})
+            AND ${leaveCoversSessionSql()}
+        ) AS on_leave,
         cs.room
       FROM "class_sessions" cs
       JOIN "timetable_periods" tp ON tp.id = cs.timetable_period_id
@@ -344,6 +374,7 @@ export class StudentPortalService {
         // pg-driver returns boolean as boolean, but be defensive across drivers.
         is_elective: Boolean(c.is_elective),
         is_substitute: Boolean(c.is_substitute),
+        on_leave: Boolean(c.on_leave),
       })),
     };
   }
@@ -386,6 +417,7 @@ export class StudentPortalService {
         session_status: 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
         cancel_reason: string | null;
         attendance_status: SubjectSessionRow['attendance_status'];
+        on_leave: boolean;
         is_substitute: boolean;
         teacher_display_name: string | null;
         room: string | null;
@@ -414,6 +446,12 @@ export class StudentPortalService {
         cs.status AS session_status,
         cs.cancel_reason,
         csa.status AS attendance_status,
+        EXISTS (
+          SELECT 1 FROM "student_leaves" sl
+          WHERE sl.student_id = $1
+            AND sl.status IN (${EFFECTIVE_LEAVE_STATUS_SQL})
+            AND ${leaveCoversSessionSql()}
+        ) AS on_leave,
         (cs.effective_employee_id IS DISTINCT FROM cs.scheduled_employee_id) AS is_substitute,
         emp.emp_display_name AS teacher_display_name,
         cs.room
@@ -460,6 +498,7 @@ export class StudentPortalService {
         session_status: r.session_status,
         cancel_reason: r.cancel_reason,
         attendance_status: r.attendance_status,
+        on_leave: Boolean(r.on_leave),
         is_substitute: Boolean(r.is_substitute),
         teacher_display_name: r.teacher_display_name,
         room: r.room,

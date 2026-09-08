@@ -34,6 +34,13 @@ export const STORAGE_PREFIX = {
    */
   studentCertificates: 'student-certificates',
   /**
+   * Leave-application proofs: `student-leaves/<studentId>/<uuid>.<ext>`.
+   * PRIVATE (presigned reads only). Same ownership-by-prefix scheme as
+   * certificates: the leave request flow rejects keys outside the requesting
+   * student's own folder.
+   */
+  studentLeaves: 'student-leaves',
+  /**
    * Drive JD attachments: `drives/<driveId>/jd/<profileId>/<uuid>.<ext>`.
    * PRIVATE (presigned reads only). The drive id leads so every file for a drive
    * shares a prefix, and the profile id nests under it so a designation's JDs
@@ -63,6 +70,9 @@ export const storageKey = {
   /** `student-certificates/<studentId>/<uuid>.<ext>` */
   studentCertificate: (studentId: number, ext: string): string =>
     `${STORAGE_PREFIX.studentCertificates}/${studentId}/${randomUUID()}.${ext}`,
+  /** `student-leaves/<studentId>/<uuid>.<ext>` */
+  studentLeaveAttachment: (studentId: number, ext: string): string =>
+    `${STORAGE_PREFIX.studentLeaves}/${studentId}/${randomUUID()}.${ext}`,
   /** `drives/<driveId>/jd/<profileId>/<uuid>.<ext>` */
   driveJdAttachment: (
     driveId: number,
@@ -81,4 +91,12 @@ export function isStudentCertificateKey(
   studentId: number,
 ): boolean {
   return key.startsWith(`${STORAGE_PREFIX.studentCertificates}/${studentId}/`);
+}
+
+/** True when `key` lives in the given student's own leave-attachments folder. */
+export function isStudentLeaveAttachmentKey(
+  key: string,
+  studentId: number,
+): boolean {
+  return key.startsWith(`${STORAGE_PREFIX.studentLeaves}/${studentId}/`);
 }

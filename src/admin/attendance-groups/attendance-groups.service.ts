@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { PermissionsService } from '../../rbac/permissions.service';
 import { AdmissionYear } from '../entities/admission-year.entity';
 import { AttendanceGroup } from '../entities/attendance-group.entity';
 import { AttendanceGroupIncharge } from '../entities/attendance-group-incharge.entity';
@@ -30,6 +31,7 @@ export class AttendanceGroupsService {
     @InjectRepository(Employee)
     private readonly employees: Repository<Employee>,
     private readonly dataSource: DataSource,
+    private readonly permissions: PermissionsService,
   ) {}
 
   // All attendance groups (with their student members) for one programme ×
@@ -158,6 +160,7 @@ export class AttendanceGroupsService {
       );
       return group;
     });
+    await this.invalidateInchargeAccess(input.group_incharge_employee_ids);
     return this.getOne(saved.id);
   }
 
@@ -189,7 +192,7 @@ export class AttendanceGroupsService {
       );
     }
     await this.assertEmployeesExist(patch.group_incharge_employee_ids);
-    await this.dataSource.transaction(async (tx) => {
+    const before = await this.dataSource.transaction(async (tx) => {
       const groupsRepo = tx.getRepository(AttendanceGroup);
       const inchargeRepo = tx.getRepository(AttendanceGroupIncharge);
       row.name = patch.name;
@@ -199,6 +202,10 @@ export class AttendanceGroupsService {
       // Replace the in-charge set: clear the existing links, re-insert the
       // requested ones. Nothing references join-row ids, so a wholesale
       // swap is safe and keeps the logic trivial.
+      const existing = await inchargeRepo.find({
+        where: { attendance_group_id: id },
+        select: { employee_id: true },
+      });
       await inchargeRepo.delete({ attendance_group_id: id });
       await inchargeRepo.save(
         patch.group_incharge_employee_ids.map((eid) =>
@@ -208,8 +215,23 @@ export class AttendanceGroupsService {
           }),
         ),
       );
+      return existing.map((e) => e.employee_id);
     });
+    await this.invalidateInchargeAccess([
+      ...before,
+      ...patch.group_incharge_employee_ids,
+    ]);
     return this.getOne(id);
+  }
+
+  // The employee Approvals screen is DERIVED from in-charge membership
+  // (PermissionsService.deriveRequestScreens — leave requests route to a
+  // group's in-charges) and the derivation result is cached — bust old ∪ new
+  // so the change takes effect immediately rather than after the cache TTL.
+  private async invalidateInchargeAccess(employeeIds: number[]): Promise<void> {
+    await Promise.all(
+      [...new Set(employeeIds)].map((id) => this.permissions.invalidate(id)),
+    );
   }
 
   // Toggle a group's active flag. Groups are never hard-deleted — deactivation

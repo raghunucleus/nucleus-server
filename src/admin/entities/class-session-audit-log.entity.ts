@@ -19,7 +19,11 @@ export type ClassSessionAuditAction =
   | 'move'
   | 'reschedule'
   | 'amend'
-  | 'mark_attendance';
+  | 'mark_attendance'
+  // A leave approval / cancellation flipped this session's attendance rows
+  // (absent ↔ leave) for one student — written by the leave request handlers,
+  // not by a teacher. `reason` carries `leave:<id>` / `leave_cancel:<id>`.
+  | 'leave_sync';
 
 // Append-only audit row inserted in the same transaction as any
 // `class_sessions` mutation. `before`/`after` carry the relevant subset of

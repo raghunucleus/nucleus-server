@@ -16,6 +16,7 @@ import {
   RosterService,
   type RosterStudent,
 } from '../../admin/sessions/roster.service';
+import { LeavesReadService } from '../../leaves/leaves-read.service';
 
 export interface TeacherSessionListItem {
   id: number;
@@ -50,6 +51,15 @@ export interface TeacherSessionListItem {
 export interface RosterEntry extends RosterStudent {
   /** The student's existing mark on this session, or null when not yet marked. */
   current_status: AttendanceStatus | null;
+  /**
+   * True when an approved leave covers this session — its date, and for a
+   * partial-day leave its period run too. The marking screen pre-fills `leave`
+   * for such students (the teacher may override to present); the server
+   * enforces the same rule on submit regardless.
+   */
+  on_leave: boolean;
+  /** Name of the leave type when `on_leave`, for the roster badge. */
+  leave_type: string | null;
 }
 
 export interface TeacherRosterResult {
@@ -79,6 +89,7 @@ export class TeacherAttendanceService {
     private readonly attendance: Repository<ClassSessionAttendance>,
     private readonly roster: RosterService,
     private readonly marking: AttendanceMarkingService,
+    private readonly leaves: LeavesReadService,
   ) {}
 
   /**
@@ -229,6 +240,10 @@ export class TeacherAttendanceService {
     const markByStudent = new Map(
       existing.map((row) => [row.student_id, row.status] as const),
     );
+    const leaveByStudent = await this.leaves.effectiveLeavesOn(
+      students.map((s) => s.id),
+      session.id,
+    );
 
     return {
       session_id: session.id,
@@ -236,10 +251,15 @@ export class TeacherAttendanceService {
       attendance_marked_at: session.attendance_marked_at
         ? session.attendance_marked_at.toISOString()
         : null,
-      students: students.map((s) => ({
-        ...s,
-        current_status: markByStudent.get(s.id) ?? null,
-      })),
+      students: students.map((s) => {
+        const leave = leaveByStudent.get(s.id);
+        return {
+          ...s,
+          current_status: markByStudent.get(s.id) ?? null,
+          on_leave: leave !== undefined,
+          leave_type: leave?.leave_type ?? null,
+        };
+      }),
     };
   }
 

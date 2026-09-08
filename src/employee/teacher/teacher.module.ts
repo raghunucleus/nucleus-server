@@ -6,6 +6,7 @@ import { ClassSessionAuditLog } from '../../admin/entities/class-session-audit-l
 import { Student } from '../../admin/entities/student.entity';
 import { AttendanceMarkingService } from '../../admin/sessions/attendance-marking.service';
 import { RosterService } from '../../admin/sessions/roster.service';
+import { LeavesReadModule } from '../../leaves/leaves-read.module';
 import { RbacModule } from '../../rbac/rbac.module';
 import { EmployeeAuthModule } from '../auth/employee-auth.module';
 import { TeacherAttendanceController } from './teacher-attendance.controller';
@@ -33,6 +34,9 @@ import { TeacherTimetableController } from './teacher-timetable.controller';
     ]),
     EmployeeAuthModule,
     RbacModule,
+    // Approved leave pre-fills `leave` on the roster and on mark — see
+    // AttendanceMarkingService / TeacherAttendanceService.rosterFor.
+    LeavesReadModule,
   ],
   controllers: [TeacherAttendanceController, TeacherTimetableController],
   providers: [

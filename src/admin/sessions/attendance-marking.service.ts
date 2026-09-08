@@ -8,13 +8,20 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { LeavesReadService } from '../../leaves/leaves-read.service';
 import { ClassSession } from '../entities/class-session.entity';
 import { ClassSessionAttendance } from '../entities/class-session-attendance.entity';
 import { ClassSessionAuditLog } from '../entities/class-session-audit-log.entity';
 import { RosterService, type RosterStudent } from './roster.service';
 import type { ActorContext } from './class-sessions.service';
 
-export type AttendanceStatus = 'present' | 'absent' | 'late' | 'exempt' | 'od';
+export type AttendanceStatus =
+  | 'present'
+  | 'absent'
+  | 'late'
+  | 'exempt'
+  | 'od'
+  | 'leave';
 
 export interface MarkEntry {
   student_id: number;
@@ -48,6 +55,7 @@ export class AttendanceMarkingService {
     private readonly sessions: Repository<ClassSession>,
     private readonly roster: RosterService,
     private readonly dataSource: DataSource,
+    private readonly leaves: LeavesReadService,
   ) {}
 
   // Roster for the marking screen. Re-derived live so transfers since the
@@ -138,19 +146,52 @@ export class AttendanceMarkingService {
         existing.map((r) => [r.student_id, r.status] as const),
       );
 
+      // Approved leave is authoritative over what the client sent: a student
+      // on effective leave for THIS session is `leave` unless the teacher says
+      // they actually attended (present/late pass through — the student showed
+      // up), and nobody NOT on leave can be recorded as `leave` (a stale client
+      // that pre-filled it before the leave was cancelled). Read inside the
+      // transaction so the flip in a concurrent approval can't slip between.
+      //
+      // Keyed on the session, not its date: a partial-day leave covers only
+      // the periods inside its window, so the class at 14:00 is still a normal
+      // absence for a student who took the morning off.
+      const onLeave = await this.leaves.onLeaveStudentIds(
+        roster.map((r) => r.id),
+        session.id,
+        tx,
+      );
+      const normalise = (
+        studentId: number,
+        submitted: AttendanceStatus | undefined,
+      ): AttendanceStatus => {
+        if (onLeave.has(studentId)) {
+          return submitted === undefined ||
+            submitted === 'absent' ||
+            submitted === 'leave'
+            ? 'leave'
+            : submitted;
+        }
+        if (submitted === undefined || submitted === 'leave') return 'absent';
+        return submitted;
+      };
+
       // Persist one class_session_attendance row per student. On first mark we
       // write the FULL roster (any student the teacher didn't submit defaults
-      // to 'absent') so class_session_attendance is the complete, authoritative
-      // record of who was held — the rollup is recomputed from it below. On
-      // amend we touch only the submitted students; their rows are updated in
-      // place.
+      // to 'absent' — or 'leave' when on approved leave) so
+      // class_session_attendance is the complete, authoritative record of who
+      // was held — the rollup is recomputed from it below. On amend we touch
+      // only the submitted students; their rows are updated in place.
       const now = new Date();
       const targets: Array<{ id: number; status: AttendanceStatus }> =
         isAmending
-          ? Array.from(byStudent, ([id, status]) => ({ id, status }))
+          ? Array.from(byStudent, ([id, status]) => ({
+              id,
+              status: normalise(id, status),
+            }))
           : roster.map((r) => ({
               id: r.id,
-              status: byStudent.get(r.id) ?? 'absent',
+              status: normalise(r.id, byStudent.get(r.id)),
             }));
       const upserts: ClassSessionAttendance[] = [];
       for (const { id: studentId, status } of targets) {

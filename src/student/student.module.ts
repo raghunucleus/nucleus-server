@@ -25,6 +25,7 @@ import { RequestsModule } from '../requests/requests.module';
 import { SecurityPassModule } from '../security-pass/security-pass.module';
 import { ChatModule } from './chat/chat.module';
 import { StudentApprovalsModule } from './approvals/student-approvals.module';
+import { StudentLeavesModule } from './leaves/student-leaves.module';
 import { StudentPlacementsModule } from './placements/student-placements.module';
 import { RequirePasswordChangedGuard } from './auth/require-password-changed.guard';
 import { StudentGoogleOidcService } from './auth/student-google-oidc.service';
@@ -87,6 +88,9 @@ import { StudentAuthService } from './student-auth.service';
     ChatModule,
     StudentPlacementsModule,
     StudentApprovalsModule,
+    // Leave applications / cancellations — request types routed to the
+    // student's attendance-group in-charges.
+    StudentLeavesModule,
     HolidaysReadModule,
     SecurityPassModule,
     // The profile-update request type plugs into the approval-requests

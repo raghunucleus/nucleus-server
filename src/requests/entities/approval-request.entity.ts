@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { AttendanceGroup } from '../../admin/entities/attendance-group.entity';
 import { Employee } from '../../admin/entities/employee.entity';
 import { ProgrammeAdmissionYear } from '../../admin/entities/programme-admission-year.entity';
 import { Student } from '../../admin/entities/student.entity';
@@ -21,6 +22,8 @@ import { Student } from '../../admin/entities/student.entity';
 export const APPROVAL_REQUEST_TYPES = [
   'profile_update',
   'company_approval',
+  'leave_apply',
+  'leave_cancel',
 ] as const;
 export type ApprovalRequestType = (typeof APPROVAL_REQUEST_TYPES)[number];
 
@@ -79,6 +82,10 @@ export const OPEN_APPROVAL_REQUEST_STATUSES = ['pending', 'sent_back'] as const;
   'status',
 ])
 @Index('IDX_approval_requests_action_key_status', ['action_key', 'status'])
+@Index('IDX_approval_requests_attendance_group_id_status', [
+  'attendance_group_id',
+  'status',
+])
 @Check(
   'CHK_approval_requests_employee_requester_action_key',
   '"requester_employee_id" IS NULL OR "action_key" IS NOT NULL',
@@ -119,16 +126,30 @@ export class ApprovalRequest {
   @Column({ type: 'text', nullable: true })
   requester_note: string | null;
 
-  // Routing scope for STUDENT requests: approvers are the profile verifiers of
-  // this (programme × admission-year) batch. SET NULL — history outlives a
-  // deleted batch. Null for employee-submitted requests, which route by
-  // `action_key` instead.
+  // Routing scope for STUDENT requests (default mode): approvers are the
+  // profile verifiers of this (programme × admission-year) batch. SET NULL —
+  // history outlives a deleted batch. Null for employee-submitted requests
+  // (which route by `action_key`) and for student requests whose type routes
+  // to attendance-group in-charges instead (`attendance_group_id`).
   @Column({ type: 'int', nullable: true })
   programme_admission_year_id: number | null;
 
   @ManyToOne(() => ProgrammeAdmissionYear, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'programme_admission_year_id' })
   programme_admission_year: ProgrammeAdmissionYear;
+
+  // Routing scope for STUDENT requests whose handler declares
+  // `routing: 'attendance_group_incharges'` (leave requests): approvers are the
+  // in-charges of this attendance group (`attendance_group_incharges`),
+  // snapshotted from `student_groups` when the request is raised — a later
+  // group transfer does not re-route an open request. SET NULL so decided
+  // history outlives a deleted group, mirroring the batch FK above.
+  @Column({ type: 'int', nullable: true })
+  attendance_group_id: number | null;
+
+  @ManyToOne(() => AttendanceGroup, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'attendance_group_id' })
+  attendance_group: AttendanceGroup;
 
   // Routing scope for EMPLOYEE requests: one of APPROVAL_ACTIONS (see
   // `src/approval-approvers/approval-actions.ts`); the approvers are whoever an

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Redis } from 'ioredis';
 import { In, Repository } from 'typeorm';
+import { AttendanceGroupIncharge } from '../admin/entities/attendance-group-incharge.entity';
 import { ProgrammeAdmissionYearProfileVerifier } from '../admin/entities/programme-admission-year-profile-verifier.entity';
 // Pure constants (no Nest DI), so importing it creates no module edge.
 import { APPROVAL_ACTION_BY_KEY } from '../approval-approvers/approval-actions';
@@ -111,6 +112,8 @@ export class PermissionsService {
     private readonly profileVerifiers: Repository<ProgrammeAdmissionYearProfileVerifier>,
     @InjectRepository(ApprovalActionApprover)
     private readonly actionApprovers: Repository<ApprovalActionApprover>,
+    @InjectRepository(AttendanceGroupIncharge)
+    private readonly groupIncharges: Repository<AttendanceGroupIncharge>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly catalog: CatalogService,
   ) {}
@@ -446,15 +449,17 @@ export class PermissionsService {
    * Derived "Requests" screens — attached in the COMPUTE (cache-miss) path,
    * unlike {@link deriveStudentMarksView} which is pure in-memory in hydrate():
    * the Approvals grant needs DB lookups, so the result must land in the cached
-   * blob. Freshness: `setProfileVerifiers` and `setApprovers` invalidate
-   * affected employees' cache; the 5-minute TTL is the backstop.
+   * blob. Freshness: `setProfileVerifiers`, `setApprovers` and the attendance
+   * group create/update paths invalidate affected employees' cache; the
+   * 5-minute TTL is the backstop.
    *
    *   - `requests.mine.view` — every employee, unconditionally (own
    *     submissions, self-scoped by the token's employee id).
    *   - `requests.approvals.review` — employees who verify at least one batch
-   *     (student requests) OR are an assigned approver of at least one approval
-   *     action (employee requests). No attributes: those two membership tables
-   *     scope every query themselves.
+   *     (student requests), OR are in-charge of at least one attendance group
+   *     (student leave requests), OR are an assigned approver of at least one
+   *     approval action (employee requests). No attributes: those three
+   *     membership tables scope every query themselves.
    *
    * A removed approver keeps this screen until the TTL expires, but sees an
    * EMPTY inbox: every approvals query and both act-time checks re-derive scope
@@ -489,12 +494,13 @@ export class PermissionsService {
 
     grant('requests.mine.view', ['view']);
 
-    const [isVerifier, approverRows] = await Promise.all([
+    const [isVerifier, approverRows, isGroupIncharge] = await Promise.all([
       this.profileVerifiers.exists({ where: { employee_id: employeeId } }),
       this.actionApprovers.find({
         where: { employee_id: employeeId },
         select: { action_key: true },
       }),
+      this.groupIncharges.exists({ where: { employee_id: employeeId } }),
     ]);
     // A row for an action that has since left the catalog must never grant the
     // screen — the same stale-key filter ApprovalApproversService applies.
@@ -502,7 +508,7 @@ export class PermissionsService {
       APPROVAL_ACTION_BY_KEY.has(r.action_key),
     );
 
-    if (isVerifier || isActionApprover) {
+    if (isVerifier || isActionApprover || isGroupIncharge) {
       grant('requests.approvals.review', [
         'view',
         'approve',

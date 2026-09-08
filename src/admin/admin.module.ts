@@ -122,6 +122,10 @@ import { StudentQueryModule } from '../student-query/student-query.module';
 import { StudentsController } from './students/students.controller';
 import { StudentsSearchController } from './students/students-search.controller';
 import { StudentsService } from './students/students.service';
+import { LeaveType } from './entities/leave-type.entity';
+import { LeaveTypesController } from './leave-types/leave-types.controller';
+import { LeaveTypesService } from './leave-types/leave-types.service';
+import { LeavesReadModule } from '../leaves/leaves-read.module';
 import { SubjectType } from './entities/subject-type.entity';
 import { SubjectTypeMarkStructure } from './entities/subject-type-mark-structure.entity';
 import { SubjectTypeMarkStructuresController } from './subject-type-mark-structures/subject-type-mark-structures.controller';
@@ -158,6 +162,7 @@ import { AdminUsersService } from './users/admin-users.service';
       EntranceExam,
       IndustryCertification,
       InstitutionSetting,
+      LeaveType,
       Programme,
       ProgrammeAdmissionYear,
       ProgrammeAdmissionYearProfileVerifier,
@@ -193,8 +198,11 @@ import { AdminUsersService } from './users/admin-users.service';
     GuardianModule,
     EmployeeAuthModule,
     // PermissionsService — programme-admission-years invalidates verifier
-    // employees' cached access when their profile-verifier set changes.
+    // employees' cached access when their profile-verifier set changes, and
+    // attendance-groups does the same for in-charges (leave approvals).
     RbacModule,
+    // Approved student leave pre-fills `leave` in AttendanceMarkingService.
+    LeavesReadModule,
     // Shared student search engine (POST /admin/students/search).
     StudentQueryModule,
     // AccountInviteService — the admin invite endpoints, plus the account-status
@@ -240,6 +248,7 @@ import { AdminUsersService } from './users/admin-users.service';
     SubjectsController,
     SubjectTypesController,
     SubjectTypeMarkStructuresController,
+    LeaveTypesController,
     TimetablesController,
   ],
   providers: [
@@ -278,6 +287,7 @@ import { AdminUsersService } from './users/admin-users.service';
     SubjectsService,
     SubjectTypesService,
     SubjectTypeMarkStructuresService,
+    LeaveTypesService,
     TimetablesService,
     JwtStrategy,
     MigrationsService,

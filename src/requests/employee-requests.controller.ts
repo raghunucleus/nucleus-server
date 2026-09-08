@@ -59,7 +59,7 @@ export class EmployeeRequestsController {
   @RequireScreen(APPROVALS_KEY, 'view')
   @ApiOperation({
     summary:
-      "Approval inbox — requests from students of batches the caller verifies. Defaults to status 'pending'.",
+      "Approval inbox — every request routed to the caller: students of batches they verify, leave from attendance groups they are in-charge of, and employee requests on actions they approve. Defaults to status 'pending'.",
   })
   listApprovals(
     @GetEmployee() emp: AuthenticatedEmployee,
@@ -85,7 +85,7 @@ export class EmployeeRequestsController {
   @RequireScreen(APPROVALS_KEY, 'view')
   @ApiOperation({
     summary:
-      'Full view of one request from a batch the caller verifies — state, approvers and history.',
+      'Full view of one request routed to the caller — state, approvers and history.',
   })
   getApproval(
     @GetEmployee() emp: AuthenticatedEmployee,
@@ -177,14 +177,20 @@ export class EmployeeRequestsController {
   // Gated on My Requests, not Approvals: every employee has the former, only
   // verifiers the latter, and BOTH screens render the tree. The catalog is
   // just the list of request types that exist — nothing per-employee in it.
+  //
+  // Unfiltered by requester, because the two trees want opposite answers: the
+  // Approvals inbox receives STUDENT-raised types (leave, profile), so
+  // catalog('employee') left them with no branch to filter by and a raw
+  // `leave_apply` for a label. My Requests prunes the tree client-side to the
+  // types the caller has actually raised, so the extra types never reach it.
   @Get('catalog')
   @RequireScreen(MINE_KEY, 'view')
   @ApiOperation({
     summary:
-      'The request types an employee can raise, grouped into modules — drives the Modules tree.',
+      'Every request type, grouped into modules — drives the Modules tree on both Approvals and My Requests.',
   })
   catalog(): RequestCatalogModule[] {
-    return this.requests.catalog('employee');
+    return this.requests.catalog();
   }
 
   @Get('mine')

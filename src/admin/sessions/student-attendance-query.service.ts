@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import {
+  EFFECTIVE_LEAVE_STATUS_SQL,
+  leaveCoversSessionSql,
+} from '../../leaves/leaves-read.service';
 import { ClassSession } from '../entities/class-session.entity';
 import { ProgrammeSemester } from '../entities/programme-semester.entity';
 import { Student } from '../entities/student.entity';
@@ -40,7 +44,20 @@ export interface WeekCell {
   teacher_employee_id: number | null;
   teacher_display_name: string | null;
   status: 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
-  attendance_status: 'present' | 'absent' | 'late' | 'exempt' | 'od' | null;
+  attendance_status:
+    | 'present'
+    | 'absent'
+    | 'late'
+    | 'exempt'
+    | 'od'
+    | 'leave'
+    | null;
+  // True when an in-effect approved leave covers this session — its date, and
+  // for a partial-day leave its period run too. False on cancelled sessions:
+  // the class did not happen, so "Cancelled" is the truth, not "Leave". The
+  // client renders an unmarked covered session as "Leave" instead of
+  // "Upcoming".
+  on_leave: boolean;
   room: string | null;
 }
 
@@ -185,7 +202,7 @@ export class StudentAttendanceQueryService {
         cs.timetable_period_id,
         tp.label AS period_label,
         tp.start_time::text AS start_time,
-        tp.end_time::text AS end_time,
+        COALESCE(tp_end.end_time, tp.end_time)::text AS end_time,
         cs.span,
         cs.id AS session_id,
         cs.subject_id,
@@ -196,9 +213,21 @@ export class StudentAttendanceQueryService {
         emp.emp_display_name AS teacher_display_name,
         cs.status,
         csa.status AS attendance_status,
+        EXISTS (
+          SELECT 1 FROM "student_leaves" sl
+          WHERE sl.student_id = $1
+            AND sl.status IN (${EFFECTIVE_LEAVE_STATUS_SQL})
+            AND ${leaveCoversSessionSql()}
+        ) AS on_leave,
         cs.room
       FROM "class_sessions" cs
       JOIN "timetable_periods" tp ON tp.id = cs.timetable_period_id
+      -- End of a spanned run (lab): the period at position + span - 1, so a
+      -- multi-period class is judged on its true end time. See
+      -- StudentPortalService.week().
+      LEFT JOIN "timetable_periods" tp_end
+        ON tp_end.timetable_id = tp.timetable_id
+       AND tp_end.position = tp.position + cs.span - 1
       JOIN "subjects" sub ON sub.id = cs.subject_id
       LEFT JOIN "employees" emp ON emp.id = cs.effective_employee_id
       LEFT JOIN "class_session_attendance" csa

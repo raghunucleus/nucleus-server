@@ -517,10 +517,12 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
   // The generic approval-requests framework. BOTH screens are DERIVED, never
   // assigned via roles (see PermissionsService.deriveRequestScreens):
   //   - Approvals is synthesised for employees who are profile verifiers of at
-  //     least one batch (programme_admission_year_profile_verifiers) OR are an
-  //     assigned approver of an approval action (approval_action_approvers) —
-  //     that membership IS the grant, and every query joins those tables for
-  //     row scope, so there is no per-attribute scope here.
+  //     least one batch (programme_admission_year_profile_verifiers) OR are
+  //     in-charge of at least one attendance group (attendance_group_incharges,
+  //     which is how student leave requests route) OR are an assigned approver
+  //     of an approval action (approval_action_approvers) — that membership IS
+  //     the grant, and every query joins those tables for row scope, so there
+  //     is no per-attribute scope here.
   //   - My Requests is synthesised for every employee (their own submissions;
   //     self-scoped by the token's employee id).
   {
@@ -530,7 +532,7 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     platforms: ['web', 'mobile'],
     label: 'Approvals',
     description:
-      'Review requests awaiting your decision — e.g. profile updates from students of batches you verify, or companies awaiting sign-off. Derived from profile-verifier or approval-action approver membership; do not assign via roles.',
+      'Review requests awaiting your decision — e.g. profile updates from students of batches you verify, leave from attendance groups you are in-charge of, or companies awaiting sign-off. Derived from profile-verifier, attendance-group in-charge or approval-action approver membership; do not assign via roles.',
     web_route: '/requests/approvals',
     mobile_route: '/approvals',
     actions: ['view', 'approve', 'reject', 'send_back'],

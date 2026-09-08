@@ -47,6 +47,11 @@ export type DecisionInput = (
 /** Overall status a decision resolves to — same vocabulary as item verdicts. */
 export type DecidedStatus = ItemVerdict;
 
+/** The approver acting on a request — always an employee. */
+export interface RequestDecider {
+  employee_id: number;
+}
+
 export interface DecisionResult {
   status: DecidedStatus;
   /** The request payload annotated with per-item outcomes — persisted verbatim. */
@@ -95,6 +100,21 @@ export interface RequestCatalogModule extends RequestTypeModuleDef {
 }
 
 /**
+ * Who decides a STUDENT-raised request of this type.
+ *  - `batch_verifiers` (default): the profile verifiers of the student's
+ *    (programme × admission-year) batch — the original routing mode.
+ *  - `attendance_group_incharges`: the in-charges of the student's current
+ *    attendance group (`student_groups` → `attendance_group_incharges`),
+ *    snapshotted onto the request when it is raised. Leave requests use this —
+ *    a leave is the class in-charge's call, not the batch verifiers'.
+ * Employee-raised requests always route by action key; this field is ignored
+ * for them.
+ */
+export type StudentRequestRouting =
+  | 'batch_verifiers'
+  | 'attendance_group_incharges';
+
+/**
  * The plug-in seam between the generic approval-requests framework and each
  * request type's owning module. The framework knows lifecycle only; everything
  * type-specific — payload shape, what "approve" actually does, per-item
@@ -109,6 +129,12 @@ export interface ApprovalRequestTypeHandler {
 
   /** How this type presents itself in the clients' Modules tree. */
   readonly catalog: RequestTypeCatalogDef;
+
+  /**
+   * Who decides student-raised requests of this type. Omit for the default
+   * (batch profile verifiers). See {@link StudentRequestRouting}.
+   */
+  readonly routing?: StudentRequestRouting;
 
   /**
    * Duplicate check, called inside the create transaction (under the
@@ -161,17 +187,46 @@ export interface ApprovalRequestTypeHandler {
   ): Promise<void>;
 
   /**
+   * Lifecycle hooks — for types whose owning module keeps a domain row in
+   * lock-step with the request (e.g. a `student_leaves` row that must exist
+   * while the leave request is pending, and must flip to `withdrawn` when the
+   * student cancels it). All run INSIDE the framework's transaction, right
+   * after the framework's own write and before the history event is logged, so
+   * the domain row and the request commit or roll back together. Throwing
+   * aborts the whole operation.
+   *
+   * `onRaised` may return a replacement payload — a type whose domain row is
+   * created here can stamp the new row's id into the payload the request (and
+   * its `raised` event) is stored with. Return nothing to keep the payload.
+   */
+  onRaised?(
+    tx: EntityManager,
+    request: ApprovalRequest,
+  ): Promise<Record<string, unknown> | void>;
+
+  /** After a sent-back request came back with `request.payload` (already new). */
+  onResubmitted?(tx: EntityManager, request: ApprovalRequest): Promise<void>;
+
+  /** After the requester cancelled a still-open request (status already set). */
+  onCancelled?(tx: EntityManager, request: ApprovalRequest): Promise<void>;
+
+  /**
    * Decide the request inside the decide transaction (runs before the status
    * flips). Applies whatever was approved, and returns the overall status plus
    * the payload annotated with per-item outcomes. For `{ verdicts }` input the
    * handler must validate that every item is covered and no unknown keys are
    * present (400 otherwise). Throw (e.g. 409 on a uniqueness clash) to abort
    * the whole decision — the request stays `pending`.
+   *
+   * `decider` is the acting approver — the framework stamps it on the request
+   * AFTER this returns, so a handler that records who approved on its own
+   * domain row (or writes an audit row) must take it from here.
    */
   applyDecision(
     tx: EntityManager,
     request: ApprovalRequest,
     input: DecisionInput,
+    decider: RequestDecider,
   ): Promise<DecisionResult>;
 
   /** Title/body for the requester's decision notification. */
@@ -201,24 +256,31 @@ export class RequestTypeRegistry {
   }
 
   /**
-   * The Modules tree for one portal: every type `requester` may raise, grouped
-   * under its declared module, modules and their types each sorted by `order`
-   * (ties broken by label, so the tree can't shuffle between boots).
+   * The Modules tree: types grouped under their declared module, modules and
+   * their types each sorted by `order` (ties broken by label, so the tree can't
+   * shuffle between boots).
    *
+   * `requester` is the RAISER's view — one portal's "what can I file?" tree.
    * The filter runs before the grouping, so a module whose every type belongs
    * to the other portal is never created — no empty branch survives to the
    * client. Without it a student sees "Corporate Relations → Company Approval",
    * a filter that can only ever come back empty.
    *
+   * OMIT it for an APPROVER's tree. An approvals inbox exists to receive
+   * student-raised types, so filtering it by `requester: 'employee'` hides
+   * exactly what it is there to show — that is what left leave requests with no
+   * branch to filter by and a raw `leave_apply` for a label.
+   *
    * Throws on conflicting definitions of one module key — with handlers
    * self-declaring their module, two types in the same group repeat that
    * definition, and a silent last-writer-wins would make the tree depend on
-   * module registration order.
+   * module registration order. Unfiltered, that check now spans BOTH portals:
+   * a student type and an employee type sharing a module key must agree on it.
    */
-  catalog(requester: RequestRequesterRef['kind']): RequestCatalogModule[] {
+  catalog(requester?: RequestRequesterRef['kind']): RequestCatalogModule[] {
     const modules = new Map<string, RequestCatalogModule>();
     for (const handler of this.handlers.values()) {
-      if (handler.catalog.requester !== requester) continue;
+      if (requester && handler.catalog.requester !== requester) continue;
       const { module, label, order } = handler.catalog;
       const existing = modules.get(module.key);
       if (!existing) {
