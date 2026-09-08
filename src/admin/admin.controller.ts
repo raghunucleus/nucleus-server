@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Ip,
   Patch,
   Post,
   UseGuards,
@@ -39,8 +40,8 @@ export class AdminController {
       'a 2FA challenge if TOTP is already enabled, or tokens with ' +
       'requiresTotpSetup=true if the admin has not yet enrolled.',
   })
-  login(@Body() dto: LoginDto): Promise<LoginResult> {
-    return this.adminService.login(dto.identifier, dto.password);
+  login(@Body() dto: LoginDto, @Ip() ip: string): Promise<LoginResult> {
+    return this.adminService.login(dto.identifier, dto.password, ip);
   }
 
   @Post('login/google')
@@ -51,8 +52,11 @@ export class AdminController {
       'admin record; new admins are not auto-provisioned. Returns the same ' +
       'shape as POST /admin/login (tokens, 2FA challenge, or totp-pending tokens).',
   })
-  loginWithGoogle(@Body() dto: GoogleLoginDto): Promise<LoginResult> {
-    return this.adminService.loginWithGoogle(dto.idToken);
+  loginWithGoogle(
+    @Body() dto: GoogleLoginDto,
+    @Ip() ip: string,
+  ): Promise<LoginResult> {
+    return this.adminService.loginWithGoogle(dto.idToken, ip);
   }
 
   @Post('login/verify-2fa')
@@ -61,8 +65,11 @@ export class AdminController {
     summary:
       'Exchange a 2FA challenge token + TOTP code (or recovery code) for access/refresh tokens.',
   })
-  verifyTwoFactor(@Body() dto: VerifyTwoFactorDto): Promise<AdminAuthTokens> {
-    return this.adminService.verifyTwoFactor(dto.challengeToken, dto.code);
+  verifyTwoFactor(
+    @Body() dto: VerifyTwoFactorDto,
+    @Ip() ip: string,
+  ): Promise<AdminAuthTokens> {
+    return this.adminService.verifyTwoFactor(dto.challengeToken, dto.code, ip);
   }
 
   @Post('refresh')

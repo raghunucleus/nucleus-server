@@ -36,10 +36,14 @@ lerna-debug.log*
 !.vscode/extensions.json
 
 # dotenv environment variable files
+# `.env.production` holds every production secret (9 JWT/signing keys, the
+# database and Redis passwords, the SendGrid key) and is read at container start
+# by docker-compose. It must never be committed — only the
+# `production.env.example` template belongs in git.
 .env
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+!.env.*.example
 .env.local
 
 # temp directory

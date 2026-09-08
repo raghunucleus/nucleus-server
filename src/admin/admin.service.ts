@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   UnauthorizedException,
@@ -47,8 +49,30 @@ const TOTP_ISSUER = 'Nucleus Admin';
 const CHALLENGE_TTL_SECONDS = 5 * 60;
 const CHALLENGE_MAX_ATTEMPTS = 5;
 
+// Per-account brute-force protection, mirroring the student/employee/guardian
+// realms. Keyed on the account (not the IP) so a campus behind one NAT keeps
+// signing in normally while a single targeted account still locks. State lives
+// in Redis rather than on the `admins` row so no migration is needed and the
+// lock self-expires.
+const MAX_FAILED_LOGINS = 5;
+// TOTP failures are counted per ACCOUNT across challenges, not only per
+// challenge: otherwise an attacker holding the password could re-login for a
+// fresh 5-attempt challenge indefinitely and walk the 6-digit space.
+const MAX_FAILED_2FA = 10;
+const LOCKOUT_SECONDS = 15 * 60;
+const FAILURE_WINDOW_SECONDS = 15 * 60;
+
+// Per-IP request caps — a DoS backstop only; the lockout above is the real
+// defence. Loose because admins may share the campus's single public IP.
+const RATE_LIMITS = {
+  login: { max: 200, windowSeconds: 15 * 60 },
+  verify: { max: 60, windowSeconds: 60 * 60 },
+} as const;
+
 @Injectable()
 export class AdminService {
+  private dummyHashPromise: Promise<string> | null = null;
+
   constructor(
     @InjectRepository(Admin) private readonly admins: Repository<Admin>,
     @InjectRepository(AdminRecoveryCode)
@@ -64,20 +88,38 @@ export class AdminService {
     return bcrypt.hash(plain, BCRYPT_ROUNDS);
   }
 
-  async login(identifier: string, password: string): Promise<LoginResult> {
+  async login(
+    identifier: string,
+    password: string,
+    ip?: string,
+  ): Promise<LoginResult> {
+    await this.enforceRateLimit('login', ip, RATE_LIMITS.login);
+
     const admin = await this.admins
       .createQueryBuilder('a')
       .where('a.email = :id OR a.username = :id', { id: identifier })
       .getOne();
 
-    if (!admin) throw new UnauthorizedException('Invalid credentials');
+    if (!admin) {
+      // Burn a bcrypt compare so an unknown identifier times like a wrong
+      // password and the endpoint is not an account-enumeration oracle.
+      await this.verifyAgainstDummy(password);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    await this.assertNotLocked(admin.id);
 
     const ok = await bcrypt.compare(password, admin.password_hash);
-    if (!ok) throw new UnauthorizedException('Invalid credentials');
+    if (!ok) {
+      await this.registerFailure('login', admin.id, MAX_FAILED_LOGINS);
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     if (!admin.is_active) {
       throw new UnauthorizedException('Account is deactivated');
     }
+
+    await this.clearFailures('login', admin.id);
 
     if (this.isDevMode()) {
       const tokens = await this.issueTokens(admin, { totpPending: false });
@@ -101,7 +143,9 @@ export class AdminService {
   // first sign-in we link the Google "sub" to the admin row; thereafter we
   // require the linked sub to match, so a future email reassignment on the
   // Google side cannot impersonate an existing admin.
-  async loginWithGoogle(idToken: string): Promise<LoginResult> {
+  async loginWithGoogle(idToken: string, ip?: string): Promise<LoginResult> {
+    await this.enforceRateLimit('login', ip, RATE_LIMITS.login);
+
     const identity = await this.googleOidc.verifyIdToken(idToken);
 
     if (!identity.emailVerified) {
@@ -123,6 +167,10 @@ export class AdminService {
     if (!admin.is_active) {
       throw new UnauthorizedException('Account is deactivated');
     }
+
+    // A lock earned through repeated bad TOTP codes must also block the
+    // Google path, or it would hand out a fresh challenge to keep guessing.
+    await this.assertNotLocked(admin.id);
 
     if (!admin.google_id) {
       admin.google_id = identity.sub;
@@ -148,7 +196,10 @@ export class AdminService {
   async verifyTwoFactor(
     challengeToken: string,
     code: string,
+    ip?: string,
   ): Promise<AdminAuthTokens> {
+    await this.enforceRateLimit('verify', ip, RATE_LIMITS.verify);
+
     const adminId = await this.peekLoginChallenge(challengeToken);
     if (!adminId)
       throw new UnauthorizedException('Challenge expired or invalid');
@@ -165,10 +216,20 @@ export class AdminService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
+    if (await this.isLocked(admin.id)) {
+      await this.clearLoginChallenge(challengeToken);
+      await this.assertNotLocked(admin.id);
+    }
+
     const accepted = await this.consumeTwoFactorCode(admin, code);
     if (!accepted) {
+      const locked = await this.registerFailure(
+        '2fa',
+        admin.id,
+        MAX_FAILED_2FA,
+      );
       const attempts = await this.recordChallengeAttempt(challengeToken);
-      if (attempts >= CHALLENGE_MAX_ATTEMPTS) {
+      if (locked || attempts >= CHALLENGE_MAX_ATTEMPTS) {
         await this.clearLoginChallenge(challengeToken);
         throw new UnauthorizedException(
           'Too many invalid codes. Please sign in again.',
@@ -178,6 +239,7 @@ export class AdminService {
     }
 
     await this.clearLoginChallenge(challengeToken);
+    await this.clearFailures('2fa', admin.id);
     return this.issueTokens(admin, { totpPending: false });
   }
 
@@ -513,6 +575,88 @@ export class AdminService {
 
   private challengeAttemptsKey(token: string): string {
     return `admin:2fa-challenge-attempts:${token}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Brute-force protection (Redis-backed, self-expiring)
+  // ---------------------------------------------------------------------------
+
+  private lockKey(adminId: string): string {
+    return `admin:lockout:${adminId}`;
+  }
+
+  private failureKey(bucket: 'login' | '2fa', adminId: string): string {
+    return `admin:fail:${bucket}:${adminId}`;
+  }
+
+  private async isLocked(adminId: string): Promise<boolean> {
+    return (await this.redis.exists(this.lockKey(adminId))) === 1;
+  }
+
+  private async assertNotLocked(adminId: string): Promise<void> {
+    if (await this.isLocked(adminId)) {
+      throw new UnauthorizedException(
+        'Account temporarily locked after repeated failed sign-in attempts. Try again later.',
+      );
+    }
+  }
+
+  /**
+   * Count one failure in `bucket` for this account. Once the count within the
+   * window reaches `max`, the account is locked for {@link LOCKOUT_SECONDS}
+   * and the counter reset. Returns true when this failure triggered the lock.
+   */
+  private async registerFailure(
+    bucket: 'login' | '2fa',
+    adminId: string,
+    max: number,
+  ): Promise<boolean> {
+    const key = this.failureKey(bucket, adminId);
+    const count = await this.redis.incr(key);
+    if (count === 1) {
+      await this.redis.expire(key, FAILURE_WINDOW_SECONDS);
+    }
+    if (count < max) return false;
+    await this.redis.set(this.lockKey(adminId), '1', 'EX', LOCKOUT_SECONDS);
+    await this.redis.del(key);
+    return true;
+  }
+
+  private async clearFailures(
+    bucket: 'login' | '2fa',
+    adminId: string,
+  ): Promise<void> {
+    await this.redis.del(this.failureKey(bucket, adminId));
+  }
+
+  private async enforceRateLimit(
+    bucket: string,
+    subject: string | undefined,
+    limit: { max: number; windowSeconds: number },
+  ): Promise<void> {
+    if (!subject) return; // No subject to key on — skip rather than hard-fail.
+    const key = `admin:rl:${bucket}:${subject}`;
+    const count = await this.redis.incr(key);
+    if (count === 1) {
+      await this.redis.expire(key, limit.windowSeconds);
+    }
+    if (count > limit.max) {
+      throw new HttpException(
+        'Too many requests. Please wait a while and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  /** Burns a fixed bcrypt cost so unknown identifiers time like real ones. */
+  private async verifyAgainstDummy(password: string): Promise<void> {
+    if (!this.dummyHashPromise) {
+      this.dummyHashPromise = bcrypt.hash(
+        randomBytes(24).toString('hex'),
+        BCRYPT_ROUNDS,
+      );
+    }
+    await bcrypt.compare(password, await this.dummyHashPromise);
   }
 
   private isDevMode(): boolean {
