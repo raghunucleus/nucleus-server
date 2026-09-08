@@ -1,0 +1,28 @@
+# Build context excludes. sample.env / production.env.example are templates and
+# intentionally NOT excluded; real env files (.env, .env.production) must never
+# enter the image — configuration is injected at runtime by docker compose.
+node_modules
+dist
+
+# TypeScript's incremental cache. tsconfig now keeps it inside dist/ (already
+# excluded above), but an older checkout leaves one at the repo root — and a
+# stale cache convinces tsc that output it can no longer see is up to date, so
+# `npm run build` exits 0 having emitted nothing and the image ships with no
+# dist/ at all. Excluded explicitly so that cannot travel in the build context.
+*.tsbuildinfo
+
+.git
+.gitignore
+.env
+.env.*
+docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+test
+coverage
+.claude
+CLAUDE.md
+.vscode
+.idea
+*.log

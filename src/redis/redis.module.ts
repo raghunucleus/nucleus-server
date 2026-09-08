@@ -1,6 +1,7 @@
 import { Global, Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
+import { redisTlsOptions } from '../config/datastore-ssl';
 
 export const REDIS_CLIENT = 'REDIS_CLIENT';
 
@@ -17,6 +18,11 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
           host: config.get<string>('REDIS_HOST', 'localhost'),
           port: config.get<number>('REDIS_PORT', 6379),
           password: config.get<string>('REDIS_PASSWORD'),
+          // Undefined for a plaintext connection (dev); set when REDIS_TLS=true,
+          // which ElastiCache requires with encryption-in-transit enabled.
+          // RedisIoAdapter builds its pub/sub pair with `.duplicate()`, so the
+          // Socket.IO fan-out inherits this automatically.
+          tls: redisTlsOptions(),
           lazyConnect: false,
           maxRetriesPerRequest: 3,
         });

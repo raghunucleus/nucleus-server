@@ -40,6 +40,20 @@ export class StorageService {
   ) {
     const endpoint = this.config.get<string>('S3_ENDPOINT');
     this.bucket = this.config.get<string>('S3_BUCKET', DEFAULT_STORAGE_BUCKET);
+
+    // Two credential modes. Both keys set → static credentials (MinIO in dev, or
+    // an IAM user). Both empty → omit `credentials` entirely so the SDK's default
+    // provider chain picks up the EC2 instance profile / task role from instance
+    // metadata, which is preferred on AWS: no long-lived key on the box to leak
+    // or rotate. `validateEnv` rejects a half-set pair at boot, so by the time we
+    // get here the two are either both present or both absent.
+    const accessKeyId = this.config.get<string>('S3_ACCESS_KEY')?.trim();
+    const secretAccessKey = this.config.get<string>('S3_SECRET_KEY')?.trim();
+    const staticCredentials =
+      accessKeyId && secretAccessKey
+        ? { credentials: { accessKeyId, secretAccessKey } }
+        : undefined;
+
     this.client = new S3Client({
       region: this.config.get<string>('S3_REGION', 'us-east-1'),
       // Present for MinIO; absent for real AWS (SDK derives the endpoint).
@@ -47,11 +61,14 @@ export class StorageService {
       // MinIO needs path-style addressing; harmless on AWS.
       forcePathStyle:
         this.config.get<string>('S3_FORCE_PATH_STYLE', 'true') === 'true',
-      credentials: {
-        accessKeyId: this.config.getOrThrow<string>('S3_ACCESS_KEY'),
-        secretAccessKey: this.config.getOrThrow<string>('S3_SECRET_KEY'),
-      },
+      ...staticCredentials,
     });
+
+    this.logger.log(
+      staticCredentials
+        ? 'S3 auth: static credentials from S3_ACCESS_KEY/S3_SECRET_KEY'
+        : 'S3 auth: SDK default provider chain (instance IAM role)',
+    );
   }
 
   /** Upload (or overwrite) an object. */

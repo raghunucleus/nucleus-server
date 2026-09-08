@@ -13,7 +13,19 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
+    // Pinned, not inferred. Without it tsc derives the root from the input set,
+    // so a single stray root-level .ts file silently moves the entry point from
+    // dist/main.js to dist/src/main.js — and the Dockerfile CMD and the compose
+    // `migrate` command both name those paths literally.
+    "rootDir": "./src",
     "incremental": true,
+    // Keep the incremental cache INSIDE outDir. nest-cli.json sets
+    // `deleteOutDir: true`, so with the default location (the project root) the
+    // cache outlives the output it describes: delete dist/ and the next build
+    // exits 0 having emitted nothing, because tsc still believes it is current.
+    // That failure is silent and survives into Docker, where the image builds
+    // "successfully" with no dist/ in it at all.
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "skipLibCheck": true,
     "strictNullChecks": true,
     "strictPropertyInitialization": false,

@@ -1,0 +1,74 @@
+# Production deployment stack for nucleus-server.
+#
+#   cp production.env.example .env.production   # fill it in (see DEPLOYMENT.md)
+#   docker compose build
+#   docker compose up -d
+#
+# This stack runs ONLY our own image — the one-shot `migrate` and the `app`.
+# PostgreSQL, Redis and object storage are all EXTERNAL (RDS, ElastiCache, S3):
+# their endpoints, credentials and TLS flags come from `.env.production`, and the
+# database and bucket must exist before first boot — nothing here creates them.
+# The three web front-ends are deployed separately as static bundles on
+# S3/CloudFront. See DEPLOYMENT.md.
+#
+# This file deliberately uses NO ${...} interpolation: docker compose would
+# resolve that against the repo's dev `.env`, silently pointing production at dev
+# hosts and credentials. Everything comes from `.env.production` via env_file.
+# The dev stacks under docker/ are separate compose projects and are unaffected.
+
+services:
+  # One-shot: applies pending TypeORM migrations, then exits. The app only starts
+  # after this completes successfully (the server itself never runs migrations —
+  # migrationsRun is false in app.module.ts).
+  migrate:
+    build: .
+    restart: "no"
+    # Both services need an init (tini) as PID 1. Node runs our process as PID 1
+    # otherwise, and Linux drops default-disposition signals sent to PID 1 — Nest
+    # finishes its shutdown hooks, re-raises SIGTERM at itself, the kernel
+    # ignores it, and the never-quit ioredis sockets keep the event loop alive
+    # until docker's grace period SIGKILLs the container.
+    init: true
+    env_file: .env.production
+    command:
+      [
+        "node",
+        "node_modules/typeorm/cli.js",
+        "migration:run",
+        "-d",
+        "dist/data-source.js",
+      ]
+    # Uncomment together with POSTGRES_SSL_CA_FILE in .env.production to verify
+    # the database server certificate (the RDS global bundle).
+    # volumes:
+    #   - ./certs/rds-global-bundle.pem:/etc/ssl/rds/global-bundle.pem:ro
+
+  app:
+    build: .
+    restart: unless-stopped
+    init: true # see `migrate` — without it SIGTERM shutdown hangs and is SIGKILLed
+    env_file: .env.production
+    environment:
+      # Unlike some sibling repos, NO @Cron in this codebase names its timezone —
+      # they all inherit the container's. The nightly chat purge (3 AM), the
+      # hourly export sweep and the hourly drive auto-reject therefore fire on
+      # THIS value. It is not cosmetic; leaving it unset moves them to UTC.
+      TZ: Asia/Kolkata
+    ports:
+      # Bound to loopback: nginx terminates TLS on this host and proxies to it,
+      # so the plaintext port must not be reachable from outside.
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # The app registers shutdown hooks; give in-flight requests time to drain.
+    stop_grace_period: 30s
+    # Same CA bundle as `migrate` above — uncomment both together.
+    # volumes:
+    #   - ./certs/rds-global-bundle.pem:/etc/ssl/rds/global-bundle.pem:ro
+#
+# Scaling note: run exactly ONE `app` replica. ExportCleanupService.sweep()
+# flips any export still `pending`/`processing` after 30 minutes to `failed`,
+# and there is no worker-ownership column — so a second replica would kill the
+# first one's in-flight exports. Export jobs are detached in-process promises
+# with no durable queue; horizontal scaling needs a real queue first.

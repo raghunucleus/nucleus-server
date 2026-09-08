@@ -9,6 +9,9 @@ import { AppController } from './app.controller';
 import { ApprovalApproversModule } from './approval-approvers/approval-approvers.module';
 import { AppService } from './app.service';
 import { FakeDelayMiddleware } from './common/middleware/fake-delay.middleware';
+import { isDev, isProduction } from './common/runtime-env';
+import { postgresSslOptions } from './config/datastore-ssl';
+import { validateEnv } from './config/env.validation';
 import { EmployeeModule } from './employee/employee.module';
 import { GuardianModule } from './guardian/guardian.module';
 import { HealthModule } from './health/health.module';
@@ -23,12 +26,15 @@ import { StudentNotificationModule } from './student/notification/student-notifi
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // `validate` refuses to boot on a misconfigured production environment
+    // (missing/duplicate JWT secrets, unset CORS_ORIGINS, dev credentials left
+    // in place, an unrecognised NODE_ENV). See config/env.validation.ts.
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ScheduleModule.forRoot(),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const isProd = config.get<string>('NODE_ENV') === 'production';
+        const isProd = isProduction();
         return {
           pinoHttp: {
             level:
@@ -81,6 +87,10 @@ import { StudentNotificationModule } from './student/notification/student-notifi
         username: config.get<string>('POSTGRES_USER'),
         password: config.get<string>('POSTGRES_PASSWORD'),
         database: config.get<string>('POSTGRES_DB'),
+        // Undefined for a plaintext connection (dev); TLS when POSTGRES_SSL=true,
+        // which RDS Postgres 16+ requires — its default parameter group ships
+        // rds.force_ssl=1 and refuses plaintext outright.
+        ssl: postgresSslOptions(),
         autoLoadEntities: true,
         synchronize: false,
         migrations: [join(__dirname, 'migrations', '*.{js,ts}')],
@@ -109,7 +119,7 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Inject artificial latency on every route, but only in dev so the
     // front-ends can exercise their loading states. No-op everywhere else.
-    if (process.env.NODE_ENV === 'dev') {
+    if (isDev()) {
       consumer.apply(FakeDelayMiddleware).forRoutes('*');
     }
   }

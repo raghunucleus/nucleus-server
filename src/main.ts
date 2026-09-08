@@ -1,10 +1,13 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger as NestLogger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import compression from 'compression';
+import helmet from 'helmet';
 import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
 import { createZodValidationPipe, cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
+import { isDev, isProduction, nodeEnv } from './common/runtime-env';
 import { RedisIoAdapter } from './redis/redis-io.adapter';
 
 // nestjs-zod's default validation exception reports a generic
@@ -48,11 +51,32 @@ async function bootstrap() {
   app.enableShutdownHooks();
   app.useGlobalPipes(new AppZodValidationPipe());
 
+  // Behind a reverse proxy, read the real client IP from X-Forwarded-For so
+  // logs name the caller rather than the proxy. Opt-in: trusting XFF when NOT
+  // behind a proxy lets any client spoof its own address.
+  const trustProxy = (process.env.TRUST_PROXY ?? '').trim();
+  if (trustProxy) {
+    const hops = Number(trustProxy);
+    app.set('trust proxy', Number.isInteger(hops) ? hops : trustProxy);
+  }
+
+  // CSP is off here deliberately: this API serves no HTML, and the portals ship
+  // their own policy from their static host (see each UI's SECURITY-HEADERS.md).
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      hsts: { maxAge: 31536000, includeSubDomains: true, preload: false },
+      // Presigned S3 URLs are fetched cross-origin by the portals.
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      referrerPolicy: { policy: 'no-referrer' },
+    }),
+  );
+  app.use(compression());
+
   // The student/parent and employee front-ends run on a separate origin (Vite
   // dev server, or a static host in prod). In dev, reflect any origin so the
   // exact host (localhost / 127.0.0.1 / *.localhost / a LAN IP) doesn't matter;
   // outside dev, restrict to an explicit allowlist (override via CORS_ORIGINS).
-  const isDev = process.env.NODE_ENV === 'dev';
   const corsOrigins = (
     process.env.CORS_ORIGINS ??
     'http://localhost:5000,http://app.localhost:5000,http://parent.localhost:5000,http://employee.localhost:5000'
@@ -61,7 +85,7 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
   app.enableCors({
-    origin: isDev ? true : corsOrigins,
+    origin: isDev() ? true : corsOrigins,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
@@ -79,33 +103,62 @@ async function bootstrap() {
   await redisIoAdapter.connectToRedis();
   app.useWebSocketAdapter(redisIoAdapter);
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Nucleus Server')
-    .setDescription('Nucleus backend API')
-    .setVersion('1.0')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'admin-access-token',
-    )
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'student-access-token',
-    )
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'guardian-access-token',
-    )
-    .build();
-  const document = cleanupOpenApiDoc(
-    SwaggerModule.createDocument(app, swaggerConfig),
-  );
-  SwaggerModule.setup('docs', app, document, {
-    swaggerOptions: { persistAuthorization: true },
-  });
+  // /docs publishes the complete API surface — every route, every DTO shape —
+  // which is a free reconnaissance map for an attacker. Off in production unless
+  // someone deliberately asks for it.
+  const docsEnabled =
+    !isProduction() || process.env.ENABLE_SWAGGER_IN_PRODUCTION === 'true';
+  if (docsEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Nucleus Server')
+      .setDescription('Nucleus backend API')
+      .setVersion('1.0')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'admin-access-token',
+      )
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'student-access-token',
+      )
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'guardian-access-token',
+      )
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'employee-access-token',
+      )
+      .build();
+    const document = cleanupOpenApiDoc(
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+    if (isProduction()) {
+      logger.warn(
+        'ENABLE_SWAGGER_IN_PRODUCTION=true — /docs is publicly exposing the full API surface.',
+        'Bootstrap',
+      );
+    }
+  }
 
   const PORT = process.env.PORT ?? 3000;
   await app.listen(PORT);
-  logger.log(`Server is running on port ${PORT}`, 'Bootstrap');
-  logger.log(`Swagger UI: http://localhost:${PORT}/docs`, 'Bootstrap');
+  logger.log(`Server is running on port ${PORT} (env: ${nodeEnv()})`, 'Bootstrap');
+  if (docsEnabled) {
+    logger.log(`Swagger UI: http://localhost:${PORT}/docs`, 'Bootstrap');
+  }
 }
-bootstrap();
+
+// Without this, a failed boot (bad env, unreachable Redis) surfaces as an
+// unhandled rejection with no message and, on older Node, exit code 0 — which
+// reads to Docker as a clean shutdown rather than a crash to restart.
+bootstrap().catch((err) => {
+  new NestLogger('Bootstrap').error(
+    `Failed to start: ${err instanceof Error ? err.message : String(err)}`,
+    err instanceof Error ? err.stack : undefined,
+  );
+  process.exit(1);
+});
