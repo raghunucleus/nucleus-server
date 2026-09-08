@@ -105,6 +105,8 @@ import { RegulationsController } from './regulations/regulations.controller';
 import { RegulationsService } from './regulations/regulations.service';
 import { SemestersController } from './semesters/semesters.controller';
 import { SemestersService } from './semesters/semesters.service';
+import { AccountInviteModule } from '../account-invites/account-invite.module';
+import { AdminAccountInvitesController } from './account-invites/admin-account-invites.controller';
 import { EmployeeAuthModule } from '../employee/auth/employee-auth.module';
 import { GuardianModule } from '../guardian/guardian.module';
 import { RbacModule } from '../rbac/rbac.module';
@@ -195,9 +197,14 @@ import { AdminUsersService } from './users/admin-users.service';
     RbacModule,
     // Shared student search engine (POST /admin/students/search).
     StudentQueryModule,
+    // AccountInviteService — the admin invite endpoints, plus the account-status
+    // column on the students/employees lists and invite revocation from the
+    // set/reset-password paths.
+    AccountInviteModule,
   ],
   controllers: [
     AdminController,
+    AdminAccountInvitesController,
     MigrationsController,
     AdminUsersController,
     CountriesController,

@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, In, Repository } from 'typeorm';
+import {
+  AccountInviteService,
+  AccountStatusView,
+} from '../../account-invites/account-invite.service';
 import { EmployeeAuthService } from '../../employee/auth/employee-auth.service';
 import type { EmployeesSortField } from '../dto/list-employees.dto';
 import { Department } from '../entities/department.entity';
@@ -18,6 +22,8 @@ export interface ListEmployeesResult {
   page: number;
   pageSize: number;
   pageCount: number;
+  /** Account/invite state per row id — a sibling map, keeping `rows` clean. */
+  account_status: Record<number, AccountStatusView>;
 }
 
 const SORT_COLUMN: Record<EmployeesSortField, string> = {
@@ -88,6 +94,7 @@ export class EmployeesService {
     private readonly designations: Repository<Designation>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly employeeAuth: EmployeeAuthService,
+    private readonly invites: AccountInviteService,
   ) {}
 
   async list(opts: {
@@ -179,12 +186,19 @@ export class EmployeesService {
       .take(opts.pageSize);
 
     const [rows, total] = await qb.getManyAndCount();
+    // One extra query for the whole page, keyed on the ids we just fetched —
+    // the account column would otherwise be an N+1.
+    const account_status = await this.invites.getStatuses(
+      'employee',
+      rows.map((r) => r.id),
+    );
     return {
       rows,
       total,
       page: opts.page,
       pageSize: opts.pageSize,
       pageCount: total === 0 ? 0 : Math.ceil(total / opts.pageSize),
+      account_status,
     };
   }
 
@@ -331,6 +345,10 @@ export class EmployeesService {
       select: { id: true },
     });
     if (!employee) throw new NotFoundException('Employee not found');
+    // Kill any outstanding invitation first. Otherwise a live invite link
+    // would still be clickable days later and would silently overwrite the
+    // temporary password we are about to email.
+    await this.invites.revokeOutstanding('employee', id);
     return this.employeeAuth.adminResetPassword(id);
   }
 
@@ -344,6 +362,7 @@ export class EmployeesService {
       select: { id: true },
     });
     if (!employee) throw new NotFoundException('Employee not found');
+    await this.invites.revokeOutstanding('employee', id);
     await this.employeeAuth.adminSetPassword(id, password);
   }
 

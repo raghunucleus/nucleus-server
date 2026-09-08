@@ -16,6 +16,10 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { Employee } from '../../admin/entities/employee.entity';
+import {
+  REFRESH_FAMILY_PREFIX,
+  refreshFamilyKey,
+} from '../../common/session-keys';
 import { MailService } from '../../mail/mail.service';
 import { REDIS_CLIENT } from '../../redis/redis.module';
 import { EmployeeGoogleOidcService } from './employee-google-oidc.service';
@@ -657,7 +661,11 @@ export class EmployeeAuthService {
   }
 
   private familyKey(employeeId: number, familyId: string): string {
-    return `employee:rt:${employeeId}:${familyId}`;
+    return refreshFamilyKey(
+      REFRESH_FAMILY_PREFIX.employee,
+      employeeId,
+      familyId,
+    );
   }
 
   private resetKey(tokenHash: string): string {

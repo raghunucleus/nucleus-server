@@ -259,6 +259,56 @@ export class MailService {
   }
 
   /**
+   * Account invitation for an employee: a single-use link that lets them
+   * choose their own first password.
+   *
+   * Deliberately a different subject line from the reset email — someone who
+   * receives both (invited, then reset before they got round to it) has to be
+   * able to tell which link is which.
+   */
+  async sendEmployeeInvite(params: {
+    to: string;
+    displayName: string;
+    empCode: string;
+    inviteUrl: string;
+    expiresInDays: number;
+  }): Promise<void> {
+    const subject = 'Set up your Nucleus account';
+    const text = [
+      `Hello ${params.displayName},`,
+      '',
+      "An account has been created for you on Nucleus, your institution's",
+      'employee portal. Use the link below to choose your password and sign in',
+      'for the first time:',
+      '',
+      params.inviteUrl,
+      '',
+      `Employee code: ${params.empCode}`,
+      '',
+      `This link expires in ${params.expiresInDays} days and can be used once.`,
+      '',
+      'If you were not expecting this email, you can safely ignore it.',
+    ].join('\n');
+
+    await this.send({
+      to: params.to,
+      subject,
+      text,
+      html: wrapHtml(
+        `<p>Hello ${escapeHtml(params.displayName)},</p>
+         <p>An account has been created for you on Nucleus, your institution's employee portal. Choose a password below to finish setting it up.</p>
+         <table cellpadding="0" cellspacing="0" style="margin:16px 0">
+           <tr><td style="padding:4px 0;color:#6c757d">Employee code</td>
+               <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.empCode)}</td></tr>
+         </table>
+         <p><a href="${escapeAttr(params.inviteUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Set your password</a></p>
+         <p style="color:#6c757d">This link expires in ${params.expiresInDays} days and can be used once.</p>
+         <p style="color:#6c757d;font-size:12px">If you were not expecting this email, you can safely ignore it.</p>`,
+      ),
+    });
+  }
+
+  /**
    * The email channel of the employee notification system — one generic
    * template for every module, driven entirely by the notification's own title
    * and body. Sending modules write the copy once and it renders identically
@@ -477,6 +527,49 @@ export class MailService {
          <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Choose a new password</a></p>
          <p style="color:#6c757d">This link expires in ${params.expiresInMinutes} minutes and can be used once.</p>
          <p style="color:#6c757d;font-size:12px">If you did not request this, you can safely ignore this email — your password will not change.</p>`,
+      ),
+    });
+  }
+
+  /** Account invitation for a student. Mirrors the employee variant. */
+  async sendStudentInvite(params: {
+    to: string;
+    displayName: string;
+    studentId: string;
+    inviteUrl: string;
+    expiresInDays: number;
+  }): Promise<void> {
+    const subject = 'Set up your Nucleus account';
+    const text = [
+      `Hello ${params.displayName},`,
+      '',
+      "An account has been created for you on Nucleus, your institution's",
+      'student portal. Use the link below to choose your password and sign in',
+      'for the first time:',
+      '',
+      params.inviteUrl,
+      '',
+      `Student ID: ${params.studentId}`,
+      '',
+      `This link expires in ${params.expiresInDays} days and can be used once.`,
+      '',
+      'If you were not expecting this email, you can safely ignore it.',
+    ].join('\n');
+
+    await this.send({
+      to: params.to,
+      subject,
+      text,
+      html: wrapHtml(
+        `<p>Hello ${escapeHtml(params.displayName)},</p>
+         <p>An account has been created for you on Nucleus, your institution's student portal. Choose a password below to finish setting it up.</p>
+         <table cellpadding="0" cellspacing="0" style="margin:16px 0">
+           <tr><td style="padding:4px 0;color:#6c757d">Student ID</td>
+               <td style="padding:4px 0 4px 16px;font-weight:600">${escapeHtml(params.studentId)}</td></tr>
+         </table>
+         <p><a href="${escapeAttr(params.inviteUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Set your password</a></p>
+         <p style="color:#6c757d">This link expires in ${params.expiresInDays} days and can be used once.</p>
+         <p style="color:#6c757d;font-size:12px">If you were not expecting this email, you can safely ignore it.</p>`,
       ),
     });
   }

@@ -30,7 +30,11 @@ export class SeedDefaultMasterAdmin1796800000000 implements MigrationInterface {
       `INSERT INTO "admins" ` +
         `("username", "email", "password_hash", "is_master_admin", "is_active", ` +
         `"first_name", "last_name", "display_name") ` +
-        `SELECT $1, $2, $3, TRUE, TRUE, 'Nucleus', 'Admin', 'Nucleus Admin' ` +
+        // The casts are load-bearing: $1 and $2 appear both here (where
+        // Postgres would infer `text`) and in the NOT EXISTS comparison below
+        // against varchar columns, and it refuses to deduce two types for one
+        // parameter ("inconsistent types deduced for parameter $1").
+        `SELECT $1::varchar, $2::varchar, $3::varchar, TRUE, TRUE, 'Nucleus', 'Admin', 'Nucleus Admin' ` +
         `WHERE NOT EXISTS (` +
         `SELECT 1 FROM "admins" WHERE "username" = $1 OR LOWER("email") = LOWER($2)` +
         `)`,

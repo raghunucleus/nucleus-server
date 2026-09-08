@@ -17,6 +17,7 @@ import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { Student } from '../admin/entities/student.entity';
 import { displayedAdmissionYear } from '../common/admission-year';
+import { REFRESH_FAMILY_PREFIX, refreshFamilyKey } from '../common/session-keys';
 import { MailService } from '../mail/mail.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { StorageService } from '../storage/storage.service';
@@ -683,7 +684,7 @@ export class StudentAuthService {
   }
 
   private familyKey(studentId: number, familyId: string): string {
-    return `student:rt:${studentId}:${familyId}`;
+    return refreshFamilyKey(REFRESH_FAMILY_PREFIX.student, studentId, familyId);
   }
 
   private resetKey(tokenHash: string): string {

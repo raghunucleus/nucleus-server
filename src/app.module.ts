@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import { join } from 'path';
+import { AccountInviteModule } from './account-invites/account-invite.module';
 import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { ApprovalApproversModule } from './approval-approvers/approval-approvers.module';
@@ -111,6 +112,7 @@ import { StudentNotificationModule } from './student/notification/student-notifi
     RbacModule,
     RequestsModule,
     ApprovalApproversModule,
+    AccountInviteModule,
   ],
   controllers: [AppController],
   providers: [AppService],

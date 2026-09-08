@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import {
+  AccountInviteService,
+  AccountStatusView,
+} from '../../account-invites/account-invite.service';
 import { GuardianSyncService } from '../../guardian/guardian-sync.service';
 import { StudentAuthService } from '../../student/student-auth.service';
 import {
@@ -53,6 +57,12 @@ export interface ListStudentsResult {
   page: number;
   pageSize: number;
   pageCount: number;
+  /**
+   * Account/invite state per row id, as a sibling map rather than a field on
+   * the entities — `rows` stays a clean Student[], the way every other admin
+   * list returns it.
+   */
+  account_status: Record<number, AccountStatusView>;
 }
 
 const SORT_COLUMN: Record<StudentsSortField, string> = {
@@ -251,6 +261,7 @@ export class StudentsService {
     private readonly storage: StorageService,
     private readonly guardianSync: GuardianSyncService,
     private readonly resumes: StudentResumeService,
+    private readonly invites: AccountInviteService,
   ) {}
 
   async list(opts: {
@@ -326,12 +337,19 @@ export class StudentsService {
       .take(opts.pageSize);
 
     const [rows, total] = await qb.getManyAndCount();
+    // One extra query for the whole page, keyed on the ids we just fetched —
+    // the account column would otherwise be an N+1.
+    const account_status = await this.invites.getStatuses(
+      'student',
+      rows.map((r) => r.id),
+    );
     return {
       rows,
       total,
       page: opts.page,
       pageSize: opts.pageSize,
       pageCount: total === 0 ? 0 : Math.ceil(total / opts.pageSize),
+      account_status,
     };
   }
 
@@ -767,6 +785,10 @@ export class StudentsService {
       select: { id: true },
     });
     if (!student) throw new NotFoundException('Student not found');
+    // Kill any outstanding invitation first. Otherwise a live invite link
+    // would still be clickable days later and would silently overwrite the
+    // temporary password we are about to email.
+    await this.invites.revokeOutstanding('student', id);
     return this.studentAuth.adminResetPassword(id);
   }
 
@@ -780,6 +802,7 @@ export class StudentsService {
       select: { id: true },
     });
     if (!student) throw new NotFoundException('Student not found');
+    await this.invites.revokeOutstanding('student', id);
     await this.studentAuth.adminSetPassword(id, password);
   }
 

@@ -76,6 +76,14 @@ const KNOWN_DEV_CREDENTIALS = new Set([
 /** Read but never referenced anywhere in `src/` — a value nobody consumes. */
 const DEAD_KEYS = ['API_PUBLIC_BASE_URL'] as const;
 
+/** The shape `parseDurationToSeconds` accepts: "30", "15m", "7d", "48h". */
+const durationSchema = z
+  .string()
+  .regex(
+    /^\d+\s*[smhd]?$/,
+    'must look like "7d", "48h", "30m" or a bare number of seconds',
+  );
+
 const baseSchema = z
   .object({
     NODE_ENV: z.string().optional(),
@@ -87,6 +95,21 @@ const baseSchema = z
 
     CORS_ORIGINS: z.string().optional(),
     TRUST_PROXY: z.string().optional(),
+
+    // Durations are parsed by parseDurationToSeconds, which silently returns
+    // its fallback for anything malformed — so "7 days" typed here would
+    // quietly become the default with no signal. Checked in every environment,
+    // not just production, because that is exactly the silent downgrade this
+    // file exists to turn into a refusal to start.
+    STUDENT_ACCOUNT_INVITE_TTL: durationSchema.optional(),
+    EMPLOYEE_ACCOUNT_INVITE_TTL: durationSchema.optional(),
+    ACCOUNT_INVITE_RESEND_COOLDOWN: durationSchema.optional(),
+    ACCOUNT_INVITE_MAX_BATCH: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(2000)
+      .optional(),
   })
   // Everything else in the environment passes through untouched — this schema
   // validates a subset, it does not enumerate the full surface.
@@ -125,7 +148,8 @@ function productionIssues(env: Record<string, unknown>): string[] {
     if (value === '') {
       issues.push(
         `${key} must be set in production (the portal origin, e.g. ${example}). ` +
-          'Password-reset and temp-password emails build their links from it.',
+          'Password-reset, temp-password and account-invite emails all build ' +
+          'their links from it.',
       );
     } else if (!/^https?:\/\/[^\s/]+/.test(value)) {
       issues.push(
