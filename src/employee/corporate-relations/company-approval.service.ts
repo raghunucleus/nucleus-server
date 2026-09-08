@@ -126,6 +126,9 @@ export class CompanyApprovalService
     },
     label: 'Company Approval',
     order: 10,
+    // Filed by corporate-relations staff when they save a company; a student can
+    // never own one, so it must not appear in the student portal's tree.
+    requester: 'employee' as const,
   };
 
   constructor(

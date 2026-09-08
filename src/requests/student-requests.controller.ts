@@ -51,10 +51,10 @@ export class StudentRequestsController {
   @Get('catalog')
   @ApiOperation({
     summary:
-      'The request types that exist, grouped into modules — drives the Modules tree.',
+      'The request types a student can raise, grouped into modules — drives the Modules tree.',
   })
   catalog(): RequestCatalogModule[] {
-    return this.requests.catalog();
+    return this.requests.catalog('student');
   }
 
   @Get('counts')

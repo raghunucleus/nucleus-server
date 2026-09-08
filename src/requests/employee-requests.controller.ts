@@ -181,10 +181,10 @@ export class EmployeeRequestsController {
   @RequireScreen(MINE_KEY, 'view')
   @ApiOperation({
     summary:
-      'The request types that exist, grouped into modules — drives the Modules tree.',
+      'The request types an employee can raise, grouped into modules — drives the Modules tree.',
   })
   catalog(): RequestCatalogModule[] {
-    return this.requests.catalog();
+    return this.requests.catalog('employee');
   }
 
   @Get('mine')

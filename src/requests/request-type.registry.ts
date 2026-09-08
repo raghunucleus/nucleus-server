@@ -79,6 +79,14 @@ export interface RequestTypeCatalogDef {
   label: string;
   /** Position within the module. */
   order: number;
+  /**
+   * Who may raise this type, and therefore which portal's Modules tree lists
+   * it: `company_approval` is filed by corporate-relations staff and can never
+   * belong to a student, so it has no business appearing as a filter on the
+   * student's My Requests screen. Required rather than defaulted — a handler
+   * that forgets to choose should not compile.
+   */
+  requester: RequestRequesterRef['kind'];
 }
 
 /** One module and its types — what `GET .../requests/catalog` returns. */
@@ -193,18 +201,24 @@ export class RequestTypeRegistry {
   }
 
   /**
-   * The Modules tree: every registered type grouped under its declared module,
-   * modules and their types each sorted by `order` (ties broken by label, so
-   * the tree can't shuffle between boots).
+   * The Modules tree for one portal: every type `requester` may raise, grouped
+   * under its declared module, modules and their types each sorted by `order`
+   * (ties broken by label, so the tree can't shuffle between boots).
+   *
+   * The filter runs before the grouping, so a module whose every type belongs
+   * to the other portal is never created — no empty branch survives to the
+   * client. Without it a student sees "Corporate Relations → Company Approval",
+   * a filter that can only ever come back empty.
    *
    * Throws on conflicting definitions of one module key — with handlers
    * self-declaring their module, two types in the same group repeat that
    * definition, and a silent last-writer-wins would make the tree depend on
    * module registration order.
    */
-  catalog(): RequestCatalogModule[] {
+  catalog(requester: RequestRequesterRef['kind']): RequestCatalogModule[] {
     const modules = new Map<string, RequestCatalogModule>();
     for (const handler of this.handlers.values()) {
+      if (handler.catalog.requester !== requester) continue;
       const { module, label, order } = handler.catalog;
       const existing = modules.get(module.key);
       if (!existing) {

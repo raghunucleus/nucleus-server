@@ -294,6 +294,7 @@ export class ProfileUpdateRequestService
     },
     label: 'Profile Update',
     order: 10,
+    requester: 'student' as const,
   };
 
   constructor(

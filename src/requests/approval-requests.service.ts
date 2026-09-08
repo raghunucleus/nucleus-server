@@ -925,9 +925,9 @@ export class ApprovalRequestsService {
     );
   }
 
-  /** The Modules tree — every registered request type, grouped. */
-  catalog(): RequestCatalogModule[] {
-    return this.registry.catalog();
+  /** The Modules tree — the request types `requester` can raise, grouped. */
+  catalog(requester: RequestRequesterRef['kind']): RequestCatalogModule[] {
+    return this.registry.catalog(requester);
   }
 
   // ---------------------------------------------------------------------------
