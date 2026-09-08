@@ -6,14 +6,14 @@ services), and the three web front-ends are deployed **separately as static
 bundles on S3/CloudFront**.
 
 ```
-Browser ──HTTPS──► CloudFront/S3 ┬─ nucleusadmin.raghuenggcollege.com  (nucleus-admin-ui)
+Browser ──HTTPS──► CloudFront/S3 ┬─ nucleusadmin.raghuenggcollege.in  (nucleus-admin-ui)
    │                             │
-   │                             ├─ employee.raghuenggcollege.com  ┐
-   │                             ├─ parent.raghuenggcollege.com    ├ ONE nucleus-ui bundle
-   │                             └─ student.raghuenggcollege.com   ┘
+   │                             ├─ employee.raghuenggcollege.in  ┐
+   │                             ├─ parent.raghuenggcollege.in    ├ ONE nucleus-ui bundle
+   │                             └─ student.raghuenggcollege.in   ┘
    │
    ├──HTTPS──► nginx (TLS) ──► app :3000   (docker compose)
-   │              api-nucleus.raghuenggcollege.com
+   │              api-nucleus.raghuenggcollege.in
    │              REST + Socket.IO (student chat, student/employee notifications)
    │                                  │  (private network, TLS — §1)
    │                                  ├── PostgreSQL :5432  (RDS)
@@ -47,7 +47,7 @@ native modules `bcrypt` and `sharp` ship glibc prebuilds; do not swap in an
 ## 1. Prerequisites
 
 - A Linux VM with Docker Engine 24+ and the Compose v2 plugin (`docker compose version`).
-- DNS for `api-nucleus.raghuenggcollege.com` pointing at the VM.
+- DNS for `api-nucleus.raghuenggcollege.in` pointing at the VM.
 - TLS termination in front of port 3000 — nginx (§7). The app speaks plain HTTP.
 - **A PostgreSQL server** (RDS), version 16+ — the schema is developed against
   `postgres:18`. Create the database and an owner role; migrations run as that
@@ -144,10 +144,10 @@ all four portal origins:
 aws s3api put-bucket-cors --bucket raghu-nucleus --cors-configuration '{
   "CORSRules": [{
     "AllowedOrigins": [
-      "https://nucleusadmin.raghuenggcollege.com",
-      "https://employee.raghuenggcollege.com",
-      "https://parent.raghuenggcollege.com",
-      "https://student.raghuenggcollege.com"
+      "https://nucleusadmin.raghuenggcollege.in",
+      "https://employee.raghuenggcollege.in",
+      "https://parent.raghuenggcollege.in",
+      "https://student.raghuenggcollege.in"
     ],
     "AllowedMethods": ["GET", "HEAD"],
     "AllowedHeaders": ["*"],
@@ -265,10 +265,10 @@ chat and both notification streams outright, with no graceful degradation.
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name api-nucleus.raghuenggcollege.com;
+    server_name api-nucleus.raghuenggcollege.in;
 
-    ssl_certificate     /etc/letsencrypt/live/api-nucleus.raghuenggcollege.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/api-nucleus.raghuenggcollege.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/api-nucleus.raghuenggcollege.in/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api-nucleus.raghuenggcollege.in/privkey.pem;
 
     # The app parses 10 MB JSON bodies (bulk student/employee upload) and accepts
     # 10 MB file attachments. 25m leaves headroom for multipart overhead.
@@ -304,11 +304,11 @@ reachable from outside the VM.
 
 The server does **not** serve any UI. Each repo has its own `DEPLOYMENT.md`:
 
-- `nucleus-admin-ui` → `nucleusadmin.raghuenggcollege.com`
+- `nucleus-admin-ui` → `nucleusadmin.raghuenggcollege.in`
 - `nucleus-ui` → **one** build serving `employee.`, `parent.` and `student.`,
   which it distinguishes at runtime from `window.location.hostname`
 
-Both need `VITE_API_URL=https://api-nucleus.raghuenggcollege.com` at **build**
+Both need `VITE_API_URL=https://api-nucleus.raghuenggcollege.in` at **build**
 time. After the URLs are final, set `CORS_ORIGINS` / `STUDENT_APP_URL` /
 `EMPLOYEE_APP_URL` here (§5) and `docker compose up -d` to reload.
 
