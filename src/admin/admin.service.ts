@@ -14,6 +14,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'crypto';
 import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
+import { scanAndDelete } from '../common/session-keys';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { GoogleOidcService } from './auth/google-oidc.service';
 import { TotpService } from './auth/totp.service';
@@ -272,12 +273,7 @@ export class AdminService {
       return;
     }
     // No jti supplied: revoke every refresh token for this admin.
-    const pattern = this.refreshKey(adminId, '*');
-    const stream = this.redis.scanStream({ match: pattern, count: 100 });
-    for await (const keys of stream) {
-      if ((keys as string[]).length)
-        await this.redis.del(...(keys as string[]));
-    }
+    await scanAndDelete(this.redis, this.refreshKey(adminId, '*'));
   }
 
   async changePassword(

@@ -124,3 +124,32 @@ Every student-facing controller method MUST derive the acting student exclusivel
 3. **If a student-facing service is shared with admin/employee code**, keep the shared service signature as `(studentId, ...)` but only ever pass `req.user.id` from the student controller. The same service is fine to call from `/admin/*` with an arbitrary id under the admin RBAC contract above; mixing the two on a single route is not.
 
 4. **Never trust client-supplied identifiers** for joins, filters, or audit fields on student routes. `programme_semester_id`, `attendance_group_id`, `subject_id` etc. that aren't explicit user input must be derived server-side from the token's student.
+
+## Redis key namespacing
+
+**The Redis instance is shared with `central-server`** (a separate, already-deployed app) on the same DB 0. Central owns the bare `admin:`, `employee:`, `client:`, `mcp:`, `mfa:`, `rbac:`, `presence:`, `flow:`, `idem:`, `throttle:`, `cron-claim:` and `reminders:` namespaces — several of which we used to collide with byte-for-byte. Everything this app writes lives under `REDIS_KEY_PREFIX` (`nucleus:`, in `src/redis/redis-namespace.ts`).
+
+Every rule below fails **silently** when broken — no error, no warning.
+
+1. **Never write the prefix into a key string.** The `keyPrefix` option on the single shared client (`src/redis/redis.module.ts`) adds it to every command's keys automatically. Building it by hand produces `nucleus:nucleus:…`.
+
+   ```ts
+   // good — the client prefixes it
+   await this.redis.set(`employee:pwreset:${hash}`, id, 'EX', ttl);
+
+   // bad — double-prefixed, and nothing will ever read it back
+   await this.redis.set(`nucleus:employee:pwreset:${hash}`, id, 'EX', ttl);
+   ```
+
+2. **Never call `redis.scanStream` or `redis.keys` directly. Use `scanAndDelete()`** from `src/common/session-keys.ts`. `keyPrefix` does *not* rewrite a `SCAN` `MATCH` pattern (it is an argument, not a key), so a raw pattern matches none of our prefixed keys and deletes nothing — for session revocation that means failing **open**, leaving refresh tokens alive after a password reset. `SCAN` also returns fully-qualified keys, which must have the prefix stripped before going back into `del`. The helper does both.
+
+   ```ts
+   // good
+   await scanAndDelete(this.redis, this.familyKey(employeeId, '*'));
+   ```
+
+3. **Pub/sub channels must carry the prefix explicitly.** `keyPrefix` only applies to keys, and Redis pub/sub is not even DB-scoped — so any new `publish`/`subscribe` channel, or any Socket.IO adapter, has to interpolate `REDIS_KEY_PREFIX` itself (see `createAdapter(..., { key: \`${REDIS_KEY_PREFIX}socket.io\` })` in `src/redis/redis-io.adapter.ts`). Without it, a namespace name that happens to match one of central's cross-delivers broadcasts between the two apps.
+
+4. **Never `FLUSHDB` / `FLUSHALL`, and never pattern-delete outside your own namespace** — it would take central's live data with it.
+
+5. **Lua scripts are already handled.** ioredis prefixes the `KEYS` args of `eval` using `numkeys`, so scripts that only touch `KEYS[n]` need no change; do not add a manual prefix (see `src/security-pass/security-pass.service.ts`).

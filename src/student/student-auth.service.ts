@@ -17,7 +17,11 @@ import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { Student } from '../admin/entities/student.entity';
 import { displayedAdmissionYear } from '../common/admission-year';
-import { REFRESH_FAMILY_PREFIX, refreshFamilyKey } from '../common/session-keys';
+import {
+  REFRESH_FAMILY_PREFIX,
+  refreshFamilyKey,
+  scanAndDelete,
+} from '../common/session-keys';
 import { MailService } from '../mail/mail.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { StorageService } from '../storage/storage.service';
@@ -299,15 +303,7 @@ export class StudentAuthService {
 
   /** Revoke every refresh-token family for a student (all devices). */
   async logout(studentId: number): Promise<void> {
-    const stream = this.redis.scanStream({
-      match: this.familyKey(studentId, '*'),
-      count: 100,
-    });
-    for await (const keys of stream) {
-      if ((keys as string[]).length) {
-        await this.redis.del(...(keys as string[]));
-      }
-    }
+    await scanAndDelete(this.redis, this.familyKey(studentId, '*'));
   }
 
   // ---------------------------------------------------------------------------

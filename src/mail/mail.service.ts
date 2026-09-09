@@ -26,6 +26,8 @@ export class MailService {
   private readonly isDev: boolean;
   private readonly enabled: boolean;
   private readonly from: { email: string; name: string };
+  /** Absolute URL of the header logo, or null → text wordmark (see renderMailShell). */
+  private readonly logoUrl: string | null;
 
   constructor(
     private readonly config: ConfigService,
@@ -36,6 +38,13 @@ export class MailService {
     const apiKey = this.config.get<string>('SENDGRID_API_KEY');
     // Real delivery only happens outside dev with a key configured.
     this.enabled = !!apiKey && !this.isDev;
+
+    // The logo is served by this API (BrandController); mail clients need an
+    // absolute URL, so it hinges on the public origin being configured.
+    const apiBase = (this.config.get<string>('API_PUBLIC_BASE_URL') ?? '')
+      .trim()
+      .replace(/\/+$/, '');
+    this.logoUrl = apiBase ? `${apiBase}/brand/email-logo.png` : null;
 
     if (this.enabled) {
       sgMail.setApiKey(apiKey as string);
@@ -152,7 +161,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>A login has been created for your Nucleus student account.</p>
          <table cellpadding="0" cellspacing="0" style="margin:16px 0">
@@ -206,7 +215,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>A login has been created for your Nucleus employee account.</p>
          <table cellpadding="0" cellspacing="0" style="margin:16px 0">
@@ -248,7 +257,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>We received a request to reset the password for your Nucleus employee account.</p>
          <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Choose a new password</a></p>
@@ -294,7 +303,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>An account has been created for you on Nucleus, your institution's employee portal. Choose a password below to finish setting it up.</p>
          <table cellpadding="0" cellspacing="0" style="margin:16px 0">
@@ -343,7 +352,7 @@ export class MailService {
       to: params.to,
       subject: params.title,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p style="font-weight:600;font-size:15px;margin:16px 0 4px">${escapeHtml(params.title)}</p>
          <p style="margin:0 0 16px">${escapeHtml(params.body)}</p>
@@ -412,7 +421,7 @@ export class MailService {
       to: params.to,
       subject: params.subject ?? params.title,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p style="font-weight:600;font-size:15px;margin:16px 0 4px">${escapeHtml(params.title)}</p>
          <p style="margin:0 0 16px;white-space:pre-line">${escapeHtml(params.body)}</p>
@@ -451,7 +460,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>Use this one-time code to set your Nucleus parent account password:</p>
          <p style="background-color:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:14px;margin:16px 0;text-align:center;font-family:Consolas,Menlo,Monaco,monospace;font-size:28px;font-weight:700;letter-spacing:6px;color:#212529">${escapeHtml(params.otp)}</p>
@@ -486,7 +495,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>Use this one-time code to verify this address as the personal email on your Nucleus student profile:</p>
          <p style="background-color:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:14px;margin:16px 0;text-align:center;font-family:Consolas,Menlo,Monaco,monospace;font-size:28px;font-weight:700;letter-spacing:6px;color:#212529">${escapeHtml(params.otp)}</p>
@@ -521,7 +530,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>We received a request to reset the password for your Nucleus student account.</p>
          <p><a href="${escapeAttr(params.resetUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500">Choose a new password</a></p>
@@ -560,7 +569,7 @@ export class MailService {
       to: params.to,
       subject,
       text,
-      html: wrapHtml(
+      html: this.wrapHtml(
         `<p>Hello ${escapeHtml(params.displayName)},</p>
          <p>An account has been created for you on Nucleus, your institution's student portal. Choose a password below to finish setting it up.</p>
          <table cellpadding="0" cellspacing="0" style="margin:16px 0">
@@ -572,6 +581,11 @@ export class MailService {
          <p style="color:#6c757d;font-size:12px">If you were not expecting this email, you can safely ignore it.</p>`,
       ),
     });
+  }
+
+  /** Every template renders into the shared shell; the header carries the logo when the API's public origin is known. */
+  private wrapHtml(body: string): string {
+    return renderMailShell(body, this.logoUrl);
   }
 }
 
@@ -613,15 +627,23 @@ const MAIL_THEME = {
  *
  * `body` is dropped in verbatim, so each template keeps authoring plain `<p>`
  * markup and gets the new frame for free.
+ *
+ * The header shows the Nucleus logo (`/brand/email-logo.png`, a 2× PNG of the
+ * mark on a white tile plus a white wordmark, made for the blue bar) when
+ * `logoUrl` is known; otherwise — and in clients that block remote images —
+ * the text wordmark / `alt` keeps the header readable.
  */
-function wrapHtml(body: string): string {
+function renderMailShell(body: string, logoUrl: string | null): string {
+  const brand = logoUrl
+    ? `<img src="${escapeAttr(logoUrl)}" width="135" height="40" alt="Nucleus" style="display:block;border:0;outline:none;text-decoration:none;width:135px;height:40px;font-family:${MAIL_THEME.font};font-size:18px;font-weight:600;color:#ffffff">`
+    : `<span style="font-family:${MAIL_THEME.font};font-size:18px;font-weight:600;color:#ffffff;letter-spacing:-0.01em">Nucleus</span>`;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${MAIL_THEME.page};margin:0;padding:24px 12px">
   <tr>
     <td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">
         <tr>
           <td style="background-color:${MAIL_THEME.primary};border-radius:8px 8px 0 0;padding:20px 24px">
-            <span style="font-family:${MAIL_THEME.font};font-size:18px;font-weight:600;color:#ffffff;letter-spacing:-0.01em">Nucleus</span>
+            ${brand}
           </td>
         </tr>
         <tr>

@@ -210,6 +210,29 @@ Datastore TLS (both default to off, which is what local dev uses):
 | `POSTGRES_SSL_CA_FILE` | Path to a CA bundle *inside the container* — verifies the server certificate. Without it the connection is encrypted but unverified and the app warns at boot. Mount it with the commented-out volume in `docker-compose.yml`; for RDS use [the global bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem). |
 | `REDIS_TLS=true` | TLS to Redis. Required for ElastiCache with encryption-in-transit. The Amazon root CA is already in Node's trust store, so no CA file is needed. |
 
+### Sharing the Redis instance with central-server
+
+This app's Redis may be shared with `central-server`. Both write to DB 0, so
+every key and pub/sub channel nucleus owns is namespaced under `nucleus:`
+(`src/redis/redis-namespace.ts`); central keeps the bare namespaces it was
+deployed with. Nothing needs configuring for this — the prefix is a hardcoded
+constant, not an env var — but two instance-level settings matter:
+
+- **`maxmemory-policy` must not be `allkeys-*`.** Under central's memory
+  pressure an `allkeys-lru` policy would evict *our* live refresh-token
+  families and log people out at random. Every nucleus key carries a TTL, so
+  `volatile-*` is survivable, but `noeviction` is the correct setting for an
+  instance holding auth state — it fails writes loudly instead of silently
+  dropping sessions.
+- **No `FLUSHDB` / `FLUSHALL` in operational runbooks.** A flush aimed at one
+  app takes the other's sessions with it. Neither codebase issues one; keep it
+  that way for manual `redis-cli` work too.
+
+Isolation here is a convention enforced in application code, not by the server.
+If the two apps ever compete for memory or CPU, split them onto separate
+instances (or add a Redis ACL user restricted to `~nucleus:*` / `&nucleus:*`)
+rather than relying on the prefix alone.
+
 The portal pairing:
 
 | Server var | Value |

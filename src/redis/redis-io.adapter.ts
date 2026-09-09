@@ -3,6 +3,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { Redis } from 'ioredis';
 import { ServerOptions, Server } from 'socket.io';
+import { REDIS_KEY_PREFIX } from './redis-namespace';
 import { REDIS_CLIENT } from './redis.module';
 
 /**
@@ -32,7 +33,15 @@ export class RedisIoAdapter extends IoAdapter {
     const subClient = base.duplicate();
     pubClient.on('error', (e) => this.logger.error(e.message));
     subClient.on('error', (e) => this.logger.error(e.message));
-    this.adapterConstructor = createAdapter(pubClient, subClient);
+    // The adapter defaults to a bare `socket.io` channel prefix, and the Redis
+    // instance is shared with central-server, which runs the same adapter on
+    // the same default. Channels are not keys, so the client's `keyPrefix`
+    // does not reach them (and pub/sub is not DB-scoped either) — this has to
+    // be set explicitly, or a namespace name colliding with central's would
+    // cross-deliver broadcasts between the two apps.
+    this.adapterConstructor = createAdapter(pubClient, subClient, {
+      key: `${REDIS_KEY_PREFIX}socket.io`,
+    });
     this.logger.log('Socket.IO Redis pub/sub adapter ready');
   }
 
