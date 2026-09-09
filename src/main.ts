@@ -134,6 +134,9 @@ async function bootstrap() {
       SwaggerModule.createDocument(app, swaggerConfig),
     );
     SwaggerModule.setup('docs', app, document, {
+      customSiteTitle: 'Nucleus API',
+      // Served by BrandController from the generated brand assets.
+      customfavIcon: '/brand/favicon.svg',
       swaggerOptions: { persistAuthorization: true },
     });
     if (isProduction()) {

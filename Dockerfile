@@ -14,10 +14,13 @@ RUN npm ci
 COPY . .
 # nest build → dist/. tsconfig pins rootDir to ./src, so the entry point is
 # dist/main.js and the CLI datasource is dist/data-source.js — both named
-# literally by docker-compose.yml, so neither may move.
+# literally by docker-compose.yml, so neither may move. The brand assets
+# (email logo, favicon) reach dist/ only via nest-cli.json's `assets` rule —
+# the runtime stage below copies nothing but dist/, so prove they made it.
 RUN npm run build \
   && test -f dist/main.js \
   && test -f dist/data-source.js \
+  && test -f dist/brand/assets/email-logo.png \
   && npm prune --omit=dev
 
 FROM node:24-bookworm-slim AS runtime

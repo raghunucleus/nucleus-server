@@ -19,6 +19,7 @@ import { Employee } from '../../admin/entities/employee.entity';
 import {
   REFRESH_FAMILY_PREFIX,
   refreshFamilyKey,
+  scanAndDelete,
 } from '../../common/session-keys';
 import { MailService } from '../../mail/mail.service';
 import { REDIS_CLIENT } from '../../redis/redis.module';
@@ -292,15 +293,7 @@ export class EmployeeAuthService {
 
   /** Revoke every refresh-token family for an employee (all devices). */
   async logout(employeeId: number): Promise<void> {
-    const stream = this.redis.scanStream({
-      match: this.familyKey(employeeId, '*'),
-      count: 100,
-    });
-    for await (const keys of stream) {
-      if ((keys as string[]).length) {
-        await this.redis.del(...(keys as string[]));
-      }
-    }
+    await scanAndDelete(this.redis, this.familyKey(employeeId, '*'));
   }
 
   // ---------------------------------------------------------------------------

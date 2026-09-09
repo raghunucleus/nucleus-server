@@ -9,6 +9,7 @@ import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { ApprovalApproversModule } from './approval-approvers/approval-approvers.module';
 import { AppService } from './app.service';
+import { BrandModule } from './brand/brand.module';
 import { FakeDelayMiddleware } from './common/middleware/fake-delay.middleware';
 import { isDev, isProduction } from './common/runtime-env';
 import { postgresSslOptions } from './config/datastore-ssl';
@@ -103,6 +104,7 @@ import { StudentNotificationModule } from './student/notification/student-notifi
     StorageModule,
     MailModule,
     HealthModule,
+    BrandModule,
     AdminModule,
     StudentModule,
     StudentNotificationModule,

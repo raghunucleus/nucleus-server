@@ -15,6 +15,7 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomInt, randomUUID } from 'crypto';
 import { Redis } from 'ioredis';
 import { IsNull, Repository } from 'typeorm';
+import { scanAndDelete } from '../common/session-keys';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { GuardianCredential } from './entities/guardian-credential.entity';
 import { GuardianOtp } from './entities/guardian-otp.entity';
@@ -198,15 +199,7 @@ export class GuardianAuthService {
   // ---------------------------------------------------------------------------
 
   async logout(mobileNumber: string): Promise<void> {
-    const stream = this.redis.scanStream({
-      match: this.familyKey(mobileNumber, '*'),
-      count: 100,
-    });
-    for await (const keys of stream) {
-      if ((keys as string[]).length) {
-        await this.redis.del(...(keys as string[]));
-      }
-    }
+    await scanAndDelete(this.redis, this.familyKey(mobileNumber, '*'));
   }
 
   // ---------------------------------------------------------------------------
