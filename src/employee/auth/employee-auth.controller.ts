@@ -2,13 +2,20 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Ip,
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { DeviceLimitLoginDto } from '../../auth-sessions/dto/device-limit-login.dto';
 import {
   AllowEmployeePasswordChangePending,
   RequireEmployeePasswordChangedGuard,
@@ -42,11 +49,23 @@ export class EmployeeAuthController {
       'and mustChangePassword=true when the employee is still on an admin-' +
       'issued temporary password.',
   })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Device limit reached (`code: DEVICE_LIMIT`): body carries a ' +
+      'challengeToken and the signed-in devices; finish via login/device-limit.',
+  })
   login(
     @Body() dto: EmployeeLoginDto,
     @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
   ): Promise<EmployeeLoginResult> {
-    return this.auth.login(dto.emp_code, dto.password, ip);
+    return this.auth.login(dto.emp_code, dto.password, {
+      deviceId: dto.device_id,
+      deviceName: dto.device_name,
+      ip,
+      userAgent,
+    });
   }
 
   @Post('login/google')
@@ -56,11 +75,35 @@ export class EmployeeAuthController {
       'Sign in with a Google ID token. The Google email must match an ' +
       'existing, active employee record; employees are not auto-created.',
   })
+  @ApiResponse({ status: 409, description: 'Device limit reached.' })
   loginWithGoogle(
     @Body() dto: EmployeeGoogleLoginDto,
     @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
   ): Promise<EmployeeLoginResult> {
-    return this.auth.loginWithGoogle(dto.idToken, ip);
+    return this.auth.loginWithGoogle(dto.idToken, {
+      deviceId: dto.device_id,
+      deviceName: dto.device_name,
+      ip,
+      userAgent,
+    });
+  }
+
+  @Post('login/device-limit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Finish a login paused by the device limit: sign the chosen devices ' +
+      'out, then sign in here. Still at the limit → 409 again with the SAME ' +
+      'challengeToken and a fresh device list.',
+  })
+  @ApiResponse({ status: 409, description: 'Still at the device limit.' })
+  completeDeviceLimitLogin(
+    @Body() dto: DeviceLimitLoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<EmployeeLoginResult> {
+    return this.auth.completeDeviceLimitLogin(dto, { ip, userAgent });
   }
 
   @Post('refresh')
@@ -68,10 +111,14 @@ export class EmployeeAuthController {
   @ApiOperation({
     summary:
       'Exchange a refresh token for a new pair. Refresh tokens are single-use; ' +
-      'replaying a rotated token revokes the whole session family.',
+      'replaying a rotated token outside the short grace window signs that ' +
+      'device out.',
   })
-  refresh(@Body() dto: EmployeeRefreshDto): Promise<EmployeeAuthTokens> {
-    return this.auth.refresh(dto.refreshToken);
+  refresh(
+    @Body() dto: EmployeeRefreshDto,
+    @Ip() ip: string,
+  ): Promise<EmployeeAuthTokens> {
+    return this.auth.refresh(dto.refreshToken, ip);
   }
 
   @UseGuards(EmployeeJwtAuthGuard, RequireEmployeePasswordChangedGuard)
@@ -79,9 +126,11 @@ export class EmployeeAuthController {
   @ApiBearerAuth('employee-access-token')
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Revoke every session for the current employee.' })
+  @ApiOperation({
+    summary: 'Sign out this device. Other signed-in devices are unaffected.',
+  })
   async logout(@GetEmployee() employee: AuthenticatedEmployee): Promise<void> {
-    await this.auth.logout(employee.id);
+    await this.auth.logout(employee.id, employee.sid);
   }
 
   @UseGuards(EmployeeJwtAuthGuard, RequireEmployeePasswordChangedGuard)
@@ -101,7 +150,8 @@ export class EmployeeAuthController {
   @ApiOperation({
     summary:
       'Change password. Used both for the forced first-login change and for ' +
-      'voluntary changes. Revokes all other sessions and returns a fresh pair.',
+      'voluntary changes. Signs out every other device and returns a fresh ' +
+      'pair for this one.',
   })
   changePassword(
     @GetEmployee() employee: AuthenticatedEmployee,
@@ -109,6 +159,7 @@ export class EmployeeAuthController {
   ): Promise<EmployeeAuthTokens> {
     return this.auth.changePassword(
       employee.id,
+      employee.sid,
       dto.currentPassword,
       dto.newPassword,
     );

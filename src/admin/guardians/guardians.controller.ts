@@ -7,12 +7,14 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { SessionRow } from '../../auth-sessions/auth-sessions.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { BulkUploadGuardiansDto } from '../dto/bulk-upload-guardians.dto';
@@ -93,6 +95,25 @@ export class GuardiansController {
   async sendOtp(@Body() dto: GuardianMobileDto): Promise<{ message: string }> {
     await this.guardians.sendOtp(dto.mobile_number);
     return { message: 'If a delivery channel is available, a code was sent.' };
+  }
+
+  @Get('sessions')
+  @ApiOperation({
+    summary:
+      "List a parent login's signed-in devices (with login IP), by mobile.",
+  })
+  listSessions(@Query() dto: GuardianMobileDto): Promise<SessionRow[]> {
+    return this.guardians.listSessions(dto.mobile_number);
+  }
+
+  @Delete('sessions/:sessionId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: "Force-sign-out one of a parent login's devices." })
+  async revokeSession(
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Query() dto: GuardianMobileDto,
+  ): Promise<void> {
+    await this.guardians.revokeSession(dto.mobile_number, sessionId);
   }
 
   @Patch(':id')

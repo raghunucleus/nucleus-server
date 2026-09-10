@@ -8,7 +8,6 @@ import {
 import { Employee } from '../admin/entities/employee.entity';
 import { Student } from '../admin/entities/student.entity';
 import { parseDurationToSeconds } from '../common/parse-duration';
-import { REFRESH_FAMILY_PREFIX } from '../common/session-keys';
 import { EmployeeCredential } from '../employee/auth/entities/employee-credential.entity';
 import { MailService } from '../mail/mail.service';
 import { StudentCredential } from '../student/entities/student-credential.entity';
@@ -48,7 +47,6 @@ export interface SubjectAdapter {
   subjectTable: 'employees' | 'students';
   credentialTable: 'employee_credentials' | 'student_credentials';
   credentialFk: 'employee_id' | 'student_id';
-  redisFamilyPrefix: string;
   /** Human label used in admin-facing error copy. */
   label: 'employee' | 'student';
 
@@ -103,7 +101,6 @@ export function createEmployeeAdapter(
     subjectTable: 'employees',
     credentialTable: 'employee_credentials',
     credentialFk: 'employee_id',
-    redisFamilyPrefix: REFRESH_FAMILY_PREFIX.employee,
     label: 'employee',
 
     async load(m, id) {
@@ -171,7 +168,6 @@ export function createStudentAdapter(
     subjectTable: 'students',
     credentialTable: 'student_credentials',
     credentialFk: 'student_id',
-    redisFamilyPrefix: REFRESH_FAMILY_PREFIX.student,
     label: 'student',
 
     async load(m, id) {

@@ -13,7 +13,7 @@ import { createHash, randomBytes } from 'crypto';
 import { Redis } from 'ioredis';
 import { DataSource, Repository } from 'typeorm';
 import { parseDurationToSeconds } from '../common/parse-duration';
-import { revokeAllSessions } from '../common/session-keys';
+import { AuthSessionsService } from '../auth-sessions/auth-sessions.service';
 import { MailService } from '../mail/mail.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import {
@@ -130,8 +130,7 @@ export type ValidateInviteResult =
  * `AdminModule` already imports both, and this service is imported by
  * `AdminModule` in turn, so reaching back into them would close a module
  * cycle. It holds the credential repositories directly and revokes sessions
- * through the shared `revokeAllSessions` helper, which is why that helper
- * exists rather than a third copy of the key format.
+ * through the global `AuthSessionsService`, which depends on nothing here.
  */
 @Injectable()
 export class AccountInviteService {
@@ -145,6 +144,7 @@ export class AccountInviteService {
     private readonly config: ConfigService,
     private readonly mail: MailService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly sessions: AuthSessionsService,
   ) {
     this.adapters = {
       employee: createEmployeeAdapter(config, mail),
@@ -590,12 +590,14 @@ export class AccountInviteService {
       return { adapter: a, subjectId: subject.id };
     });
 
-    // Outside the transaction, exactly like resetPassword: a Redis failure
-    // must not roll back a password the person has already been told is set.
-    await revokeAllSessions(
-      this.redis,
-      consumed.adapter.redisFamilyPrefix,
+    // Outside the transaction, exactly like resetPassword: a revocation
+    // failure must not roll back a password the person has already been told
+    // is set. The adapter type doubles as the session audience.
+    await this.sessions.revokeAllExcept(
+      consumed.adapter.type,
       consumed.subjectId,
+      null,
+      'password_reset',
     );
 
     return { subject_type: consumed.adapter.type };

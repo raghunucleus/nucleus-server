@@ -125,6 +125,15 @@ Every student-facing controller method MUST derive the acting student exclusivel
 
 4. **Never trust client-supplied identifiers** for joins, filters, or audit fields on student routes. `programme_semester_id`, `attendance_group_id`, `subject_id` etc. that aren't explicit user input must be derived server-side from the token's student.
 
+## Auth sessions (student / employee / parent)
+
+Every student, employee and parent login is a row in `auth_sessions`, owned by the global `AuthSessionsService` (`src/auth-sessions/`). The row id is the `sid` claim in both JWTs; there are no Redis refresh families any more. A person may be signed in on `DEFAULT_DEVICE_LIMIT` (2) devices at once — employees can be raised per person via `employees.device_limit` — and a login over the limit gets a 409 `DEVICE_LIMIT` with a single-use challenge for the device picker, never an automatic eviction.
+
+1. **Only `AuthSessionsService` mints sessions.** Every login goes through the audience's `completeLogin` gate (`createWithinLimit`); tokens are only ever signed for a `sid` + `refresh_jti` it returned. Never sign a student/employee/guardian token anywhere else.
+2. **Anything that invalidates a credential must end with `revokeAllExcept`** — password reset, OTP set, accepted invite, admin set/reset (`null` = spare none), self-service change-password (spare the caller's `sid`). Deactivating an account revokes too. Skipping it leaves stolen sessions alive.
+3. **Logout is per device** (`revokeById` on the caller's `sid`); "sign out everywhere" is `revokeAllExcept(…, null, …)`.
+4. **Never write the `<audience>:sid:revoked:<sid>` denylist key by hand** — `revoke()` writes it and disconnects the session's sockets. Any new student/employee socket gateway must `register` its server with `SessionSocketRegistry` in `afterInit`, reject a missing/revoked `sid` at handshake, and join `sessionRoom(sid)`, or a signed-out device keeps its socket.
+
 ## Redis key namespacing
 
 **The Redis instance is shared with `central-server`** (a separate, already-deployed app) on the same DB 0. Central owns the bare `admin:`, `employee:`, `client:`, `mcp:`, `mfa:`, `rbac:`, `presence:`, `flow:`, `idem:`, `throttle:`, `cron-claim:` and `reminders:` namespaces — several of which we used to collide with byte-for-byte. Everything this app writes lives under `REDIS_KEY_PREFIX` (`nucleus:`, in `src/redis/redis-namespace.ts`).
@@ -145,7 +154,7 @@ Every rule below fails **silently** when broken — no error, no warning.
 
    ```ts
    // good
-   await scanAndDelete(this.redis, this.familyKey(employeeId, '*'));
+   await scanAndDelete(this.redis, this.refreshKey(adminId, '*'));
    ```
 
 3. **Pub/sub channels must carry the prefix explicitly.** `keyPrefix` only applies to keys, and Redis pub/sub is not even DB-scoped — so any new `publish`/`subscribe` channel, or any Socket.IO adapter, has to interpolate `REDIS_KEY_PREFIX` itself (see `createAdapter(..., { key: \`${REDIS_KEY_PREFIX}socket.io\` })` in `src/redis/redis-io.adapter.ts`). Without it, a namespace name that happens to match one of central's cross-delivers broadcasts between the two apps.

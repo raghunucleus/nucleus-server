@@ -9,6 +9,7 @@ import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { ApprovalApproversModule } from './approval-approvers/approval-approvers.module';
 import { AppService } from './app.service';
+import { AuthSessionsModule } from './auth-sessions/auth-sessions.module';
 import { BrandModule } from './brand/brand.module';
 import { FakeDelayMiddleware } from './common/middleware/fake-delay.middleware';
 import { isDev, isProduction } from './common/runtime-env';
@@ -64,6 +65,9 @@ import { StudentNotificationModule } from './student/notification/student-notifi
                 'req.body.refreshToken',
                 'req.body.challengeToken',
                 'req.body.code',
+                // The device-limit 409 body carries a bearer challenge token,
+                // and the error interceptor logs the thrown response.
+                'err.response.challengeToken',
               ],
               censor: '***',
             },
@@ -101,6 +105,7 @@ import { StudentNotificationModule } from './student/notification/student-notifi
       }),
     }),
     RedisModule,
+    AuthSessionsModule,
     StorageModule,
     MailModule,
     HealthModule,

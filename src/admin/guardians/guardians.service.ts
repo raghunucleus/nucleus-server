@@ -7,6 +7,10 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { z } from 'zod';
+import {
+  AuthSessionsService,
+  SessionRow,
+} from '../../auth-sessions/auth-sessions.service';
 import { GuardianAuthService } from '../../guardian/guardian-auth.service';
 import {
   GuardianRelationship,
@@ -92,6 +96,7 @@ export class GuardiansService {
     private readonly students: Repository<Student>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly guardianAuth: GuardianAuthService,
+    private readonly sessions: AuthSessionsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -281,7 +286,9 @@ export class GuardiansService {
     const stillUsed = await this.contacts.count({
       where: { mobile_number: mobile },
     });
-    if (stillUsed === 0) await this.guardianAuth.logout(mobile);
+    if (stillUsed === 0) {
+      await this.guardianAuth.revokeAllForMobile(mobile, 'access_removed');
+    }
   }
 
   async setLoginPassword(mobile: string, password: string): Promise<void> {
@@ -290,6 +297,26 @@ export class GuardiansService {
 
   async sendOtp(mobile: string): Promise<void> {
     await this.guardianAuth.adminTriggerOtp(mobile);
+  }
+
+  /**
+   * A parent login's signed-in devices, IP included (admin view). Keyed by
+   * mobile — the login identity; a number that never set a password has no
+   * sessions.
+   */
+  async listSessions(mobile: string): Promise<SessionRow[]> {
+    const credId = await this.guardianAuth.credentialIdFor(mobile);
+    if (credId === null) return [];
+    return this.sessions.list('guardian', credId, { includeIp: true });
+  }
+
+  /** Force-sign-out one of a parent login's devices. */
+  async revokeSession(mobile: string, sessionId: string): Promise<void> {
+    const credId = await this.guardianAuth.credentialIdFor(mobile);
+    const ok =
+      credId !== null &&
+      (await this.sessions.revokeById('guardian', credId, sessionId, 'admin'));
+    if (!ok) throw new NotFoundException('Session not found');
   }
 
   // ---------------------------------------------------------------------------

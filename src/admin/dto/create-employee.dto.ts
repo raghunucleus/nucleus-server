@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { MAX_DEVICE_LIMIT } from '../../auth-sessions/session.constants';
 import { GENDERS } from '../entities/employee.entity';
 
 const empCodeSchema = z
@@ -57,6 +58,11 @@ export const CreateEmployeeSchema = z
       .transform((v) => v.toLowerCase()),
     rm_emp_code: z
       .union([empCodeSchema, z.null()])
+      .optional()
+      .transform((v) => (v === undefined ? null : v)),
+    // Concurrent-device override; null/absent = the global default (2).
+    device_limit: z
+      .union([z.number().int().min(1).max(MAX_DEVICE_LIMIT), z.null()])
       .optional()
       .transform((v) => (v === undefined ? null : v)),
   })

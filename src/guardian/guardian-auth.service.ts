@@ -15,7 +15,15 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomInt, randomUUID } from 'crypto';
 import { Redis } from 'ioredis';
 import { IsNull, Repository } from 'typeorm';
-import { scanAndDelete } from '../common/session-keys';
+import {
+  AuthSessionsService,
+  SessionContext,
+} from '../auth-sessions/auth-sessions.service';
+import type { SessionRevokedReason } from '../auth-sessions/auth-session.entity';
+import { DeviceLimitChallengeService } from '../auth-sessions/device-limit-challenge.service';
+import { throwDeviceLimit } from '../auth-sessions/device-limit';
+import type { DeviceLimitLoginInput } from '../auth-sessions/dto/device-limit-login.dto';
+import { DEFAULT_DEVICE_LIMIT } from '../auth-sessions/session.constants';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { GuardianCredential } from './entities/guardian-credential.entity';
 import { GuardianOtp } from './entities/guardian-otp.entity';
@@ -33,12 +41,13 @@ import {
 export interface GuardianAccessPayload {
   sub: string; // mobile_number
   mcp: boolean; // must change password
+  sid: string; // auth_sessions.id — checked against the revocation denylist
 }
 
 interface GuardianRefreshPayload {
   sub: string; // mobile_number
-  fid: string;
-  jti: string;
+  sid: string; // auth_sessions.id
+  jti: string; // must equal the session's current refresh_jti
 }
 
 export interface GuardianAuthTokens {
@@ -88,6 +97,8 @@ export class GuardianAuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly portal: GuardianPortalService,
+    private readonly sessions: AuthSessionsService,
+    private readonly challenges: DeviceLimitChallengeService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -97,9 +108,13 @@ export class GuardianAuthService {
   async login(
     mobileNumber: string,
     password: string,
-    ip?: string,
+    ctx: SessionContext = {},
   ): Promise<GuardianLoginResult> {
-    await this.enforceRateLimit('login', ip, RATE_LIMITS.login);
+    await this.enforceRateLimit(
+      'login',
+      ctx.ip ?? undefined,
+      RATE_LIMITS.login,
+    );
 
     const genericFailure = new UnauthorizedException(
       'Invalid mobile number or password',
@@ -126,34 +141,81 @@ export class GuardianAuthService {
       throw genericFailure;
     }
 
+    // The password is proven — the lockout counter resets even if the device
+    // limit pauses the login below.
     cred.failed_login_attempts = 0;
     cred.locked_until = null;
-    cred.last_login_at = new Date();
-    cred.last_login_ip = ip ?? null;
     await this.credentials.save(cred);
 
-    const tokens = await this.issueTokens(
-      mobileNumber,
-      cred.must_change_password,
-      randomUUID(),
+    return this.completeLogin(cred, ctx);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Device limit
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Finish a login the device limit paused — same semantics as the student
+   * and employee versions. A guardian session's subject is the credential row
+   * id (the mobile is the login identity, but a row id is what a session can
+   * be keyed on).
+   */
+  async completeDeviceLimitLogin(
+    input: DeviceLimitLoginInput,
+    ctx: Pick<SessionContext, 'ip' | 'userAgent'> = {},
+  ): Promise<GuardianLoginResult> {
+    await this.enforceRateLimit(
+      'login',
+      ctx.ip ?? undefined,
+      RATE_LIMITS.login,
     );
-    return {
-      ...tokens,
-      mustChangePassword: cred.must_change_password,
-      guardian: {
-        mobile_number: mobileNumber,
-        display_name:
-          (await this.portal.getDisplayName(mobileNumber)) ?? mobileNumber,
+    const invalid = new UnauthorizedException(
+      'Your sign-in session has expired. Please sign in again.',
+    );
+
+    const challenge = await this.challenges.peek(input.challengeToken);
+    if (!challenge || challenge.audience !== 'guardian') throw invalid;
+
+    const cred = await this.credentials.findOne({
+      where: { id: challenge.subjectId },
+    });
+    if (
+      !cred ||
+      !cred.password_hash ||
+      DeviceLimitChallengeService.supersededBy(
+        challenge,
+        cred.password_changed_at,
+      )
+    ) {
+      throw invalid;
+    }
+
+    for (const id of new Set(input.sessionIds)) {
+      await this.sessions.revokeById('guardian', cred.id, id, 'device_limit');
+    }
+
+    const result = await this.completeLogin(
+      cred,
+      {
+        deviceId: input.device_id,
+        deviceName: input.device_name,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
       },
-      students: await this.portal.listStudents(mobileNumber),
-    };
+      input.challengeToken,
+    );
+    await this.challenges.consume(input.challengeToken);
+    return result;
   }
 
   // ---------------------------------------------------------------------------
   // Refresh
   // ---------------------------------------------------------------------------
 
-  async refresh(refreshToken: string): Promise<GuardianAuthTokens> {
+  async refresh(
+    refreshToken: string,
+    ip?: string,
+  ): Promise<GuardianAuthTokens> {
     let payload: GuardianRefreshPayload;
     try {
       payload = await this.jwt.verifyAsync<GuardianRefreshPayload>(
@@ -166,40 +228,69 @@ export class GuardianAuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const familyKey = this.familyKey(payload.sub, payload.fid);
-    const currentJti = await this.redis.get(familyKey);
+    // Tokens minted before sessions existed carry no sid: sign in again.
+    if (!payload.sid) {
+      throw new UnauthorizedException(
+        'Your session has ended. Please sign in again.',
+      );
+    }
 
-    if (!currentJti) {
-      throw new UnauthorizedException(
-        'Your session has expired. Please sign in again.',
-      );
-    }
-    if (currentJti !== payload.jti) {
-      await this.redis.del(familyKey);
-      this.logger.warn(
-        `Refresh-token reuse detected for guardian ${payload.sub}; family ${payload.fid} revoked`,
-      );
-      throw new UnauthorizedException(
-        'Session security check failed. Please sign in again.',
-      );
-    }
+    const { session, refreshJti } = await this.sessions.rotateOnRefresh(
+      'guardian',
+      payload.sid,
+      payload.jti,
+      { ip },
+    );
 
     const cred = await this.credentials.findOne({
-      where: { mobile_number: payload.sub },
+      where: { id: session.subject_id },
     });
+    if (!cred) {
+      await this.sessions.revoke(session, 'access_removed');
+      throw new UnauthorizedException(
+        'Your session has ended. Please sign in again.',
+      );
+    }
     return this.issueTokens(
-      payload.sub,
-      cred?.must_change_password ?? false,
-      payload.fid,
+      cred.mobile_number,
+      cred.must_change_password,
+      session.id,
+      refreshJti,
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Logout
+  // Logout / revocation
   // ---------------------------------------------------------------------------
 
-  async logout(mobileNumber: string): Promise<void> {
-    await scanAndDelete(this.redis, this.familyKey(mobileNumber, '*'));
+  /** Sign out THIS device only; the parent's other devices stay signed in. */
+  async logout(mobileNumber: string, sid: string): Promise<void> {
+    const credId = await this.credentialIdFor(mobileNumber);
+    if (credId === null) return;
+    await this.sessions.revokeById('guardian', credId, sid, 'user');
+  }
+
+  /**
+   * Sign a mobile out of every device — for callers outside this service that
+   * change what the number may access (contact removed, sync freed it). A
+   * number that never set a password has no sessions: no-op.
+   */
+  async revokeAllForMobile(
+    mobileNumber: string,
+    reason: SessionRevokedReason,
+  ): Promise<void> {
+    const credId = await this.credentialIdFor(mobileNumber);
+    if (credId === null) return;
+    await this.sessions.revokeAllExcept('guardian', credId, null, reason);
+  }
+
+  /** The session subject for a mobile: its credential row id, if any. */
+  async credentialIdFor(mobileNumber: string): Promise<number | null> {
+    const cred = await this.credentials.findOne({
+      where: { mobile_number: mobileNumber },
+      select: { id: true },
+    });
+    return cred?.id ?? null;
   }
 
   // ---------------------------------------------------------------------------
@@ -221,6 +312,7 @@ export class GuardianAuthService {
 
   async changePassword(
     mobileNumber: string,
+    sid: string,
     currentPassword: string,
     newPassword: string,
   ): Promise<GuardianAuthTokens> {
@@ -245,8 +337,19 @@ export class GuardianAuthService {
     cred.locked_until = null;
     await this.credentials.save(cred);
 
-    await this.logout(mobileNumber);
-    return this.issueTokens(mobileNumber, false, randomUUID());
+    // Sign every OTHER device out; the device that proved the password keeps
+    // its session and gets a fresh pair without the must-change flag.
+    await this.sessions.revokeAllExcept(
+      'guardian',
+      cred.id,
+      sid,
+      'password_changed',
+    );
+    const { session, refreshJti } = await this.sessions.reissue(
+      'guardian',
+      sid,
+    );
+    return this.issueTokens(mobileNumber, false, session.id, refreshJti);
   }
 
   // ---------------------------------------------------------------------------
@@ -353,7 +456,12 @@ export class GuardianAuthService {
     cred.locked_until = null;
     await this.credentials.save(cred);
 
-    await this.logout(mobileNumber);
+    await this.sessions.revokeAllExcept(
+      'guardian',
+      cred.id,
+      null,
+      'password_reset',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -371,7 +479,12 @@ export class GuardianAuthService {
     cred.failed_login_attempts = 0;
     cred.locked_until = null;
     await this.credentials.save(cred);
-    await this.logout(mobileNumber);
+    await this.sessions.revokeAllExcept(
+      'guardian',
+      cred.id,
+      null,
+      'admin_password_reset',
+    );
   }
 
   async adminTriggerOtp(mobileNumber: string): Promise<void> {
@@ -395,46 +508,86 @@ export class GuardianAuthService {
     return this.channels.find((c) => c.canSend(target)) ?? null;
   }
 
+  /**
+   * The device-limit gate every login passes through — see
+   * `StudentAuthService.completeLogin`. Parents always get the default limit.
+   */
+  private async completeLogin(
+    cred: GuardianCredential,
+    ctx: SessionContext,
+    reuseChallenge?: string,
+  ): Promise<GuardianLoginResult> {
+    const mobileNumber = cred.mobile_number;
+    const outcome = await this.sessions.createWithinLimit(
+      'guardian',
+      cred.id,
+      DEFAULT_DEVICE_LIMIT,
+      ctx,
+    );
+    if ('limited' in outcome) {
+      const token =
+        reuseChallenge ??
+        (await this.challenges.issue({
+          audience: 'guardian',
+          subjectId: cred.id,
+          method: 'password',
+        }));
+      throwDeviceLimit(token, outcome.limit, outcome.active);
+    }
+
+    cred.last_login_at = new Date();
+    cred.last_login_ip = ctx.ip ?? null;
+    await this.credentials.save(cred);
+
+    const tokens = await this.issueTokens(
+      mobileNumber,
+      cred.must_change_password,
+      outcome.session.id,
+      outcome.refreshJti,
+    );
+    return {
+      ...tokens,
+      mustChangePassword: cred.must_change_password,
+      guardian: {
+        mobile_number: mobileNumber,
+        display_name:
+          (await this.portal.getDisplayName(mobileNumber)) ?? mobileNumber,
+      },
+      students: await this.portal.listStudents(mobileNumber),
+    };
+  }
+
+  /**
+   * Sign a pair for one session. Both tokens carry the `sid`; the refresh
+   * token's `jti` must match the session row's current `refresh_jti`.
+   */
   private async issueTokens(
     mobileNumber: string,
     mustChangePassword: boolean,
-    familyId: string,
+    sid: string,
+    refreshJti: string,
   ): Promise<GuardianAuthTokens> {
     const accessPayload: GuardianAccessPayload = {
       sub: mobileNumber,
       mcp: mustChangePassword,
+      sid,
     };
-
-    const accessTtl = parseDurationToSeconds(
-      this.config.get<string>('JWT_GUARDIAN_ACCESS_TTL', '15m'),
-    );
-    const refreshTtl = parseDurationToSeconds(
-      this.config.get<string>('JWT_GUARDIAN_REFRESH_TTL', '7d'),
-    );
 
     const accessToken = await this.jwt.signAsync(accessPayload, {
       secret: this.config.getOrThrow<string>('JWT_GUARDIAN_ACCESS_SECRET'),
-      expiresIn: accessTtl,
+      expiresIn: this.sessions.accessTtlSeconds('guardian'),
     });
 
-    const jti = randomUUID();
     const refreshToken = await this.jwt.signAsync(
       {
         sub: mobileNumber,
-        fid: familyId,
-        jti,
+        sid,
+        jti: refreshJti,
       } satisfies GuardianRefreshPayload,
       {
         secret: this.config.getOrThrow<string>('JWT_GUARDIAN_REFRESH_SECRET'),
-        expiresIn: refreshTtl,
+        expiresIn: this.sessions.refreshTtlSeconds('guardian'),
       },
-    );
-
-    await this.redis.set(
-      this.familyKey(mobileNumber, familyId),
-      jti,
-      'EX',
-      refreshTtl,
     );
 
     return { accessToken, refreshToken };
@@ -499,10 +652,6 @@ export class GuardianAuthService {
       this.dummyHashPromise = bcrypt.hash(randomUUID(), BCRYPT_ROUNDS);
     }
     await bcrypt.compare(password, await this.dummyHashPromise);
-  }
-
-  private familyKey(mobileNumber: string, familyId: string): string {
-    return `guardian:rt:${mobileNumber}:${familyId}`;
   }
 
   private hashOtp(otp: string): string {

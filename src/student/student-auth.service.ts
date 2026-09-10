@@ -12,16 +12,22 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { createHash, randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { Redis } from 'ioredis';
 import { Repository } from 'typeorm';
 import { Student } from '../admin/entities/student.entity';
-import { displayedAdmissionYear } from '../common/admission-year';
 import {
-  REFRESH_FAMILY_PREFIX,
-  refreshFamilyKey,
-  scanAndDelete,
-} from '../common/session-keys';
+  AuthSessionsService,
+  SessionContext,
+} from '../auth-sessions/auth-sessions.service';
+import {
+  DeviceLimitChallenge,
+  DeviceLimitChallengeService,
+} from '../auth-sessions/device-limit-challenge.service';
+import { throwDeviceLimit } from '../auth-sessions/device-limit';
+import type { DeviceLimitLoginInput } from '../auth-sessions/dto/device-limit-login.dto';
+import { DEFAULT_DEVICE_LIMIT } from '../auth-sessions/session.constants';
+import { displayedAdmissionYear } from '../common/admission-year';
 import { MailService } from '../mail/mail.service';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { StorageService } from '../storage/storage.service';
@@ -33,13 +39,14 @@ export interface StudentAccessPayload {
   sub: number; // students.id
   student_id: string; // roll number
   mcp: boolean; // must change password
+  sid: string; // auth_sessions.id — checked against the revocation denylist
 }
 
 /** Claims carried by a student refresh token. */
 interface StudentRefreshPayload {
   sub: number;
-  fid: string; // token family id
-  jti: string; // this token's unique id within the family
+  sid: string; // auth_sessions.id
+  jti: string; // must equal the session's current refresh_jti
 }
 
 export interface StudentAuthTokens {
@@ -104,6 +111,8 @@ export class StudentAuthService {
     private readonly mail: MailService,
     private readonly googleOidc: StudentGoogleOidcService,
     private readonly storage: StorageService,
+    private readonly sessions: AuthSessionsService,
+    private readonly challenges: DeviceLimitChallengeService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -113,8 +122,9 @@ export class StudentAuthService {
   async login(
     studentId: string,
     password: string,
-    ip?: string,
+    ctx: SessionContext = {},
   ): Promise<StudentLoginResult> {
+    const ip = ctx.ip ?? undefined;
     await this.enforceRateLimit('login', ip, RATE_LIMITS.login);
 
     // Generic message for every credential failure so the endpoint never
@@ -162,22 +172,13 @@ export class StudentAuthService {
       );
     }
 
+    // The password is proven — the lockout counter resets even if the device
+    // limit pauses the login below.
     cred.failed_login_attempts = 0;
     cred.locked_until = null;
-    cred.last_login_at = new Date();
-    cred.last_login_ip = ip ?? null;
     await this.credentials.save(cred);
 
-    const tokens = await this.issueTokens(
-      student,
-      cred.must_change_password,
-      randomUUID(),
-    );
-    return {
-      ...tokens,
-      mustChangePassword: cred.must_change_password,
-      student: this.toSummary(student),
-    };
+    return this.completeLogin(student, cred, ctx, 'password');
   }
 
   // ---------------------------------------------------------------------------
@@ -193,9 +194,13 @@ export class StudentAuthService {
    */
   async loginWithGoogle(
     idToken: string,
-    ip?: string,
+    ctx: SessionContext = {},
   ): Promise<StudentLoginResult> {
-    await this.enforceRateLimit('login', ip, RATE_LIMITS.login);
+    await this.enforceRateLimit(
+      'login',
+      ctx.ip ?? undefined,
+      RATE_LIMITS.login,
+    );
 
     const identity = await this.googleOidc.verifyIdToken(idToken);
     if (!identity.emailVerified) {
@@ -232,23 +237,82 @@ export class StudentAuthService {
     }
 
     cred.google_id = identity.sub;
-    cred.last_login_at = new Date();
-    cred.last_login_ip = ip ?? null;
     await this.credentials.save(cred);
 
-    const tokens = await this.issueTokens(student, false, randomUUID());
-    return {
-      ...tokens,
-      mustChangePassword: false,
-      student: this.toSummary(student),
-    };
+    return this.completeLogin(student, cred, ctx, 'google');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Device limit
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Finish a login the device limit paused: sign the chosen devices out, then
+   * run the same gate again.
+   *
+   * The challenge already encodes a fully proven authentication, so no
+   * credential is re-checked — but the account state is: it may have been
+   * deactivated, or its password reset, between the two steps. Ids that don't
+   * belong to this student or are already dead are silent no-ops. If the
+   * re-run STILL hits the limit (a race filled the freed slot), the challenge
+   * is deliberately NOT consumed — the caller gets a fresh device list and
+   * picks again with the same token.
+   */
+  async completeDeviceLimitLogin(
+    input: DeviceLimitLoginInput,
+    ctx: Pick<SessionContext, 'ip' | 'userAgent'> = {},
+  ): Promise<StudentLoginResult> {
+    await this.enforceRateLimit(
+      'login',
+      ctx.ip ?? undefined,
+      RATE_LIMITS.login,
+    );
+    const invalid = new UnauthorizedException(
+      'Your sign-in session has expired. Please sign in again.',
+    );
+
+    const challenge = await this.challenges.peek(input.challengeToken);
+    if (!challenge || challenge.audience !== 'student') throw invalid;
+
+    const student = await this.students.findOne({
+      where: { id: challenge.subjectId },
+    });
+    if (!student || !student.is_active) throw invalid;
+    const cred = await this.getOrCreateCredential(student.id);
+    if (
+      DeviceLimitChallengeService.supersededBy(
+        challenge,
+        cred.password_changed_at,
+      )
+    ) {
+      throw invalid;
+    }
+
+    for (const id of new Set(input.sessionIds)) {
+      await this.sessions.revokeById('student', student.id, id, 'device_limit');
+    }
+
+    const result = await this.completeLogin(
+      student,
+      cred,
+      {
+        deviceId: input.device_id,
+        deviceName: input.device_name,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      },
+      challenge.method,
+      input.challengeToken,
+    );
+    await this.challenges.consume(input.challengeToken);
+    return result;
   }
 
   // ---------------------------------------------------------------------------
   // Refresh — single-use rotation with token-reuse detection
   // ---------------------------------------------------------------------------
 
-  async refresh(refreshToken: string): Promise<StudentAuthTokens> {
+  async refresh(refreshToken: string, ip?: string): Promise<StudentAuthTokens> {
     let payload: StudentRefreshPayload;
     try {
       payload = await this.jwt.verifyAsync<StudentRefreshPayload>(
@@ -260,50 +324,44 @@ export class StudentAuthService {
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
-
-    const familyKey = this.familyKey(payload.sub, payload.fid);
-    const currentJti = await this.redis.get(familyKey);
-
-    if (!currentJti) {
-      // Family was revoked (logout / password change) or simply expired.
+    // Tokens minted before sessions existed carry no sid: sign in again.
+    if (!payload.sid) {
       throw new UnauthorizedException(
-        'Your session has expired. Please sign in again.',
+        'Your session has ended. Please sign in again.',
       );
     }
 
-    if (currentJti !== payload.jti) {
-      // A non-current token from a live family was replayed. The only way to
-      // hold such a token is to have captured one before it was rotated —
-      // treat it as theft and burn the whole family.
-      await this.redis.del(familyKey);
-      this.logger.warn(
-        `Refresh-token reuse detected for student ${payload.sub}; family ${payload.fid} revoked`,
-      );
-      throw new UnauthorizedException(
-        'Session security check failed. Please sign in again.',
-      );
-    }
+    const { session, refreshJti } = await this.sessions.rotateOnRefresh(
+      'student',
+      payload.sid,
+      payload.jti,
+      { ip },
+    );
 
     const student = await this.students.findOne({
-      where: { id: payload.sub },
+      where: { id: session.subject_id },
     });
     if (!student || !student.is_active) {
-      await this.redis.del(familyKey);
+      await this.sessions.revoke(session, 'deactivated');
       throw new UnauthorizedException('Account is no longer active');
     }
 
     const cred = await this.getOrCreateCredential(student.id);
-    // Rotate within the same family (issueTokens overwrites the family key).
-    return this.issueTokens(student, cred.must_change_password, payload.fid);
+    return this.issueTokens(
+      student,
+      cred.must_change_password,
+      session.id,
+      refreshJti,
+    );
   }
 
   // ---------------------------------------------------------------------------
   // Logout
   // ---------------------------------------------------------------------------
 
-  /** Revoke every refresh-token family for a student (all devices). */
-  async logout(studentId: number): Promise<void> {
-    await scanAndDelete(this.redis, this.familyKey(studentId, '*'));
+  /** Sign out THIS device only; the student's other devices stay signed in. */
+  async logout(studentId: number, sid: string): Promise<void> {
+    await this.sessions.revokeById('student', studentId, sid, 'user');
   }
 
   // ---------------------------------------------------------------------------
@@ -312,6 +370,7 @@ export class StudentAuthService {
 
   async changePassword(
     studentId: number,
+    sid: string,
     currentPassword: string,
     newPassword: string,
   ): Promise<StudentAuthTokens> {
@@ -337,10 +396,16 @@ export class StudentAuthService {
     cred.locked_until = null;
     await this.credentials.save(cred);
 
-    // Revoke every existing session, then mint a fresh pair for the caller so
-    // the current device stays signed in without the must-change flag.
-    await this.logout(studentId);
-    return this.issueTokens(student, false, randomUUID());
+    // Sign every OTHER device out; the device that proved the password keeps
+    // its session and gets a fresh pair without the must-change flag.
+    await this.sessions.revokeAllExcept(
+      'student',
+      studentId,
+      sid,
+      'password_changed',
+    );
+    const { session, refreshJti } = await this.sessions.reissue('student', sid);
+    return this.issueTokens(student, false, session.id, refreshJti);
   }
 
   // ---------------------------------------------------------------------------
@@ -428,7 +493,12 @@ export class StudentAuthService {
     await this.credentials.save(cred);
 
     // A reset implies the account may be compromised — drop every session.
-    await this.logout(studentId);
+    await this.sessions.revokeAllExcept(
+      'student',
+      studentId,
+      null,
+      'password_reset',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -469,7 +539,12 @@ export class StudentAuthService {
 
     // Invalidate any sessions the student (or someone misusing the account)
     // currently holds.
-    await this.logout(studentId);
+    await this.sessions.revokeAllExcept(
+      'student',
+      studentId,
+      null,
+      'admin_password_reset',
+    );
 
     return { email: student.email };
   }
@@ -492,7 +567,12 @@ export class StudentAuthService {
     cred.locked_until = null;
     await this.credentials.save(cred);
 
-    await this.logout(studentId);
+    await this.sessions.revokeAllExcept(
+      'student',
+      studentId,
+      null,
+      'admin_password_reset',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -545,45 +625,85 @@ export class StudentAuthService {
   // Internals
   // ---------------------------------------------------------------------------
 
+  /**
+   * The device-limit gate every login passes through. Under the limit it
+   * creates the session and returns tokens; at the limit it pauses the login
+   * with a 409 carrying a single-use challenge (or `reuseChallenge`, when the
+   * picker's retry still found every slot taken) and the occupying devices.
+   */
+  private async completeLogin(
+    student: Student,
+    cred: StudentCredential,
+    ctx: SessionContext,
+    method: DeviceLimitChallenge['method'],
+    reuseChallenge?: string,
+  ): Promise<StudentLoginResult> {
+    // A Google session never carries the must-change flag: it isn't a
+    // password login.
+    const mcp = method === 'password' ? cred.must_change_password : false;
+    const outcome = await this.sessions.createWithinLimit(
+      'student',
+      student.id,
+      DEFAULT_DEVICE_LIMIT,
+      ctx,
+    );
+    if ('limited' in outcome) {
+      const token =
+        reuseChallenge ??
+        (await this.challenges.issue({
+          audience: 'student',
+          subjectId: student.id,
+          method,
+        }));
+      throwDeviceLimit(token, outcome.limit, outcome.active);
+    }
+
+    cred.last_login_at = new Date();
+    cred.last_login_ip = ctx.ip ?? null;
+    await this.credentials.save(cred);
+
+    const tokens = await this.issueTokens(
+      student,
+      mcp,
+      outcome.session.id,
+      outcome.refreshJti,
+    );
+    return {
+      ...tokens,
+      mustChangePassword: mcp,
+      student: this.toSummary(student),
+    };
+  }
+
+  /**
+   * Sign a pair for one session. Both tokens carry the `sid`; the refresh
+   * token's `jti` must match the session row's current `refresh_jti`, which
+   * `AuthSessionsService` rotates.
+   */
   private async issueTokens(
     student: Student,
     mustChangePassword: boolean,
-    familyId: string,
+    sid: string,
+    refreshJti: string,
   ): Promise<StudentAuthTokens> {
     const accessPayload: StudentAccessPayload = {
       sub: student.id,
       student_id: student.student_id,
       mcp: mustChangePassword,
+      sid,
     };
-
-    const accessTtl = parseDurationToSeconds(
-      this.config.get<string>('JWT_STUDENT_ACCESS_TTL', '15m'),
-    );
-    const refreshTtl = parseDurationToSeconds(
-      this.config.get<string>('JWT_STUDENT_REFRESH_TTL', '7d'),
-    );
 
     const accessToken = await this.jwt.signAsync(accessPayload, {
       secret: this.config.getOrThrow<string>('JWT_STUDENT_ACCESS_SECRET'),
-      expiresIn: accessTtl,
+      expiresIn: this.sessions.accessTtlSeconds('student'),
     });
 
-    const jti = randomUUID();
     const refreshToken = await this.jwt.signAsync(
-      { sub: student.id, fid: familyId, jti } satisfies StudentRefreshPayload,
+      { sub: student.id, sid, jti: refreshJti } satisfies StudentRefreshPayload,
       {
         secret: this.config.getOrThrow<string>('JWT_STUDENT_REFRESH_SECRET'),
-        expiresIn: refreshTtl,
+        expiresIn: this.sessions.refreshTtlSeconds('student'),
       },
-    );
-
-    // The family key holds the *current* valid jti. Rotation overwrites it;
-    // any stale jti presented later fails the equality check in refresh().
-    await this.redis.set(
-      this.familyKey(student.id, familyId),
-      jti,
-      'EX',
-      refreshTtl,
     );
 
     return { accessToken, refreshToken };
@@ -677,10 +797,6 @@ export class StudentAuthService {
       display_name: student.display_name,
       email: student.email,
     };
-  }
-
-  private familyKey(studentId: number, familyId: string): string {
-    return refreshFamilyKey(REFRESH_FAMILY_PREFIX.student, studentId, familyId);
   }
 
   private resetKey(tokenHash: string): string {

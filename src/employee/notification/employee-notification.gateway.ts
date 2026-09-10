@@ -3,10 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
   OnGatewayConnection,
+  OnGatewayInit,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { AuthSessionsService } from '../../auth-sessions/auth-sessions.service';
+import { SessionSocketRegistry } from '../../auth-sessions/session-socket-registry';
+import { sessionRoom } from '../../auth-sessions/session.constants';
 import type { EmployeeAccessPayload } from '../auth/employee-auth.service';
 
 /**
@@ -20,19 +24,30 @@ import type { EmployeeAccessPayload } from '../auth/employee-auth.service';
  * a student token presented here fails verification and is disconnected, so the
  * two audiences can never cross over. The gateway only emits (server → client);
  * marking read happens over REST.
+ *
+ * Each socket also joins `session:<sid>`, so signing that device out
+ * disconnects it immediately through {@link SessionSocketRegistry}.
  */
 @WebSocketGateway({
   namespace: '/employee/notifications',
   cors: { origin: true, credentials: true },
 })
-export class EmployeeNotificationsGateway implements OnGatewayConnection {
+export class EmployeeNotificationsGateway
+  implements OnGatewayInit, OnGatewayConnection
+{
   @WebSocketServer() server: Server;
   private readonly logger = new Logger('EmployeeNotificationsGateway');
 
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly sessions: AuthSessionsService,
+    private readonly socketRegistry: SessionSocketRegistry,
   ) {}
+
+  afterInit(server: Server): void {
+    this.socketRegistry.register(server);
+  }
 
   async handleConnection(client: Socket): Promise<void> {
     try {
@@ -42,8 +57,14 @@ export class EmployeeNotificationsGateway implements OnGatewayConnection {
       });
       // An employee mid-password-reset must not receive notifications.
       if (payload.mcp) throw new Error('password change pending');
+      if (
+        !payload.sid ||
+        (await this.sessions.isRevoked('employee', payload.sid))
+      ) {
+        throw new Error('session ended');
+      }
       client.data.employeeId = payload.sub;
-      await client.join(this.room(payload.sub));
+      await client.join([this.room(payload.sub), sessionRoom(payload.sid)]);
     } catch {
       client.disconnect(true);
     }

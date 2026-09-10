@@ -2,13 +2,20 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Ip,
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { DeviceLimitLoginDto } from '../auth-sessions/dto/device-limit-login.dto';
 import { GetGuardian } from './auth/get-guardian.decorator';
 import { GuardianJwtAuthGuard } from './auth/guardian-jwt-auth.guard';
 import type { AuthenticatedGuardian } from './auth/guardian-jwt.strategy';
@@ -40,11 +47,40 @@ export class GuardianAuthController {
       'Sign in with mobile number + password. Returns tokens and the list of ' +
       'linked students so the app can show the child selector immediately.',
   })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Device limit reached (`code: DEVICE_LIMIT`): body carries a ' +
+      'challengeToken and the signed-in devices; finish via login/device-limit.',
+  })
   login(
     @Body() dto: GuardianLoginDto,
     @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
   ): Promise<GuardianLoginResult> {
-    return this.auth.login(dto.mobile_number, dto.password, ip);
+    return this.auth.login(dto.mobile_number, dto.password, {
+      deviceId: dto.device_id,
+      deviceName: dto.device_name,
+      ip,
+      userAgent,
+    });
+  }
+
+  @Post('login/device-limit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Finish a login paused by the device limit: sign the chosen devices ' +
+      'out, then sign in here. Still at the limit → 409 again with the SAME ' +
+      'challengeToken and a fresh device list.',
+  })
+  @ApiResponse({ status: 409, description: 'Still at the device limit.' })
+  completeDeviceLimitLogin(
+    @Body() dto: DeviceLimitLoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<GuardianLoginResult> {
+    return this.auth.completeDeviceLimitLogin(dto, { ip, userAgent });
   }
 
   @Post('refresh')
@@ -52,10 +88,13 @@ export class GuardianAuthController {
   @ApiOperation({
     summary:
       'Exchange a refresh token for a new pair. Single-use; replaying a ' +
-      'rotated token revokes the whole session family.',
+      'rotated token outside the short grace window signs that device out.',
   })
-  refresh(@Body() dto: GuardianRefreshDto): Promise<GuardianAuthTokens> {
-    return this.auth.refresh(dto.refreshToken);
+  refresh(
+    @Body() dto: GuardianRefreshDto,
+    @Ip() ip: string,
+  ): Promise<GuardianAuthTokens> {
+    return this.auth.refresh(dto.refreshToken, ip);
   }
 
   @Post('request-otp')
@@ -100,9 +139,11 @@ export class GuardianAuthController {
   @ApiBearerAuth('guardian-access-token')
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Revoke every session for the current guardian.' })
+  @ApiOperation({
+    summary: 'Sign out this device. Other signed-in devices are unaffected.',
+  })
   async logout(@GetGuardian() guardian: AuthenticatedGuardian): Promise<void> {
-    await this.auth.logout(guardian.mobile_number);
+    await this.auth.logout(guardian.mobile_number, guardian.sid);
   }
 
   @UseGuards(GuardianJwtAuthGuard, GuardianRequirePasswordChangedGuard)
@@ -123,7 +164,8 @@ export class GuardianAuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Change password. Revokes all other sessions and returns a fresh pair.',
+      'Change password. Signs out every other device and returns a fresh ' +
+      'pair for this one.',
   })
   changePassword(
     @GetGuardian() guardian: AuthenticatedGuardian,
@@ -131,6 +173,7 @@ export class GuardianAuthController {
   ): Promise<GuardianAuthTokens> {
     return this.auth.changePassword(
       guardian.mobile_number,
+      guardian.sid,
       dto.currentPassword,
       dto.newPassword,
     );

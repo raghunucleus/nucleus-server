@@ -57,6 +57,7 @@ import { StudentResumeService } from './profile/student-resume.service';
 import { StudentAcademicsController } from './portal/student-academics.controller';
 import { StudentPortalService } from './portal/student-portal.service';
 import { StudentAuthController } from './student-auth.controller';
+import { StudentSessionsController } from './student-sessions.controller';
 import { StudentAuthService } from './student-auth.service';
 
 @Module({
@@ -103,6 +104,7 @@ import { StudentAuthService } from './student-auth.service';
   ],
   controllers: [
     StudentAuthController,
+    StudentSessionsController,
     StudentAcademicsController,
     StudentIdCardController,
     StudentBirthdaysController,

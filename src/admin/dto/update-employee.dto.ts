@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { MAX_DEVICE_LIMIT } from '../../auth-sessions/session.constants';
 import { GENDERS } from '../entities/employee.entity';
 
 const empCodeSchema = z
@@ -60,6 +61,11 @@ export const UpdateEmployeeSchema = z
       .optional(),
     // null clears the reporting manager; undefined leaves it untouched.
     rm_emp_code: z.union([empCodeSchema, z.null()]).optional(),
+    // Concurrent-device override. null resets to the global default (2);
+    // undefined leaves it untouched. Lowering it never evicts anyone.
+    device_limit: z
+      .union([z.number().int().min(1).max(MAX_DEVICE_LIMIT), z.null()])
+      .optional(),
   })
   .strict();
 

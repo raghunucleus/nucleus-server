@@ -13,6 +13,7 @@ import { GuardianCredential } from './entities/guardian-credential.entity';
 import { GuardianOtp } from './entities/guardian-otp.entity';
 import { StudentGuardian } from './entities/student-guardian.entity';
 import { GuardianAuthController } from './guardian-auth.controller';
+import { GuardianSessionsController } from './guardian-sessions.controller';
 import { GuardianAuthService } from './guardian-auth.service';
 import { GuardianSyncService } from './guardian-sync.service';
 import { GuardianAcademicsController } from './portal/guardian-academics.controller';
@@ -39,6 +40,7 @@ import { GuardianStudentsController } from './portal/guardian-students.controlle
   ],
   controllers: [
     GuardianAuthController,
+    GuardianSessionsController,
     GuardianStudentsController,
     GuardianAcademicsController,
   ],

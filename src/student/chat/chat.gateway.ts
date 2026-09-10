@@ -5,11 +5,15 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { AuthSessionsService } from '../../auth-sessions/auth-sessions.service';
+import { SessionSocketRegistry } from '../../auth-sessions/session-socket-registry';
+import { sessionRoom } from '../../auth-sessions/session.constants';
 import type { StudentAccessPayload } from '../student-auth.service';
 import { StudentNotificationService } from '../notification/student-notification.service';
 import { ChatService } from './chat.service';
@@ -31,12 +35,15 @@ const SILENT_MESSAGE_ID = Number.MAX_SAFE_INTEGER;
  * private room `student:<id>`, so emitting to a participant reaches all of their
  * devices regardless of which server instance holds the socket (the Redis
  * adapter fans the emit out across instances).
+ *
+ * Each socket also joins `session:<sid>`, so signing that device out
+ * disconnects it immediately through {@link SessionSocketRegistry}.
  */
 @WebSocketGateway({
   namespace: '/student/chat',
   cors: { origin: true, credentials: true },
 })
-export class ChatGateway implements OnGatewayConnection {
+export class ChatGateway implements OnGatewayInit, OnGatewayConnection {
   @WebSocketServer() server: Server;
   private readonly logger = new Logger('ChatGateway');
 
@@ -45,7 +52,13 @@ export class ChatGateway implements OnGatewayConnection {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly notifications: StudentNotificationService,
+    private readonly sessions: AuthSessionsService,
+    private readonly socketRegistry: SessionSocketRegistry,
   ) {}
+
+  afterInit(server: Server): void {
+    this.socketRegistry.register(server);
+  }
 
   async handleConnection(client: Socket): Promise<void> {
     try {
@@ -54,8 +67,14 @@ export class ChatGateway implements OnGatewayConnection {
         secret: this.config.getOrThrow<string>('JWT_STUDENT_ACCESS_SECRET'),
       });
       if (payload.mcp) throw new Error('password change pending');
+      if (
+        !payload.sid ||
+        (await this.sessions.isRevoked('student', payload.sid))
+      ) {
+        throw new Error('session ended');
+      }
       client.data.studentId = payload.sub;
-      await client.join(this.room(payload.sub));
+      await client.join([this.room(payload.sub), sessionRoom(payload.sid)]);
     } catch {
       client.disconnect(true);
     }

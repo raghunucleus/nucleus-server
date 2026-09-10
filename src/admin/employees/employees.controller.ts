@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -20,7 +22,11 @@ import { ListEmployeesDto } from '../dto/list-employees.dto';
 import { SetEmployeePasswordDto } from '../dto/set-employee-password.dto';
 import { UpdateEmployeeDto } from '../dto/update-employee.dto';
 import { Employee } from '../entities/employee.entity';
-import { EmployeesService, ListEmployeesResult } from './employees.service';
+import {
+  EmployeeSessionsView,
+  EmployeesService,
+  ListEmployeesResult,
+} from './employees.service';
 
 @ApiTags('employees')
 @ApiBearerAuth('admin-access-token')
@@ -115,8 +121,32 @@ export class EmployeesController {
 
   @Post(':id/deactivate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Deactivate an employee.' })
+  @ApiOperation({
+    summary: 'Deactivate an employee. Signs them out of every device.',
+  })
   deactivate(@Param('id', ParseIntPipe) id: number): Promise<Employee> {
     return this.employees.setActive(id, false);
+  }
+
+  @Get(':id/sessions')
+  @ApiOperation({
+    summary:
+      "List the employee's signed-in devices (with login IP) and the device " +
+      'limit they count against.',
+  })
+  listSessions(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<EmployeeSessionsView> {
+    return this.employees.listSessions(id);
+  }
+
+  @Delete(':id/sessions/:sessionId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Force-sign-out one of the employee’s devices.' })
+  async revokeSession(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ): Promise<void> {
+    await this.employees.revokeSession(id, sessionId);
   }
 }

@@ -10,6 +10,10 @@ import {
   AccountInviteService,
   AccountStatusView,
 } from '../../account-invites/account-invite.service';
+import {
+  AuthSessionsService,
+  SessionRow,
+} from '../../auth-sessions/auth-sessions.service';
 import { GuardianSyncService } from '../../guardian/guardian-sync.service';
 import { StudentAuthService } from '../../student/student-auth.service';
 import {
@@ -262,6 +266,7 @@ export class StudentsService {
     private readonly guardianSync: GuardianSyncService,
     private readonly resumes: StudentResumeService,
     private readonly invites: AccountInviteService,
+    private readonly sessions: AuthSessionsService,
   ) {}
 
   async list(opts: {
@@ -813,7 +818,36 @@ export class StudentsService {
     if (student.is_active === active) return student;
 
     student.is_active = active;
-    return this.students.save(student);
+    const saved = await this.students.save(student);
+    // Deactivation takes effect now, not at the next refresh: every device is
+    // signed out (its next request is refused and its sockets drop).
+    if (!active) {
+      await this.sessions.revokeAllExcept('student', id, null, 'deactivated');
+    }
+    return saved;
+  }
+
+  /** The student's signed-in devices, IP included (admin view). */
+  async listSessions(id: number): Promise<SessionRow[]> {
+    await this.assertExists(id);
+    return this.sessions.list('student', id, { includeIp: true });
+  }
+
+  /** Force-sign-out one of the student's devices. */
+  async revokeSession(id: number, sessionId: string): Promise<void> {
+    await this.assertExists(id);
+    const ok = await this.sessions.revokeById(
+      'student',
+      id,
+      sessionId,
+      'admin',
+    );
+    if (!ok) throw new NotFoundException('Session not found');
+  }
+
+  private async assertExists(id: number): Promise<void> {
+    const found = await this.students.exists({ where: { id } });
+    if (!found) throw new NotFoundException('Student not found');
   }
 
   /**
