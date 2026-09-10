@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { RbacModule } from '../../rbac/rbac.module';
 import { StudentQueryModule } from '../../student-query/student-query.module';
 import { EmployeeAuthModule } from '../auth/employee-auth.module';
+import { ExportsModule } from '../exports/exports.module';
 import { EmployeeStudentsSearchController } from './employee-students-search.controller';
 import { EmployeeStudentsSearchService } from './employee-students-search.service';
 
@@ -10,7 +11,7 @@ import { EmployeeStudentsSearchService } from './employee-students-search.servic
  * Thin RBAC wrapper over the shared StudentQueryModule engine.
  */
 @Module({
-  imports: [StudentQueryModule, RbacModule, EmployeeAuthModule],
+  imports: [StudentQueryModule, RbacModule, EmployeeAuthModule, ExportsModule],
   controllers: [EmployeeStudentsSearchController],
   providers: [EmployeeStudentsSearchService],
 })
