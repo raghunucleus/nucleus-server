@@ -26,8 +26,6 @@ export class MailService {
   private readonly isDev: boolean;
   private readonly enabled: boolean;
   private readonly from: { email: string; name: string };
-  /** Absolute URL of the header logo, or null → text wordmark (see renderMailShell). */
-  private readonly logoUrl: string | null;
 
   constructor(
     private readonly config: ConfigService,
@@ -38,13 +36,6 @@ export class MailService {
     const apiKey = this.config.get<string>('SENDGRID_API_KEY');
     // Real delivery only happens outside dev with a key configured.
     this.enabled = !!apiKey && !this.isDev;
-
-    // The logo is served by this API (BrandController); mail clients need an
-    // absolute URL, so it hinges on the public origin being configured.
-    const apiBase = (this.config.get<string>('API_PUBLIC_BASE_URL') ?? '')
-      .trim()
-      .replace(/\/+$/, '');
-    this.logoUrl = apiBase ? `${apiBase}/brand/email-logo.png` : null;
 
     if (this.enabled) {
       sgMail.setApiKey(apiKey as string);
@@ -583,9 +574,9 @@ export class MailService {
     });
   }
 
-  /** Every template renders into the shared shell; the header carries the logo when the API's public origin is known. */
+  /** Every template renders into the shared shell. */
   private wrapHtml(body: string): string {
-    return renderMailShell(body, this.logoUrl);
+    return renderMailShell(body);
   }
 }
 
@@ -628,15 +619,12 @@ const MAIL_THEME = {
  * `body` is dropped in verbatim, so each template keeps authoring plain `<p>`
  * markup and gets the new frame for free.
  *
- * The header shows the Nucleus logo (`/brand/email-logo.png`, a 2× PNG of the
- * mark on a white tile plus a white wordmark, made for the blue bar) when
- * `logoUrl` is known; otherwise — and in clients that block remote images —
- * the text wordmark / `alt` keeps the header readable.
+ * The header is a plain-text "Nucleus" wordmark, deliberately not an image: a
+ * remote logo shows as a broken-image icon whenever the client blocks remote
+ * images or can't reach the host, while text renders identically everywhere.
  */
-function renderMailShell(body: string, logoUrl: string | null): string {
-  const brand = logoUrl
-    ? `<img src="${escapeAttr(logoUrl)}" width="135" height="40" alt="Nucleus" style="display:block;border:0;outline:none;text-decoration:none;width:135px;height:40px;font-family:${MAIL_THEME.font};font-size:18px;font-weight:600;color:#ffffff">`
-    : `<span style="font-family:${MAIL_THEME.font};font-size:18px;font-weight:600;color:#ffffff;letter-spacing:-0.01em">Nucleus</span>`;
+function renderMailShell(body: string): string {
+  const brand = `<span style="font-family:${MAIL_THEME.font};font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.01em">Nucleus</span>`;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${MAIL_THEME.page};margin:0;padding:24px 12px">
   <tr>
     <td align="center">

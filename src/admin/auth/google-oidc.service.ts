@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OAuth2Client, type TokenPayload } from 'google-auth-library';
+import {
+  GOOGLE_ALLOWED_DOMAINS_ENV,
+  googleAccountDomain,
+  parseGoogleAllowedDomains,
+} from '../../common/google-allowed-domains';
 
 export interface VerifiedGoogleIdentity {
   sub: string;
@@ -53,14 +58,18 @@ export class GoogleOidcService {
       );
       throw new UnauthorizedException('Invalid Google credential');
     }
-    console.log({ payload });
     if (!payload) throw new UnauthorizedException('Invalid Google credential');
     if (!payload.email)
       throw new UnauthorizedException('Invalid Google credential');
 
-    const allowedDomains = this.parseAllowedDomains();
+    const allowedDomains = parseGoogleAllowedDomains(
+      this.config.get<string>(GOOGLE_ALLOWED_DOMAINS_ENV),
+    );
     if (allowedDomains.length > 0) {
-      const domain = (payload.hd ?? this.domainOf(payload.email)).toLowerCase();
+      const domain = googleAccountDomain({
+        hd: payload.hd,
+        email: payload.email,
+      });
       if (!allowedDomains.includes(domain)) {
         this.logger.warn(
           `Rejected Google sign-in: domain="${domain}" hd="${payload.hd ?? ''}" email="${payload.email}" allowlist=[${allowedDomains.join(',')}]`,
@@ -87,18 +96,5 @@ export class GoogleOidcService {
       this.clientCache = new OAuth2Client(clientId);
     }
     return this.clientCache;
-  }
-
-  private parseAllowedDomains(): string[] {
-    const raw = this.config.get<string>('GOOGLE_ADMIN_ALLOWED_DOMAINS') ?? '';
-    return raw
-      .split(',')
-      .map((d) => d.trim().toLowerCase())
-      .filter((d) => d.length > 0);
-  }
-
-  private domainOf(email: string): string {
-    const at = email.lastIndexOf('@');
-    return at >= 0 ? email.slice(at + 1) : '';
   }
 }
