@@ -4,8 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, QueryFailedError, Repository } from 'typeorm';
+import type { BulkCreateSubjectRow } from '../dto/bulk-create-subjects.dto';
+import {
+  SUBJECT_CODE_MESSAGE,
+  SUBJECT_CODE_REGEX,
+} from '../dto/create-subject.dto';
 import type { SubjectsSortField } from '../dto/list-subjects.dto';
 import { Regulation } from '../entities/regulation.entity';
 import { Subject } from '../entities/subject.entity';
@@ -40,6 +45,18 @@ interface UpdateSubjectInput {
   name?: string;
 }
 
+export interface SubjectRowError {
+  rowIndex: number;
+  field?: 'subject_type' | 'code' | 'name';
+  message: string;
+}
+
+export interface BulkCreateSubjectsResult {
+  created: number;
+}
+
+const SUBJECT_CODE_MAX = 32;
+
 @Injectable()
 export class SubjectsService {
   constructor(
@@ -49,6 +66,8 @@ export class SubjectsService {
     private readonly regulations: Repository<Regulation>,
     @InjectRepository(SubjectType)
     private readonly subjectTypes: Repository<SubjectType>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async list(opts: {
@@ -130,6 +149,188 @@ export class SubjectsService {
     });
     const saved = await this.subjects.save(row);
     return this.getOne(saved.id);
+  }
+
+  /**
+   * Create-only bulk insert under one regulation. The subject type cell may
+   * hold a type's code or its name (case-insensitive). Every problem — missing
+   * cells, bad code format, unknown/inactive type, duplicates within the file
+   * or against existing subjects — is collected as a per-cell row error; any
+   * error rejects the whole batch.
+   */
+  async bulkCreate(
+    regulationId: number,
+    rows: BulkCreateSubjectRow[],
+  ): Promise<BulkCreateSubjectsResult> {
+    await this.assertRegulationExists(regulationId);
+
+    const types = await this.subjectTypes.find();
+    const typeByCode = new Map(types.map((t) => [t.code.toUpperCase(), t]));
+    const typeByName = new Map(types.map((t) => [t.name.toLowerCase(), t]));
+
+    const errors: SubjectRowError[] = [];
+    const resolved: ({
+      subject_type_id: number;
+      code: string;
+      name: string;
+    } | null)[] = [];
+    const firstRowByCode = new Map<string, number>();
+    const firstRowByName = new Map<string, number>();
+
+    rows.forEach((r, i) => {
+      let typeId: number | null = null;
+      if (!r.subject_type) {
+        errors.push({
+          rowIndex: i,
+          field: 'subject_type',
+          message: 'Required',
+        });
+      } else {
+        const t =
+          typeByCode.get(r.subject_type.toUpperCase()) ??
+          typeByName.get(r.subject_type.toLowerCase());
+        if (!t) {
+          errors.push({
+            rowIndex: i,
+            field: 'subject_type',
+            message: `Unknown subject type "${r.subject_type}"`,
+          });
+        } else if (!t.is_active) {
+          errors.push({
+            rowIndex: i,
+            field: 'subject_type',
+            message: `Subject type "${t.code}" is inactive`,
+          });
+        } else {
+          typeId = t.id;
+        }
+      }
+
+      let code: string | null = null;
+      if (!r.code) {
+        errors.push({ rowIndex: i, field: 'code', message: 'Required' });
+      } else {
+        const upper = r.code.toUpperCase();
+        if (upper.length > SUBJECT_CODE_MAX) {
+          errors.push({
+            rowIndex: i,
+            field: 'code',
+            message: `Max ${SUBJECT_CODE_MAX} characters`,
+          });
+        } else if (!SUBJECT_CODE_REGEX.test(upper)) {
+          errors.push({
+            rowIndex: i,
+            field: 'code',
+            message: SUBJECT_CODE_MESSAGE,
+          });
+        } else if (firstRowByCode.has(upper)) {
+          errors.push({
+            rowIndex: i,
+            field: 'code',
+            message: `Duplicate of row ${firstRowByCode.get(upper)! + 1}`,
+          });
+        } else {
+          firstRowByCode.set(upper, i);
+          code = upper;
+        }
+      }
+
+      let name: string | null = null;
+      if (!r.name) {
+        errors.push({ rowIndex: i, field: 'name', message: 'Required' });
+      } else {
+        const key = r.name.toLowerCase();
+        if (firstRowByName.has(key)) {
+          errors.push({
+            rowIndex: i,
+            field: 'name',
+            message: `Duplicate of row ${firstRowByName.get(key)! + 1}`,
+          });
+        } else {
+          firstRowByName.set(key, i);
+          name = r.name;
+        }
+      }
+
+      resolved.push(
+        typeId !== null && code !== null && name !== null
+          ? { subject_type_id: typeId, code, name }
+          : null,
+      );
+    });
+
+    // Clashes with existing subjects. Codes are unique across all regulations;
+    // names only within this one.
+    if (firstRowByCode.size > 0) {
+      const clashes = await this.subjects
+        .createQueryBuilder('s')
+        .leftJoinAndSelect('s.regulation', 'regulation')
+        .where('UPPER(s.code) IN (:...codes)', {
+          codes: [...firstRowByCode.keys()],
+        })
+        .getMany();
+      for (const s of clashes) {
+        const i = firstRowByCode.get(s.code.toUpperCase());
+        if (i === undefined) continue;
+        errors.push({
+          rowIndex: i,
+          field: 'code',
+          message:
+            s.regulation_id === regulationId
+              ? 'Code already exists in this regulation'
+              : `Code already exists (${s.regulation?.code ?? 'another regulation'})`,
+        });
+      }
+    }
+    if (firstRowByName.size > 0) {
+      const clashes = await this.subjects
+        .createQueryBuilder('s')
+        .where('s.regulation_id = :rid', { rid: regulationId })
+        .andWhere('LOWER(s.name) IN (:...names)', {
+          names: [...firstRowByName.keys()],
+        })
+        .getMany();
+      for (const s of clashes) {
+        const i = firstRowByName.get(s.name.toLowerCase());
+        if (i === undefined) continue;
+        errors.push({
+          rowIndex: i,
+          field: 'name',
+          message: 'Name already used in this regulation',
+        });
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        message: 'Bulk validation failed',
+        rowErrors: errors,
+      });
+    }
+
+    const toInsert = resolved.map((r) => ({
+      ...r!,
+      regulation_id: regulationId,
+      is_active: true,
+    }));
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await manager.getRepository(Subject).insert(toInsert);
+      });
+    } catch (err) {
+      // Only a concurrent create can slip past the checks above.
+      if (
+        err instanceof QueryFailedError &&
+        (err.driverError as { code?: string } | undefined)?.code === '23505'
+      ) {
+        throw new ConflictException(
+          'A subject code or name was created concurrently — upload again to see which',
+        );
+      }
+      throw err;
+    }
+    return { created: toInsert.length };
   }
 
   async update(id: number, patch: UpdateSubjectInput): Promise<Subject> {
