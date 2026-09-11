@@ -9,6 +9,7 @@ import {
   Param,
   ParseFilePipe,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
@@ -25,6 +26,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { SessionRow } from '../../auth-sessions/auth-sessions.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireTotpEnrolledGuard } from '../auth/require-totp-enrolled.guard';
 import { BulkCreateStudentsDto } from '../dto/bulk-create-students.dto';
@@ -262,8 +264,28 @@ export class StudentsController {
 
   @Post(':id/deactivate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Deactivate a student.' })
+  @ApiOperation({
+    summary: 'Deactivate a student. Signs them out of every device.',
+  })
   deactivate(@Param('id', ParseIntPipe) id: number): Promise<Student> {
     return this.students.setActive(id, false);
+  }
+
+  @Get(':id/sessions')
+  @ApiOperation({
+    summary: "List the student's signed-in devices (with login IP).",
+  })
+  listSessions(@Param('id', ParseIntPipe) id: number): Promise<SessionRow[]> {
+    return this.students.listSessions(id);
+  }
+
+  @Delete(':id/sessions/:sessionId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Force-sign-out one of the student’s devices.' })
+  async revokeSession(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ): Promise<void> {
+    await this.students.revokeSession(id, sessionId);
   }
 }

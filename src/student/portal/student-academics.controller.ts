@@ -14,6 +14,7 @@ import { RequirePasswordChangedGuard } from '../auth/require-password-changed.gu
 import { StudentJwtAuthGuard } from '../auth/student-jwt-auth.guard';
 import type { AuthenticatedStudent } from '../auth/student-jwt.strategy';
 import {
+  AllSessionsResult,
   DashboardResult,
   StudentPortalService,
   SubjectSessionsResult,
@@ -75,6 +76,19 @@ export class StudentAcademicsController {
     @GetStudent() student: AuthenticatedStudent,
   ): Promise<DashboardResult> {
     return this.portal.dashboard(student.id);
+  }
+
+  @Get('attendance/sessions')
+  @ApiOperation({
+    summary:
+      'Every class_session across all subjects that the signed-in student was ' +
+      'on the roster for in their current programme semester, with per-session ' +
+      'marks. Drives the "Overall attendance" drill-down.',
+  })
+  allSessions(
+    @GetStudent() student: AuthenticatedStudent,
+  ): Promise<AllSessionsResult> {
+    return this.portal.allSessions(student.id);
   }
 
   @Get('attendance/subject/:subjectId/sessions')

@@ -120,7 +120,7 @@ export class GuardianSyncService {
   async revokeStaleMobiles(mobiles: string[]): Promise<void> {
     for (const mobile of mobiles) {
       try {
-        await this.guardianAuth.logout(mobile);
+        await this.guardianAuth.revokeAllForMobile(mobile, 'access_removed');
       } catch (err) {
         this.logger.warn(
           `Failed to revoke guardian sessions for ${mobile}: ${

@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { DeviceFieldsShape } from '../../auth-sessions/dto/device-fields.schema';
 
 export const StudentLoginSchema = z.object({
   // The roll number (students.student_id). Normalised to upper-case to match
@@ -13,6 +14,7 @@ export const StudentLoginSchema = z.object({
   // Accept any non-empty string here; the real strength policy is enforced
   // only when a password is *set*. Failing closed avoids leaking the policy.
   password: z.string().min(1).max(128),
+  ...DeviceFieldsShape,
 });
 
 export class StudentLoginDto extends createZodDto(StudentLoginSchema) {}

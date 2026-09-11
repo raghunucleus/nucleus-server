@@ -6,20 +6,15 @@ import {
   HttpStatus,
   Post,
   Query,
-  Res,
-  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
 import { RequireScreen } from '../../rbac/require-screen.decorator';
 import { ScreenAccessGuard } from '../../rbac/screen-access.guard';
 import {
-  exportFilename,
-  rowsToCsv,
-  rowsToXlsx,
-} from '../../student-query/export';
-import { StudentSearchDto } from '../../student-query/dto/student-search.dto';
+  ParseNqlDto,
+  StudentSearchDto,
+} from '../../student-query/dto/student-search.dto';
 import { EmployeeJwtAuthGuard } from '../auth/employee-jwt-auth.guard';
 import { GetEmployee } from '../auth/get-employee.decorator';
 import type { AuthenticatedEmployee } from '../auth/employee-jwt.strategy';
@@ -51,29 +46,13 @@ export class EmployeeStudentsSearchController {
   @RequireScreen(STUDENT_DIRECTORY_SCREEN_KEY, 'view')
   @ApiOperation({
     summary:
-      'Search students in your assigned scope with dynamic filters (structured or NQL), column selection, sort and pagination.',
+      'Search students in your assigned scope with dynamic filters (structured or NQL), column selection, sort and pagination (JSON only — use /employee/students/export for files).',
   })
-  async search(
+  search(
     @GetEmployee() employee: AuthenticatedEmployee,
     @Body() dto: StudentSearchDto,
-    @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.svc.search(employee.id, dto);
-    if (dto.format === 'json') return result;
-
-    const filename = exportFilename(dto.format);
-    const buffer =
-      dto.format === 'csv'
-        ? rowsToCsv(result.columns, result.rows)
-        : await rowsToXlsx(result.columns, result.rows);
-    res.setHeader(
-      'Content-Type',
-      dto.format === 'csv'
-        ? 'text/csv; charset=utf-8'
-        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    return new StreamableFile(buffer);
+    return this.svc.search(employee.id, dto);
   }
 
   @Get('search/meta')
@@ -95,5 +74,33 @@ export class EmployeeStudentsSearchController {
   })
   options(@Query('lookup') lookup: string, @Query('q') q?: string) {
     return this.svc.options(lookup, q);
+  }
+
+  @Post('search/parse-nql')
+  @HttpCode(HttpStatus.OK)
+  @RequireScreen(STUDENT_DIRECTORY_SCREEN_KEY, 'view')
+  @ApiOperation({
+    summary:
+      'Compile an NQL string to the filter AST so the Filters tab can rebuild ' +
+      'its visual rows from a query. Syntax errors return 400.',
+  })
+  parseNql(@Body() dto: ParseNqlDto) {
+    return this.svc.parseNql(dto.nql);
+  }
+
+  @Post('export')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @RequireScreen(STUDENT_DIRECTORY_SCREEN_KEY, 'view')
+  @ApiOperation({
+    summary:
+      'Start an async CSV/XLSX export of the current in-scope search. Returns ' +
+      'the job id; completion arrives as an in-app notification and the file ' +
+      'expires after 24 hours.',
+  })
+  export(
+    @GetEmployee() employee: AuthenticatedEmployee,
+    @Body() dto: StudentSearchDto,
+  ) {
+    return this.svc.export(employee.id, dto);
   }
 }

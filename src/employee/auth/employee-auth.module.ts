@@ -10,6 +10,7 @@ import { RequireEmployeePasswordChangedGuard } from './require-password-changed.
 import { EmployeeCredential } from './entities/employee-credential.entity';
 import { EmployeeAuthController } from './employee-auth.controller';
 import { EmployeeAuthService } from './employee-auth.service';
+import { EmployeeSessionsController } from './employee-sessions.controller';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { EmployeeAuthService } from './employee-auth.service';
     PassportModule.register({ defaultStrategy: 'employee-jwt' }),
     JwtModule.register({}),
   ],
-  controllers: [EmployeeAuthController],
+  controllers: [EmployeeAuthController, EmployeeSessionsController],
   providers: [
     EmployeeAuthService,
     EmployeeJwtStrategy,

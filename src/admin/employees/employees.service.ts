@@ -10,6 +10,11 @@ import {
   AccountInviteService,
   AccountStatusView,
 } from '../../account-invites/account-invite.service';
+import {
+  AuthSessionsService,
+  SessionRow,
+} from '../../auth-sessions/auth-sessions.service';
+import { DEFAULT_DEVICE_LIMIT } from '../../auth-sessions/session.constants';
 import { EmployeeAuthService } from '../../employee/auth/employee-auth.service';
 import type { EmployeesSortField } from '../dto/list-employees.dto';
 import { Department } from '../entities/department.entity';
@@ -49,6 +54,15 @@ interface CreateEmployeeInput {
   country_code: string;
   email: string;
   rm_emp_code: string | null;
+  device_limit?: number | null;
+}
+
+/** The admin sessions view: the devices plus the limit they count against. */
+export interface EmployeeSessionsView {
+  limit: number;
+  /** True when `limit` is the global default (no per-employee override). */
+  is_default_limit: boolean;
+  sessions: SessionRow[];
 }
 
 interface UpdateEmployeeInput {
@@ -62,6 +76,7 @@ interface UpdateEmployeeInput {
   country_code?: string;
   email?: string;
   rm_emp_code?: string | null;
+  device_limit?: number | null;
 }
 
 export interface BulkRowError {
@@ -95,6 +110,7 @@ export class EmployeesService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly employeeAuth: EmployeeAuthService,
     private readonly invites: AccountInviteService,
+    private readonly sessions: AuthSessionsService,
   ) {}
 
   async list(opts: {
@@ -248,6 +264,7 @@ export class EmployeesService {
       country_code: input.country_code,
       email: input.email,
       rm_emp_code: input.rm_emp_code,
+      device_limit: input.device_limit ?? null,
       is_active: true,
     });
     return this.employees.save(employee);
@@ -319,6 +336,10 @@ export class EmployeesService {
     if (patch.email !== undefined) employee.email = patch.email;
     if (patch.rm_emp_code !== undefined)
       employee.rm_emp_code = patch.rm_emp_code;
+    // null resets to the default. Lowering it never evicts a signed-in
+    // device; the new limit applies at the next login.
+    if (patch.device_limit !== undefined)
+      employee.device_limit = patch.device_limit;
 
     return this.employees.save(employee);
   }
@@ -330,7 +351,40 @@ export class EmployeesService {
     if (employee.is_active === active) return employee;
 
     employee.is_active = active;
-    return this.employees.save(employee);
+    const saved = await this.employees.save(employee);
+    // Deactivation takes effect now, not at the next refresh: every device is
+    // signed out (its next request is refused and its sockets drop).
+    if (!active) {
+      await this.sessions.revokeAllExcept('employee', id, null, 'deactivated');
+    }
+    return saved;
+  }
+
+  /** The employee's signed-in devices, IP included (admin view). */
+  async listSessions(id: number): Promise<EmployeeSessionsView> {
+    const employee = await this.employees.findOne({
+      where: { id },
+      select: { id: true, device_limit: true },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    return {
+      limit: employee.device_limit ?? DEFAULT_DEVICE_LIMIT,
+      is_default_limit: employee.device_limit === null,
+      sessions: await this.sessions.list('employee', id, { includeIp: true }),
+    };
+  }
+
+  /** Force-sign-out one of the employee's devices. */
+  async revokeSession(id: number, sessionId: string): Promise<void> {
+    const found = await this.employees.exists({ where: { id } });
+    if (!found) throw new NotFoundException('Employee not found');
+    const ok = await this.sessions.revokeById(
+      'employee',
+      id,
+      sessionId,
+      'admin',
+    );
+    if (!ok) throw new NotFoundException('Session not found');
   }
 
   /**

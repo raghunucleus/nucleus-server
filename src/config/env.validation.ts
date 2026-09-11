@@ -75,10 +75,10 @@ const KNOWN_DEV_CREDENTIALS = new Set([
 
 /**
  * Read but never referenced anywhere in `src/` — a value nobody consumes.
- * Currently empty (API_PUBLIC_BASE_URL is consumed again by MailService for
- * the email logo); the warning below stays so the next dead key is caught.
+ * API_PUBLIC_BASE_URL only ever built the email-logo URL; the email header is
+ * now a plain-text wordmark, so nothing reads it.
  */
-const DEAD_KEYS: readonly string[] = [];
+const DEAD_KEYS: readonly string[] = ['API_PUBLIC_BASE_URL'];
 
 /** The shape `parseDurationToSeconds` accepts: "30", "15m", "7d", "48h". */
 const durationSchema = z
@@ -161,17 +161,6 @@ function productionIssues(env: Record<string, unknown>): string[] {
           'page to be relative to.',
       );
     }
-  }
-
-  // --- API public origin --------------------------------------------------
-  // Optional (unset → text-only email header, warned about below), but when
-  // set it must be absolute: it becomes the `src` of the logo in every email.
-  const apiBase = read('API_PUBLIC_BASE_URL');
-  if (apiBase !== '' && !/^https?:\/\/[^\s/]+/.test(apiBase)) {
-    issues.push(
-      `API_PUBLIC_BASE_URL must be an absolute http(s) URL (got "${apiBase}") — every email ` +
-        'loads the Nucleus logo from `${API_PUBLIC_BASE_URL}/brand/email-logo.png`.',
-    );
   }
 
   // --- Auth secrets -------------------------------------------------------
@@ -366,17 +355,6 @@ export function validateEnv(
     logger.warn(
       `${dead.join(', ')} ${dead.length === 1 ? 'is' : 'are'} set but read by nothing in ` +
         'src/. Delete them so nobody edits a value expecting it to take effect.',
-    );
-  }
-
-  if (
-    nodeEnvRaw === 'production' &&
-    (typeof raw.API_PUBLIC_BASE_URL !== 'string' ||
-      raw.API_PUBLIC_BASE_URL.trim() === '')
-  ) {
-    logger.warn(
-      'API_PUBLIC_BASE_URL is not set — emails will show a text header instead of the Nucleus ' +
-        'logo. Set it to the public origin of this API (e.g. https://api-nucleus.raghuenggcollege.in).',
     );
   }
 

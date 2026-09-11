@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OAuth2Client, type TokenPayload } from 'google-auth-library';
+import {
+  GOOGLE_ALLOWED_DOMAINS_ENV,
+  googleAccountDomain,
+  parseGoogleAllowedDomains,
+} from '../../common/google-allowed-domains';
 
 export interface VerifiedStudentGoogleIdentity {
   sub: string;
@@ -21,6 +26,9 @@ export interface VerifiedStudentGoogleIdentity {
  * Client id resolution falls back to the admin client id, so a deployment
  * that runs a single Google OAuth client for everything works without extra
  * configuration.
+ *
+ * The domain allowlist is shared with admin: `GOOGLE_ADMIN_ALLOWED_DOMAINS`
+ * gates all three realms (empty = no domain check).
  */
 @Injectable()
 export class StudentGoogleOidcService {
@@ -70,6 +78,24 @@ export class StudentGoogleOidcService {
 
     if (!payload || !payload.email) {
       throw new UnauthorizedException('Invalid Google credential');
+    }
+
+    const allowedDomains = parseGoogleAllowedDomains(
+      this.config.get<string>(GOOGLE_ALLOWED_DOMAINS_ENV),
+    );
+    if (allowedDomains.length > 0) {
+      const domain = googleAccountDomain({
+        hd: payload.hd,
+        email: payload.email,
+      });
+      if (!allowedDomains.includes(domain)) {
+        this.logger.warn(
+          `Rejected student Google sign-in: domain="${domain}" hd="${payload.hd ?? ''}"`,
+        );
+        throw new UnauthorizedException(
+          'This Google account is not allowed to sign in here.',
+        );
+      }
     }
 
     return {

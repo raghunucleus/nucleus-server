@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -25,6 +26,10 @@ export type Gender = (typeof GENDERS)[number];
 @Index('IDX_employees_department_id', ['department_id'])
 @Index('IDX_employees_designation_id', ['designation_id'])
 @Index('IDX_employees_rm_emp_code', ['rm_emp_code'])
+@Check(
+  'CHK_employees_device_limit',
+  '"device_limit" IS NULL OR ("device_limit" >= 1 AND "device_limit" <= 20)',
+)
 export class Employee {
   @PrimaryGeneratedColumn()
   id: number;
@@ -74,6 +79,12 @@ export class Employee {
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
+
+  // How many devices this employee may be signed in on at once. NULL = the
+  // global default (DEFAULT_DEVICE_LIMIT, 2). Lowering it never evicts anyone;
+  // it applies at the next login.
+  @Column({ type: 'int', nullable: true })
+  device_limit: number | null;
 
   @CreateDateColumn()
   created_at: Date;
