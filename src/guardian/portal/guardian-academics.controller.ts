@@ -19,6 +19,7 @@ import {
   StudentExamResultsView,
 } from '../../student/exam-results/student-exam-results.service';
 import {
+  AllSessionsResult,
   DashboardResult,
   StudentPortalService,
   SubjectSessionsResult,
@@ -120,6 +121,16 @@ export class GuardianAcademicsController {
     @Param('studentId', ParseIntPipe) studentId: number,
   ): Promise<DashboardResult> {
     return this.portal.dashboard(studentId);
+  }
+
+  @Get('attendance/sessions')
+  @ApiOperation({
+    summary: 'Per-session attendance across all subjects for the child.',
+  })
+  allSessions(
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ): Promise<AllSessionsResult> {
+    return this.portal.allSessions(studentId);
   }
 
   @Get('attendance/subject/:subjectId/sessions')

@@ -114,6 +114,60 @@ export interface SubjectSessionsResult {
   sessions: SubjectSessionRow[];
 }
 
+/** A session row that also names its subject — the all-subjects view. */
+export interface AllSessionRow extends SubjectSessionRow {
+  subject_id: number;
+  subject_code: string;
+  subject_name: string;
+  is_elective: boolean;
+}
+
+export interface AllSessionsResult {
+  semester: { programme_semester_id: number; semester_number: number | null };
+  /** Distinct subjects with at least one session, ordered by code. */
+  subjects: { id: number; code: string; name: string }[];
+  sessions: AllSessionRow[];
+}
+
+/** Raw shape of one row from `querySessions()`. */
+interface RawSessionRow {
+  session_id: number;
+  date: string;
+  day_of_week: number;
+  period_label: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  session_status: SubjectSessionRow['session_status'];
+  cancel_reason: string | null;
+  attendance_status: SubjectSessionRow['attendance_status'];
+  on_leave: boolean;
+  is_substitute: boolean;
+  teacher_display_name: string | null;
+  room: string | null;
+  subject_id: number;
+  subject_code: string;
+  subject_name: string;
+  is_elective: boolean;
+}
+
+function toSessionRow(r: RawSessionRow): SubjectSessionRow {
+  return {
+    session_id: Number(r.session_id),
+    date: r.date,
+    day_of_week: Number(r.day_of_week),
+    period_label: r.period_label,
+    start_time: r.start_time,
+    end_time: r.end_time,
+    session_status: r.session_status,
+    cancel_reason: r.cancel_reason,
+    attendance_status: r.attendance_status,
+    on_leave: Boolean(r.on_leave),
+    is_substitute: Boolean(r.is_substitute),
+    teacher_display_name: r.teacher_display_name,
+    room: r.room,
+  };
+}
+
 /**
  * Read-only queries that power the student timetable + attendance screens.
  * Every method takes the student id from the caller (controller) — never
@@ -406,23 +460,75 @@ export class StudentPortalService {
       throw new NotFoundException('Subject not found');
     }
 
-    const rows = await this.dataSource.query<
-      Array<{
-        session_id: number;
-        date: string;
-        day_of_week: number;
-        period_label: string | null;
-        start_time: string | null;
-        end_time: string | null;
-        session_status: 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
-        cancel_reason: string | null;
-        attendance_status: SubjectSessionRow['attendance_status'];
-        on_leave: boolean;
-        is_substitute: boolean;
-        teacher_display_name: string | null;
-        room: string | null;
-      }>
-    >(
+    const rows = await this.querySessions(studentId, ps.id, subjectId);
+
+    return {
+      subject: {
+        id: Number(subjectRow[0].id),
+        code: subjectRow[0].code,
+        name: subjectRow[0].name,
+      },
+      sessions: rows.map(toSessionRow),
+    };
+  }
+
+  /**
+   * Every class_session across ALL subjects the student was on the roster
+   * for in their current programme semester — the "Overall attendance"
+   * drill-down. Same scoping as `subjectSessions()`; the subject list is
+   * derived from the rows so the client's filter chips and their counts
+   * come from one payload.
+   */
+  async allSessions(studentId: number): Promise<AllSessionsResult> {
+    const student = await this.students.findOne({ where: { id: studentId } });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const ps = await this.findCurrentPs(student);
+    const rows = await this.querySessions(studentId, ps.id);
+
+    const subjects = new Map<
+      number,
+      { id: number; code: string; name: string }
+    >();
+    for (const r of rows) {
+      const id = Number(r.subject_id);
+      if (!subjects.has(id)) {
+        subjects.set(id, { id, code: r.subject_code, name: r.subject_name });
+      }
+    }
+
+    return {
+      semester: {
+        programme_semester_id: ps.id,
+        semester_number: ps.semester?.sem_number ?? null,
+      },
+      subjects: [...subjects.values()].sort((a, b) =>
+        a.code.localeCompare(b.code),
+      ),
+      sessions: rows.map((r) => ({
+        ...toSessionRow(r),
+        subject_id: Number(r.subject_id),
+        subject_code: r.subject_code,
+        subject_name: r.subject_name,
+        is_elective: Boolean(r.is_elective),
+      })),
+    };
+  }
+
+  /**
+   * The one session query behind both drill-downs. `$1` = student, `$2` =
+   * programme semester, `$3` = subject (only bound when given). Aliases
+   * `sl` / `cs` / `tp` / `tp_end` are load-bearing: `leaveCoversSessionSql()`
+   * refers to them by name.
+   */
+  private querySessions(
+    studentId: number,
+    psId: number,
+    subjectId?: number,
+  ): Promise<RawSessionRow[]> {
+    const params: unknown[] = [studentId, psId];
+    if (subjectId !== undefined) params.push(subjectId);
+    return this.dataSource.query<RawSessionRow[]>(
       `
       WITH my_group AS (
         SELECT attendance_group_id
@@ -454,18 +560,23 @@ export class StudentPortalService {
         ) AS on_leave,
         (cs.effective_employee_id IS DISTINCT FROM cs.scheduled_employee_id) AS is_substitute,
         emp.emp_display_name AS teacher_display_name,
-        cs.room
+        cs.room,
+        cs.subject_id,
+        sub.code AS subject_code,
+        sub.name AS subject_name,
+        (cs.programme_semester_subject_option_id IS NOT NULL) AS is_elective
       FROM "class_sessions" cs
       JOIN "timetable_periods" tp ON tp.id = cs.timetable_period_id
       -- End of a spanned run (lab): the period at position + span - 1. See week().
       LEFT JOIN "timetable_periods" tp_end
         ON tp_end.timetable_id = tp.timetable_id
        AND tp_end.position = tp.position + cs.span - 1
+      JOIN "subjects" sub ON sub.id = cs.subject_id
       LEFT JOIN "employees" emp ON emp.id = cs.effective_employee_id
       LEFT JOIN "class_session_attendance" csa
         ON csa.class_session_id = cs.id AND csa.student_id = $1
-      WHERE cs.subject_id = $2
-        AND cs.programme_semester_id = $3
+      WHERE cs.programme_semester_id = $2
+        ${subjectId !== undefined ? 'AND cs.subject_id = $3' : ''}
         AND (
           (cs.programme_semester_subject_option_id IS NULL
            AND cs.attendance_group_id = (SELECT attendance_group_id FROM my_group))
@@ -479,31 +590,8 @@ export class StudentPortalService {
         )
       ORDER BY cs.session_date DESC, tp.position DESC
       `,
-      [studentId, subjectId, ps.id],
+      params,
     );
-
-    return {
-      subject: {
-        id: Number(subjectRow[0].id),
-        code: subjectRow[0].code,
-        name: subjectRow[0].name,
-      },
-      sessions: rows.map((r) => ({
-        session_id: Number(r.session_id),
-        date: r.date,
-        day_of_week: Number(r.day_of_week),
-        period_label: r.period_label,
-        start_time: r.start_time,
-        end_time: r.end_time,
-        session_status: r.session_status,
-        cancel_reason: r.cancel_reason,
-        attendance_status: r.attendance_status,
-        on_leave: Boolean(r.on_leave),
-        is_substitute: Boolean(r.is_substitute),
-        teacher_display_name: r.teacher_display_name,
-        room: r.room,
-      })),
-    };
   }
 
   private async findCurrentPs(student: Student): Promise<ProgrammeSemester> {
