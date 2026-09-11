@@ -1,4 +1,45 @@
-import type { ScreenDef } from './types';
+import type { AttributeSchemaItem, ScreenDef } from './types';
+
+/**
+ * The one scope every `insights.*` screen carries. Declared once so the six
+ * screens can never drift apart: the server resolves the triple through the
+ * same `PermissionsService.getAccessible{Department,Programme,AdmissionYear}Ids`
+ * helpers (three-state contract) and INTERSECTS them — programmes outside the
+ * granted departments are dropped server-side, so a stale programme value can
+ * never widen a department grant.
+ *
+ * `department_id` is REQUIRED so an HOD role cannot be saved without one;
+ * management wildcards all three (`{ all: true }`), a dean lists several
+ * departments. Programmes / admission years are optional narrowings.
+ */
+const INSIGHTS_SCOPE: AttributeSchemaItem[] = [
+  {
+    key: 'department_id',
+    type: 'ref:department',
+    label: 'Departments',
+    required: true,
+    multi: true,
+    allow_all: true,
+  },
+  {
+    key: 'programme_ids',
+    type: 'ref:programme',
+    label: 'Programmes',
+    required: false,
+    multi: true,
+    allow_all: true,
+  },
+  {
+    key: 'admission_year_ids',
+    type: 'ref:admission_year',
+    label: 'Admission years',
+    required: false,
+    multi: true,
+    allow_all: true,
+  },
+];
+
+const INSIGHTS_ROLE_TYPES = ['hod', 'management'];
 
 /**
  * Initial seed of employee-facing screens. Engineering owns this list — to add
@@ -64,6 +105,98 @@ export const SCREENS: ReadonlyArray<ScreenDef> = [
     mobile_route: '/birthdays',
     actions: ['view'],
     attributes: [],
+  },
+
+  // --- Insights ----------------------------------------------------------
+  //
+  // The HOD / dean / principal / management analytics module. One overview hub
+  // plus one screen per domain, so a role can be granted attendance + results
+  // without placements. Every screen:
+  //
+  //   - carries the SAME attribute triple (`INSIGHTS_SCOPE`) — an HOD is pinned
+  //     to their department, management wildcards everything, a dean lists a
+  //     few departments. Cross-department comparison appears only when the
+  //     resolved scope holds more than one department;
+  //   - is `view`-only, served by a GET-only controller under
+  //     `/employee/insights/*`. That is the safety property: no handler can
+  //     mutate attendance, marks, drives or requests through these keys;
+  //   - resolves its scope through `InsightsScopeService` first, on every
+  //     handler, so holding the screen never widens what a caller can read.
+  //
+  // Overview is a cross-domain summary and does NOT grant the domain screens:
+  // its KPI cards for domains the caller lacks render locked, and the overview
+  // controller checks each domain key with `hasScreen` before computing it.
+  {
+    key: 'insights.overview.view',
+    module_key: 'insights',
+    role_type_keys: INSIGHTS_ROLE_TYPES,
+    platforms: ['web'],
+    label: 'Overview',
+    description:
+      'The scope at a glance — attendance, marking compliance, results, placements and pending approvals in one KPI strip, a department comparison, and an attention feed.',
+    web_route: '/insights',
+    actions: ['view'],
+    attributes: INSIGHTS_SCOPE,
+  },
+  {
+    key: 'insights.attendance.view',
+    module_key: 'insights',
+    role_type_keys: INSIGHTS_ROLE_TYPES,
+    platforms: ['web'],
+    label: 'Attendance Insights',
+    description:
+      'Attendance rolled up department → programme → batch → section → student, with subject and faculty marking compliance, defaulters, trends and leave volume.',
+    web_route: '/insights/attendance',
+    actions: ['view'],
+    attributes: INSIGHTS_SCOPE,
+  },
+  {
+    key: 'insights.results.view',
+    module_key: 'insights',
+    role_type_keys: INSIGHTS_ROLE_TYPES,
+    platforms: ['web'],
+    label: 'Results Insights',
+    description:
+      'University results — pass %, SGPA / CGPA distributions, subject-wise failure rates, backlog risk lists and upload coverage per batch.',
+    web_route: '/insights/results',
+    actions: ['view'],
+    attributes: INSIGHTS_SCOPE,
+  },
+  {
+    key: 'insights.placements.view',
+    module_key: 'insights',
+    role_type_keys: INSIGHTS_ROLE_TYPES,
+    platforms: ['web'],
+    label: 'Placement Insights',
+    description:
+      'Placement outcomes per passout year — placed %, CTC, offers, the aggregated drive funnel, recruiting companies and the unplaced list.',
+    web_route: '/insights/placements',
+    actions: ['view'],
+    attributes: INSIGHTS_SCOPE,
+  },
+  {
+    key: 'insights.students.view',
+    module_key: 'insights',
+    role_type_keys: INSIGHTS_ROLE_TYPES,
+    platforms: ['web'],
+    label: 'Student Insights',
+    description:
+      'Cohort composition — headcount, gender, entry type, profile completeness — and a filterable cohort explorer over the students in scope.',
+    web_route: '/insights/students',
+    actions: ['view'],
+    attributes: INSIGHTS_SCOPE,
+  },
+  {
+    key: 'insights.requests.view',
+    module_key: 'insights',
+    role_type_keys: INSIGHTS_ROLE_TYPES,
+    platforms: ['web'],
+    label: 'Requests & Leaves',
+    description:
+      'Approval health — pending requests by type and age, turnaround times, approver backlog and leave volume for the students in scope.',
+    web_route: '/insights/requests',
+    actions: ['view'],
+    attributes: INSIGHTS_SCOPE,
   },
 
   // --- Attendance --------------------------------------------------------

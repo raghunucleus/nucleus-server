@@ -14,6 +14,7 @@ import { ExamCellModule } from './exam-cell/exam-cell.module';
 import { ExportsModule } from './exports/exports.module';
 import { HodModule } from './hod/hod.module';
 import { EmployeeIdCardModule } from './id-card/employee-id-card.module';
+import { InsightsModule } from './insights/insights.module';
 import { ManagementModule } from './management/management.module';
 import { PrincipalModule } from './principal/principal.module';
 import { SecurityVerifyModule } from './security/security-verify.module';
@@ -52,6 +53,7 @@ import { TeacherModule } from './teacher/teacher.module';
     DriveManagementModule,
     EmployeeStudentsModule,
     ExportsModule,
+    InsightsModule,
   ],
   exports: [EmployeeAuthModule],
 })

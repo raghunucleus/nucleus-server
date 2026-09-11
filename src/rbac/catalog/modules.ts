@@ -19,6 +19,15 @@ export const MODULES: ReadonlyArray<ModuleDef> = [
     order: 15,
   },
   {
+    // HOD / dean / principal / management analytics. Attribute-scoped (see the
+    // `insights.*` screens): the same screens serve an HOD with one department
+    // and management with the wildcard.
+    key: 'insights',
+    label: 'Insights',
+    icon: 'BarChart3',
+    order: 17,
+  },
+  {
     key: 'attendance',
     label: 'Attendance',
     icon: 'ClipboardCheck',

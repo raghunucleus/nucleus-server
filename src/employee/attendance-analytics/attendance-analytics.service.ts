@@ -13,6 +13,11 @@ import {
   InchargeScheduleService,
   type InchargeGroupSummary,
 } from '../attendance-incharge/incharge-schedule.service';
+import {
+  MARKS_CTE,
+  ROSTER_CTE,
+  SCOPED_SESSIONS_CTE,
+} from './attendance-analytics.sql';
 
 /** Campus-local time zone. `CURRENT_DATE` is NOT usable here: no DB timezone is
  *  configured, so between 00:00 and 05:30 IST Postgres would still say
@@ -33,7 +38,7 @@ export const ATTENDANCE_BANDS = [
 /** The threshold a student must clear to sit exams, and the condonation floor
  *  below it. Compared against the RAW ratio, never the rounded percentage. */
 export const DEFAULT_THRESHOLD = 75;
-const CONDONATION_THRESHOLD = 65;
+export const CONDONATION_THRESHOLD = 65;
 
 export type AnalyticsBasis = 'rollup' | 'sessions';
 
@@ -42,89 +47,25 @@ const MATRIX_MAX_DAYS = 60;
 
 // --- shared SQL ------------------------------------------------------------
 //
-// Every query below is written against the same four positional parameters:
-//   $1 group_id, $2 programme_semester_id, $3 from (nullable), $4 to (nullable)
+// The three CTEs live in ./attendance-analytics.sql.ts so the Insights
+// attendance screen can build on the same base. Every query below is written
+// against the same four positional parameters:
+//   $1 int[] group_ids, $2 int[] programme_semester_ids, $3 from, $4 to
 // Endpoints that need more append from $5 onward.
 
-/** Current active members of the group. */
-const ROSTER_CTE = `
-  WITH roster AS (
-    SELECT s.id AS student_id, s.student_id AS roll_no, s.display_name
-      FROM students s
-      JOIN student_groups sg ON sg.student_id = s.id
-     WHERE sg.attendance_group_id = $1 AND s.is_active = TRUE
-  )`;
-
 /**
- * The sessions themselves — the base for anything counting what was scheduled,
- * marked or missed.
- *
- * Cross-group elective cohorts (`attendance_group_id IS NULL`) are resolved
- * through `programme_semester_subject_option_students`, matching
- * `RosterService.forSession`. Two details matter:
- *
- *   - the join is on `scheduled_employee_id`, NOT `effective_employee_id` — the
- *     cohort is keyed on the scheduled teacher, and a substitution flips the
- *     effective one;
- *   - membership must NOT be resolved through `class_session_attendance`. An
- *     unmarked session has no attendance rows by definition, and unmarked
- *     sessions are exactly what this CTE exists to surface.
+ * What every query runs against. The incharge surface always holds exactly
+ * one group and one semester here; the Insights surface holds every group of
+ * every batch in the caller's RBAC scope, with one semester per batch. The
+ * arrays are the only difference — every method below is shared.
  */
-const SCOPED_SESSIONS_CTE = `
-  scoped_sessions AS (
-    SELECT cs.*
-      FROM class_sessions cs
-     WHERE cs.programme_semester_id = $2
-       AND ($3::date IS NULL OR cs.session_date >= $3::date)
-       AND ($4::date IS NULL OR cs.session_date <= $4::date)
-       AND (
-         cs.attendance_group_id = $1
-         OR (
-           cs.attendance_group_id IS NULL
-           AND cs.programme_semester_subject_option_id IS NOT NULL
-           AND EXISTS (
-             SELECT 1
-               FROM programme_semester_subject_option_students pos
-               JOIN roster r ON r.student_id = pos.student_id
-              WHERE pos.programme_semester_subject_option_id
-                      = cs.programme_semester_subject_option_id
-                AND pos.employee_id = cs.scheduled_employee_id
-           )
-         )
-       )
-  )`;
-
-/**
- * The attendance rows — the base for anything computing a percentage.
- *
- * Driven from `roster`, so it picks up a group student's cross-group elective
- * marks (whose session has no `attendance_group_id`) that a column filter would
- * drop. The two predicates `cs.status = 'completed'` and
- * `status IN ('present','late')` mirror `AttendanceMarkingService.recomputeRollup`
- * exactly; changing either makes this screen disagree with the student's own
- * dashboard.
- *
- * NEVER count sessions here — a transferred student carries their previous
- * group's rows, so `COUNT(DISTINCT session_id)` is not "sessions this group
- * held". Use `scoped_sessions` for inventory.
- */
-const MARKS_CTE = `
-  marks AS (
-    SELECT csa.student_id, cs.id AS session_id, cs.session_date, cs.day_of_week,
-           cs.subject_id, cs.span, cs.timetable_period_id,
-           cs.effective_employee_id, csa.status
-      FROM roster r
-      JOIN class_session_attendance csa ON csa.student_id = r.student_id
-      JOIN class_sessions cs ON cs.id = csa.class_session_id
-     WHERE cs.programme_semester_id = $2
-       AND cs.status = 'completed'
-       AND ($3::date IS NULL OR cs.session_date >= $3::date)
-       AND ($4::date IS NULL OR cs.session_date <= $4::date)
-  )`;
-
 export interface AnalyticsScope {
-  group: AttendanceGroup;
-  ps: ProgrammeSemester;
+  groupIds: number[];
+  /** One programme semester per batch — never two of the same batch. */
+  psIds: number[];
+  /** No semester in scope is still `ongoing`, so an unmarked backlog can never
+   *  be cleared and is reported as history rather than a to-do. */
+  locked: boolean;
   /** Null in rollup mode — the whole semester, however far it stretches. */
   from: string | null;
   to: string | null;
@@ -296,10 +237,33 @@ export class AttendanceAnalyticsService {
         "That programme semester doesn't match this group's batch.",
       );
     }
-    const roster = await this.roster(groupId);
+    return this.buildScope(
+      [group.id],
+      [ps.id],
+      ps.status !== 'ongoing',
+      from,
+      to,
+    );
+  }
+
+  /**
+   * Assemble a scope from already-authorised group / semester sets. The
+   * incharge path calls this after its ownership checks; the Insights surface
+   * calls it after resolving the caller's RBAC scope. Authorisation is the
+   * caller's job — this only shapes the object every query takes.
+   */
+  async buildScope(
+    groupIds: number[],
+    psIds: number[],
+    locked: boolean,
+    from?: string,
+    to?: string,
+  ): Promise<AnalyticsScope> {
+    const roster = await this.roster(groupIds);
     return {
-      group,
-      ps,
+      groupIds,
+      psIds,
+      locked,
       from: from ?? null,
       to: to ?? null,
       basis: from && to ? 'sessions' : 'rollup',
@@ -308,15 +272,15 @@ export class AttendanceAnalyticsService {
     };
   }
 
-  /** Active members of the group, by display name. */
-  async roster(groupId: number): Promise<RosterRow[]> {
+  /** Active members of the groups, by display name. */
+  async roster(groupIds: number[]): Promise<RosterRow[]> {
     return this.dataSource.query<RosterRow[]>(
       `SELECT s.id AS student_id, s.student_id AS roll_no, s.display_name
          FROM students s
          JOIN student_groups sg ON sg.student_id = s.id
-        WHERE sg.attendance_group_id = $1 AND s.is_active = TRUE
+        WHERE sg.attendance_group_id = ANY($1::int[]) AND s.is_active = TRUE
         ORDER BY s.display_name ASC`,
-      [groupId],
+      [groupIds],
     );
   }
 
@@ -333,7 +297,7 @@ export class AttendanceAnalyticsService {
    * raw ratio.
    */
   async students(s: AnalyticsScope): Promise<StudentsResult> {
-    const roster = await this.roster(s.group.id);
+    const roster = await this.roster(s.groupIds);
     if (roster.length === 0) {
       return { basis: s.basis, sessions_remaining: 0, rows: [] };
     }
@@ -451,7 +415,7 @@ export class AttendanceAnalyticsService {
         : await this.perSubjectFromSessions(s);
 
     const rosterById = new Map(
-      (await this.roster(s.group.id)).map((r) => [r.student_id, r]),
+      (await this.roster(s.groupIds)).map((r) => [r.student_id, r]),
     );
 
     const agg = new Map<number, SubjectAgg>();
@@ -669,9 +633,9 @@ export class AttendanceAnalyticsService {
          JOIN students s ON s.id = csa.student_id
          JOIN student_groups sg ON sg.student_id = csa.student_id
         WHERE csa.class_session_id = ANY($1::int[])
-          AND sg.attendance_group_id = $2
+          AND sg.attendance_group_id = ANY($2::int[])
         ORDER BY s.display_name ASC`,
-      [sessions.map((x) => x.session_id), s.group.id],
+      [sessions.map((x) => x.session_id), s.groupIds],
     );
     const bySession = new Map<number, RawDayMarkRow[]>();
     for (const m of marks) {
@@ -820,11 +784,11 @@ export class AttendanceAnalyticsService {
 
   // --- internals -----------------------------------------------------------
 
-  /** `[groupId, psId, from, to]` — the four every CTE below is written against. */
-  private baseParams(
+  /** `[groupIds, psIds, from, to]` — the four every CTE below is written against. */
+  baseParams(
     s: AnalyticsScope,
-  ): [number, number, string | null, string | null] {
-    return [s.group.id, s.ps.id, s.from, s.to];
+  ): [number[], number[], string | null, string | null] {
+    return [s.groupIds, s.psIds, s.from, s.to];
   }
 
   /**
@@ -848,7 +812,8 @@ export class AttendanceAnalyticsService {
               (COALESCE(ssa.held_count, 0) + COALESCE(adj.held_sum, 0))::int AS held
          FROM roster r
          JOIN student_subject_attendance ssa
-           ON ssa.student_id = r.student_id AND ssa.programme_semester_id = $2
+           ON ssa.student_id = r.student_id
+          AND ssa.programme_semester_id = ANY($2::int[])
          JOIN subjects sub ON sub.id = ssa.subject_id
          LEFT JOIN LATERAL (
            SELECT SUM(a.attended_delta)::int AS attended_sum,
@@ -859,7 +824,7 @@ export class AttendanceAnalyticsService {
               AND a.subject_id = ssa.subject_id
          ) adj ON TRUE
         ORDER BY r.student_id, sub.code ASC`,
-      [s.group.id, s.ps.id],
+      [s.groupIds, s.psIds],
     );
   }
 
@@ -894,11 +859,11 @@ export class AttendanceAnalyticsService {
               SUM(a.attended_delta)::int AS attended_sum,
               SUM(a.held_delta)::int AS held_sum
          FROM attendance_adjustments a
-        WHERE a.programme_semester_id = $1
+        WHERE a.programme_semester_id = ANY($1::int[])
           AND a.subject_id IS NULL
           AND a.student_id = ANY($2::int[])
         GROUP BY a.student_id`,
-      [s.ps.id, s.rosterIds],
+      [s.psIds, s.rosterIds],
     );
     return new Map(
       rows.map((r) => [
@@ -952,7 +917,7 @@ export class AttendanceAnalyticsService {
               (SELECT MIN(m2.session_date)::text FROM marks m2
                 JOIN class_sessions cs2 ON cs2.id = m2.session_id
                WHERE m2.student_id = t.student_id
-                 AND cs2.attendance_group_id = $1) AS joined_group_estimate
+                 AND cs2.attendance_group_id = ANY($1::int[])) AS joined_group_estimate
          FROM totals t
          LEFT JOIN last_present lp ON lp.student_id = t.student_id`,
       this.baseParams(s),
@@ -991,7 +956,7 @@ export class AttendanceAnalyticsService {
    * with an empty roster: status flips to `completed` but no attendance rows
    * exist, giving a silent zero denominator.
    */
-  private async compliance(s: AnalyticsScope): Promise<ComplianceResult> {
+  async compliance(s: AnalyticsScope): Promise<ComplianceResult> {
     const rows = await this.dataSource.query<Array<RawCompliance>>(
       `${ROSTER_CTE},
        ${SCOPED_SESSIONS_CTE}
@@ -1019,11 +984,11 @@ export class AttendanceAnalyticsService {
       pct: pct(r.marked, r.marked + r.overdue_unmarked),
       // A completed semester refuses further marking, so its overdue backlog is
       // permanent rather than an action item.
-      is_locked: s.ps.status !== 'ongoing',
+      is_locked: s.locked,
     };
   }
 
-  private async byWeekday(s: AnalyticsScope): Promise<BucketRow[]> {
+  async byWeekday(s: AnalyticsScope): Promise<BucketRow[]> {
     const rows = await this.dataSource.query<RawBucket[]>(
       `${ROSTER_CTE},
        ${MARKS_CTE}
@@ -1049,7 +1014,7 @@ export class AttendanceAnalyticsService {
    * Grouped on `tp.position`, never `timetable_period_id`: period rows belong to
    * a timetable, so ids are disjoint across templates and across groups.
    */
-  private async byPeriod(s: AnalyticsScope): Promise<BucketRow[]> {
+  async byPeriod(s: AnalyticsScope): Promise<BucketRow[]> {
     const rows = await this.dataSource.query<RawBucket[]>(
       `${ROSTER_CTE},
        ${MARKS_CTE}
@@ -1079,7 +1044,7 @@ export class AttendanceAnalyticsService {
    * makes period-position comparison approximate, because break rows occupy
    * positions and templates can place them differently.
    */
-  private async warnings(s: AnalyticsScope): Promise<WarningsResult> {
+  async warnings(s: AnalyticsScope): Promise<WarningsResult> {
     const [dupes, templates] = await Promise.all([
       this.dataSource.query<Array<{ n: string }>>(
         `${ROSTER_CTE},

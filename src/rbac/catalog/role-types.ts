@@ -18,11 +18,12 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
     description:
       'Class teacher — manages day-to-day attendance and marks for assigned courses.',
   },
-  // {
-  //   key: 'hod',
-  //   label: 'HOD',
-  //   description: 'Head of department — manages a single department.',
-  // },
+  {
+    key: 'hod',
+    label: 'HOD',
+    description:
+      'Head of department — read-only insights across every programme and batch of their department.',
+  },
   {
     key: 'examcell',
     label: 'Exam Cell',
@@ -41,11 +42,12 @@ export const ROLE_TYPES: ReadonlyArray<RoleTypeDef> = [
     description:
       'Placement / corporate-relations officer — manages the company catalog and placement drives.',
   },
-  // {
-  //   key: 'management',
-  //   label: 'Management',
-  //   description: 'Senior management — read-only access across departments.',
-  // },
+  {
+    key: 'management',
+    label: 'Management',
+    description:
+      'Deans, principal and senior management — read-only insights across departments, programmes and batches.',
+  },
   // {
   //   key: 'principal',
   //   label: 'Principal',

@@ -99,6 +99,15 @@ const CMP_OPERATORS = [
   'between',
 ] as const;
 
+/** See the `attendance_pct` attribute below. */
+const ATTENDANCE_PCT_EXPR = `(
+  SELECT ROUND(100.0 * SUM(f_ssa.attended_count) / NULLIF(SUM(f_ssa.held_count), 0), 1)
+    FROM student_subject_attendance f_ssa
+    JOIN programme_semesters f_ps
+      ON f_ps.id = f_ssa.programme_semester_id AND f_ps.status = 'ongoing'
+   WHERE f_ssa.student_id = s.id
+)`;
+
 /**
  * Correlated EXISTS over the student's drive selections
  * (`drive_students.status = 60` — Selected). The value being filtered lives a
@@ -288,6 +297,22 @@ export const STUDENT_ATTRIBUTES: readonly AttributeDef[] = [
   col('backlog_history', 'Ever had a backlog', 'academic', 'boolean'),
   col('year_of_gap', 'Years of gap', 'academic', 'number'),
   col('reason_of_gap', 'Reason of gap', 'academic', 'string'),
+  {
+    // Overall attendance % in the student's ONGOING programme semester, from
+    // the `student_subject_attendance` rollup (raw counts — OD / medical
+    // adjustments are excluded, so this can sit a point under the official
+    // figure on the attendance screens). A correlated scalar subquery keeps
+    // the main query join-free per the registry invariant. NULL when the
+    // student has no ongoing semester or nothing held yet.
+    key: 'attendance_pct',
+    label: 'Attendance % (current semester)',
+    group: 'academic',
+    kind: 'number',
+    operators: [...CMP_OPERATORS, 'is_null', 'not_null'],
+    filter: { expr: ATTENDANCE_PCT_EXPR },
+    select: { expr: ATTENDANCE_PCT_EXPR },
+    sort: { expr: ATTENDANCE_PCT_EXPR },
+  },
   {
     // Derived boolean — no stored column, so filter/sort on the expression
     // and never select it raw (select mirrors the same CASE).

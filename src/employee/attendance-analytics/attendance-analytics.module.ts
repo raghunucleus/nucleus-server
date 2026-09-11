@@ -35,5 +35,7 @@ import { AttendanceAnalyticsService } from './attendance-analytics.service';
   ],
   controllers: [AttendanceAnalyticsController],
   providers: [AttendanceAnalyticsService],
+  // The Insights module runs the same queries over an RBAC-resolved scope.
+  exports: [AttendanceAnalyticsService],
 })
 export class AttendanceAnalyticsModule {}
