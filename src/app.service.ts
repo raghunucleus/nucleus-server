@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 /** Deployment marker — bump these by hand on each deploy. */
-const LATEST_CODE_REVISION = '10 SEP  2026, 06:00 IST';
+const LATEST_CODE_REVISION = '11 SEP  2026, 14:14 IST';
 
 @Injectable()
 export class AppService {
