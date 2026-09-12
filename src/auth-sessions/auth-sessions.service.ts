@@ -16,7 +16,7 @@ import {
   SessionAudience,
   SessionRevokedReason,
 } from './auth-session.entity';
-import { resolveDeviceName } from './device-metadata.util';
+import { resolveDeviceName, tidyDeviceName } from './device-metadata.util';
 import { SessionSocketRegistry } from './session-socket-registry';
 import {
   ROTATION_GRACE_SECONDS,
@@ -140,7 +140,7 @@ export class AuthSessionsService {
     const rows = await this.listActive(audience, subjectId);
     return rows.map((s) => ({
       id: s.id,
-      device_name: s.device_name,
+      device_name: tidyDeviceName(s.device_name),
       ...(opts.includeIp ? { ip: s.ip } : {}),
       created_at: s.created_at.toISOString(),
       last_used_at: s.last_used_at.toISOString(),

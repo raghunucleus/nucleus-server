@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { AuthSession } from './auth-session.entity';
+import { tidyDeviceName } from './device-metadata.util';
 
 /**
  * The pre-auth projection of one occupying session — the minimum a person
@@ -25,7 +26,7 @@ export interface DeviceLimitResponse {
 export function toDeviceSummary(s: AuthSession): DeviceLimitSessionSummary {
   return {
     id: s.id,
-    device_name: s.device_name,
+    device_name: tidyDeviceName(s.device_name),
     created_at: s.created_at.toISOString(),
     last_used_at: s.last_used_at.toISOString(),
   };
